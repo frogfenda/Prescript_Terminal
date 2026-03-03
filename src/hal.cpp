@@ -1,24 +1,38 @@
 #include "hal.h"
-#include "xfont.h"    // 引入你的 tftziku 库
-#include "my_image.h" // 引入你的待机立绘图片
+#include "xfont.h"    
+#include "my_image.h" 
 
 TFT_eSPI tft = TFT_eSPI(); 
 TFT_eSprite textSprite = TFT_eSprite(&tft); 
 
-XFont* myFont; // 【全局中文字库指针】
+XFont* myFont; 
 
-// === EC11 旋钮变量 ===
 volatile int knob_counter = 0;
 volatile uint8_t last_A = 1;
 
-// 【中断服务函数】：利用硬件中断极速捕获旋钮动作
+// 【UI引擎系统语言】：现在默认切回中文！
+static SystemLang_t current_lang = LANG_ZH; 
+
+void Set_Language(SystemLang_t lang) { current_lang = lang; }
+SystemLang_t Get_Language(void) { return current_lang; }
+
+// 【双语字典】
+const char* UI_DICT_TITLE[2] = {
+    "MAIN MENU", 
+    "系统主菜单"
+};
+
+const char* UI_DICT_MENU[2][4] = {
+    { "EXECUTE PRESCRIPT", "NETWORK SYNC", "ALARM SETTINGS", "SYSTEM STATUS" }, 
+    { "执行都市指令", "网络同步授时", "系统闹钟设置", "设备运行状态" }                 
+};
+
 IRAM_ATTR void ISR_Knob_Turn() {
     uint8_t current_A = digitalRead(PIN_KNOB_A);
     uint8_t current_B = digitalRead(PIN_KNOB_B);
-    
     if (last_A == 1 && current_A == 0) {
-        if (current_B == 0) knob_counter++; // 顺时针（右转）
-        else knob_counter--;                // 逆时针（左转）
+        if (current_B == 0) knob_counter++; 
+        else knob_counter--;                
     }
     last_A = current_A;
 }
@@ -35,29 +49,25 @@ void HAL_Init() {
 
     pinMode(PIN_BTN, INPUT_PULLUP);
     pinMode(PIN_BUZZER, OUTPUT);
-    digitalWrite(PIN_BUZZER, HIGH); // 有源蜂鸣器默认拉高闭嘴
+    digitalWrite(PIN_BUZZER, HIGH); 
 
-    // === 初始化旋钮并挂载中断 ===
     pinMode(PIN_KNOB_A, INPUT_PULLUP);
     pinMode(PIN_KNOB_B, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_A), ISR_Knob_Turn, CHANGE);
 
-    // === 初始化中文软字库 ===
-    myFont = new XFont(false); 
-    myFont->setSprite(&textSprite); // 把 1-bit 画布的控制权交给它！
-    myFont->initZhiku("/x.font");   // 挂载你存在 LittleFS 里的字库文件
+    // 正式解封中文引擎！
+    myFont = new XFont(true); 
+    myFont->setSprite(&textSprite); 
+    myFont->initZhiku("/x.font");   
 }
 
-// 获取旋钮变化量，并在读取后清零
 int Get_Knob_Delta(void) {
     int delta = knob_counter;
     knob_counter = 0; 
     return delta;
 }
 
-bool Is_Key_Pressed() {
-    return digitalRead(PIN_BTN) == LOW;
-}
+bool Is_Key_Pressed() { return digitalRead(PIN_BTN) == LOW; }
 
 void Buzzer_Play_Tone(uint16_t freq, uint16_t duration_ms) {
     digitalWrite(PIN_BUZZER, LOW);
@@ -85,7 +95,6 @@ void Screen_DrawHeader() {
 
 void Screen_DrawStandbyImage() {
     tft.setSwapBytes(true); 
-    // 画出你的专属图片 (确保你已经弄好了 my_image_array)
     tft.pushImage(0, 0, 240, 240, my_image_array); 
 }
 
@@ -96,17 +105,55 @@ void Screen_ShowTextLine(uint8_t x, uint8_t y, const char* str) {
     textSprite.print(str);
 }
 
-// 【终极武器】：画中文！
 void Screen_ShowChineseLine(uint8_t x, uint8_t y, const char* str) {
-    // 调用 tftziku 的 Ex 极速显示方法。
-    // 因为画布是 1-bit，所以 fontColor 填 1，backColor 填 0 (透明)
-    myFont->DrawChineseEx(x, y, String(str), 1, 0); 
+    if(myFont) myFont->DrawChineseEx(x, y, String(str), 1, 0); 
 }
 
-void Screen_Scroll_Up(uint8_t scroll_pixels) {
-    textSprite.scroll(0, -scroll_pixels); 
+void Screen_DrawMenu(int current_selection) {
+    Screen_Clear();
+
+    textSprite.setTextColor(1, 0);
+    textSprite.setTextSize(2); 
+    
+    // 渲染标题
+    if (current_lang == LANG_EN) {
+        textSprite.setCursor(66, 10); 
+        textSprite.print(UI_DICT_TITLE[LANG_EN]);
+    } else {
+        Screen_ShowChineseLine(72, 10, UI_DICT_TITLE[LANG_ZH]);
+    }
+    
+    textSprite.drawLine(20, 32, 220, 32, 1);
+
+    int start_y = 50;
+    int spacing = 35;
+
+    // 渲染循环列表
+    for (int i = 0; i < 4; i++) {
+        if (i == current_selection) {
+            textSprite.fillRect(15, start_y + i * spacing - 4, 210, 26, 1);
+            if (current_lang == LANG_EN) {
+                textSprite.setTextColor(0, 1); 
+                textSprite.setCursor(45, start_y + i * spacing);
+                textSprite.print(UI_DICT_MENU[LANG_EN][i]);
+            } else {
+                if(myFont) myFont->DrawChineseEx(45, start_y + i * spacing, String(UI_DICT_MENU[LANG_ZH][i]), 0, 1); 
+            }
+            textSprite.fillTriangle(25, start_y + i * spacing,
+                                    25, start_y + i * spacing + 14,
+                                    32, start_y + i * spacing + 7, 0);
+        } else {
+            if (current_lang == LANG_EN) {
+                textSprite.setTextColor(1, 0); 
+                textSprite.setCursor(45, start_y + i * spacing);
+                textSprite.print(UI_DICT_MENU[LANG_EN][i]);
+            } else {
+                if(myFont) myFont->DrawChineseEx(45, start_y + i * spacing, String(UI_DICT_MENU[LANG_ZH][i]), 1, 0); 
+            }
+        }
+    }
+    Screen_Update();
 }
 
-void Screen_Update() {
-    textSprite.pushSprite(0, 32); 
-}
+void Screen_Scroll_Up(uint8_t scroll_pixels) { textSprite.scroll(0, -scroll_pixels); }
+void Screen_Update() { textSprite.pushSprite(0, 32); }
