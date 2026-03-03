@@ -7,9 +7,10 @@
 #define PIN_KNOB_A D1
 #define PIN_KNOB_B D2
 #define PIN_BTN    0   
-#define PIN_BUZZER D6
+#define PIN_BUZZER D0    // 蜂鸣器搬家到 D0
+#define PIN_ROM_CS 3    // 【新增】：字库芯片的 CS 片选脚，接在 D4
 
-// 【新增】：多语言支持系统 (i18n)
+// === 国际化 (i18n) ===
 typedef enum {
     LANG_EN = 0,
     LANG_ZH = 1
@@ -17,6 +18,7 @@ typedef enum {
 
 void Set_Language(SystemLang_t lang);
 SystemLang_t Get_Language(void);
+void Toggle_Language(void); // 【新增】：一键无缝切换语言
 
 // === 暴露给应用层的外部接口 ===
 void HAL_Init(void);
