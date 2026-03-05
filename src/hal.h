@@ -4,12 +4,11 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 
-#define PIN_KNOB_A D1
-#define PIN_KNOB_B D2
-#define PIN_BTN    0   
-#define PIN_BUZZER D0    
-#define PIN_ROM_CS 3    
-
+// 【更新】：ESP32-S3 外设的专属安全引脚
+#define PIN_KNOB_A 4
+#define PIN_KNOB_B 5
+#define PIN_BTN    6   
+#define PIN_BUZZER 7
 // === 暴露给应用层的外部接口 ===
 void HAL_Init(void);
 bool HAL_Is_Key_Pressed(void);
@@ -32,5 +31,6 @@ void HAL_Draw_Line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t colo
 void HAL_Draw_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color);
-void HAL_Sprite_Clear(void); // 只清空双缓冲区域，不触碰硬件屏幕
+void HAL_Sprite_Clear(void); 
+
 #endif
