@@ -6,25 +6,39 @@ class AppSleepSetting : public AppBase {
 private:
     int sleep_opt_idx;
 
+    // 【新增】专属的 UI 绘制私有方法
+    void drawUI() {
+        HAL_Screen_Clear();
+        HAL_Screen_DrawHeader();
+        HAL_Screen_ShowChineseLine(70, 16, UI_Get_Language() == LANG_ZH ? "休眠时间设定" : "SLEEP SETTINGS");
+        HAL_Draw_Line(20, 38, 220, 38, 1);
+
+        int start_y = 90;
+        HAL_Draw_Rect(20, start_y - 4, 200, 26, 1);
+        HAL_Fill_Triangle(30, start_y, 30, start_y + 14, 37, start_y + 7, 1);
+
+        const char* opts_zh[] = {"30 秒 (推荐)", "60 秒", "5 分钟", "永不休眠"};
+        const char* opts_en[] = {"30 SECONDS", "60 SECONDS", "5 MINUTES", "NEVER SLEEP"};
+        HAL_Screen_ShowChineseLine(50, start_y - 2, (UI_Get_Language() == LANG_ZH) ? opts_zh[sleep_opt_idx] : opts_en[sleep_opt_idx]);
+        HAL_Screen_Update();
+    }
+
 public:
     void onCreate() override {
-        sleep_opt_idx = 0; // 默认停在第一项
-        UI_DrawSleepSetting(sleep_opt_idx);
+        sleep_opt_idx = 0; 
+        drawUI();
     }
 
     void onLoop() override {}
-
     void onDestroy() override {}
 
     void onKnob(int delta) override {
-        // 旋钮切换选项，并在 0~3 之间循环
         sleep_opt_idx = (sleep_opt_idx + delta + 4) % 4;
-        UI_DrawSleepSetting(sleep_opt_idx);
+        drawUI();
         HAL_Buzzer_Random_Glitch();
     }
 
     void onKeyShort() override {
-        // 短按保存配置
         HAL_Buzzer_Play_Tone(2500, 80);
         switch (sleep_opt_idx) {
             case 0: appManager.config_sleep_time_ms = 30000; break;
@@ -32,12 +46,10 @@ public:
             case 2: appManager.config_sleep_time_ms = 300000; break;
             case 3: appManager.config_sleep_time_ms = 0xFFFFFFFF; break;
         }
-        // 保存完毕，自动退回主菜单
         appManager.launchApp(appMainMenu);
     }
 
     void onKeyLong() override {
-        // 长按：取消并退回主菜单
         appManager.launchApp(appMainMenu);
     }
 };

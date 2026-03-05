@@ -6,31 +6,30 @@ class AppNetworkSync : public AppBase {
 private:
     uint32_t start_time;
 
+    void drawUI() {
+        HAL_Screen_Clear();
+        HAL_Screen_DrawHeader();
+        HAL_Screen_ShowChineseLine(40, 84, (UI_Get_Language() == LANG_ZH) ? "网络未配置..." : "Network Offline..."); 
+        HAL_Screen_Update();
+    }
+
 public:
     void onCreate() override {
-        UI_DrawNetworkSyncScreen();
-        start_time = millis(); // 记录进入应用的时间
+        drawUI();
+        start_time = millis(); 
     }
 
     void onLoop() override {
-        // 非阻塞判断：如果时间超过 1.5 秒，自动退出
         if (millis() - start_time > 1500) {
             appManager.launchApp(appMainMenu);
         }
     }
 
     void onDestroy() override {}
-
     void onKnob(int delta) override {}
 
-    void onKeyShort() override {
-        // 还没到 1.5 秒就不想等了，直接短按退出
-        appManager.launchApp(appMainMenu);
-    }
-
-    void onKeyLong() override {
-        appManager.launchApp(appMainMenu);
-    }
+    void onKeyShort() override { appManager.launchApp(appMainMenu); }
+    void onKeyLong() override { appManager.launchApp(appMainMenu); }
 };
 
 AppNetworkSync instanceNetworkSync;
