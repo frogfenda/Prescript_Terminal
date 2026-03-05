@@ -1,21 +1,23 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include "app_fsm.h"
+#include "hal.h"
+#include "app_manager.h"
 
 void setup() {
     Serial.begin(115200);
-    
-    // 关闭 WiFi 加速开机
     WiFi.mode(WIFI_OFF);
     delay(10);
 
-    Serial.println(">>> 正在启动都市指令分配终端 <<<");
+    Serial.println(">>> 启动系统大管家 <<<");
+    
+    HAL_Init(); // 初始化底层硬件
 
-    // 启动核心状态机 (里面包含屏幕、旋钮、蜂鸣器的初始化)
-    App_FSM_Init();
+    // 开机直接启动待机应用
+    appManager.launchApp(appStandby);
 }
 
 void loop() {
-    // 状态机时间片流转，处理 UI 和交互
-    App_FSM_Run();
+    // 永远只跑管家，管家去调度应用
+    appManager.run();
+    delay(10);
 }
