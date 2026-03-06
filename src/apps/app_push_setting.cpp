@@ -14,16 +14,17 @@ protected:
     int getMenuCount() override { return 4; }
 
     const char* getTitle() override {
-        return (appManager.getLanguage() == LANG_ZH) ? "都市推送设置" : "AUTO PUSH CONFIG";
+        // 【改名】：由都市推送改为指令推送
+        return (appManager.getLanguage() == LANG_ZH) ? "指令推送配置" : "PUSH CONFIG";
     }
 
-    // 依然保留完整的文字，用于菜单引擎计算总居中宽度
     const char* getItemText(int index) override {
         static char buf[64];
         const char* edit_mark = (is_editing && index == current_selection) ? " <" : "";
 
         if (appManager.getLanguage() == LANG_ZH) {
-            if (index == 0) sprintf(buf, "都市意志: %s%s", t_en ? "开启" : "关闭", edit_mark);
+            // 【改名】
+            if (index == 0) sprintf(buf, "指令推送: %s%s", t_en ? "开启" : "关闭", edit_mark);
             else if (index == 1) sprintf(buf, "最短潜伏: %d 分钟%s", t_min, edit_mark);
             else if (index == 2) sprintf(buf, "最长潜伏: %d 分钟%s", t_max, edit_mark);
             else if (index == 3) strcpy(buf, "保存并接入主系统");
@@ -36,7 +37,6 @@ protected:
         return buf;
     }
 
-    // 【新增核心】：精准剥离需要跳动的核心变量！
     bool getItemEditParts(int index, const char** prefix, const char** anim_val, const char** suffix) override {
         if (!is_editing || index != current_selection) return false;
         
@@ -46,7 +46,7 @@ protected:
 
         if (appManager.getLanguage() == LANG_ZH) {
             if (index == 0) {
-                strcpy(buf_pref, "都市意志: ");
+                strcpy(buf_pref, "指令推送: "); // 【改名】
                 strcpy(buf_val, t_en ? "开启" : "关闭");
                 strcpy(buf_suff, " <");
             } else if (index == 1) {
@@ -77,7 +77,7 @@ protected:
         *prefix = buf_pref;
         *anim_val = buf_val;
         *suffix = buf_suff;
-        return true; // 告诉父类：请帮我分段跳动！
+        return true; 
     }
 
     void onItemClicked(int index) override {
@@ -115,7 +115,7 @@ public:
                 if (t_max < t_min) t_min = t_max; 
             }
             SYS_SOUND_GLITCH();
-            triggerEditAnimation(delta); // 呼叫跳动动画
+            triggerEditAnimation(delta); 
         } else {
             AppMenuBase::onKnob(delta);
         }

@@ -5,9 +5,8 @@
 
 class AppSystemSettings : public AppMenuBase {
 protected:
-    int getMenuCount() override { return 6; } 
+    int getMenuCount() override { return 5; } // 【修改】：减回到 5 个
     
-    // 【修复】：把刚才漏掉的获取标题函数加回来！
     const char* getTitle() override {
         return (appManager.getLanguage() == LANG_ZH) ? "系统设置菜单" : "SYSTEM SETTINGS";
     }
@@ -18,11 +17,12 @@ protected:
 
         if (appManager.getLanguage() == LANG_ZH) {
             if (index == 0) return is_connected ? "断开无线网络" : "连接无线网络"; 
-            const char* items[] = {"", "同步网络时间", "切换系统语言", "设定休眠时间", "都市推送设置", "返回上一级"};
+            // 【修改】：去掉了推送设置
+            const char* items[] = {"", "同步网络时间", "切换系统语言", "设定休眠时间", "返回上一级"};
             return items[index];
         } else {
             if (index == 0) return is_connected ? "DISCONNECT WIFI" : "CONNECT WIFI"; 
-            const char* items[] = {"", "SYNC NTP TIME", "SWITCH LANGUAGE", "SLEEP SETTINGS", "PUSH SETTINGS", "BACK TO MAIN"};
+            const char* items[] = {"", "SYNC NTP TIME", "SWITCH LANGUAGE", "SLEEP SETTINGS", "BACK TO MAIN"};
             return items[index];
         }
     }
@@ -37,11 +37,10 @@ protected:
             drawMenuUI(visual_selection); 
         }
         else if (index == 3) appManager.pushApp(appSleepSetting); 
-        else if (index == 4) appManager.pushApp(appPushSetting); // 进推送设置
-        else if (index == 5) appManager.popApp();             
+        // 【修改】：5 退回 4
+        else if (index == 4) appManager.popApp();             
     }
     
-    // 【修复】：长按返回功能
     void onLongPressed() override { appManager.popApp(); }
 };
 

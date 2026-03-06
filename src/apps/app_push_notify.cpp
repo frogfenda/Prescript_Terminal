@@ -39,8 +39,8 @@ public:
 
     void onKeyShort() override {
         SYS_SOUND_CONFIRM();
-        // 关键：挂上标志位，直接把页面切进指令 APP！
-        g_prescript_direct_decode = true; 
+        // 【规范调用】：声明要跳过动画直接破译，然后强行拉起 APP！
+        Prescript_SetMode_Direct(); 
         appManager.launchApp(appPrescript);
     }
     void onKeyLong() override { onKeyShort(); }

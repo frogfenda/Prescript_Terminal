@@ -58,5 +58,6 @@ extern AppBase* appWifiConnect;
 // 【新增】：自动推送专属的三大件
 extern AppBase* appPushNotify;
 extern AppBase* appPushSetting;
-extern bool g_prescript_direct_decode; // 全局通讯标志位
+void Prescript_SetMode_Normal(); // 正常流程：先乱码黑屏 -> 按下解码
+void Prescript_SetMode_Direct(); // 突发流程：跳过等待 -> 直接解码
 #endif

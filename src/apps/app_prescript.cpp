@@ -330,11 +330,14 @@ private:
     {
         SystemLang_t current_lang = appManager.getLanguage();
         
-        // 【核心改造】：检查是否是被强制唤醒的。如果是，跳过等待动画直接破译！
-        if (!g_prescript_direct_decode) {
+        // 使用静态私有变量判断当前模式
+        extern bool __internal_prescript_direct_mode; 
+        
+        if (!__internal_prescript_direct_mode) {
             Engine_Chaos_Wait(current_lang);
         }
-        g_prescript_direct_decode = false; // 消费掉这个标志，重置状态
+        // 消费掉本次状态，重置为默认的正常模式
+        __internal_prescript_direct_mode = false; 
 
         int rule_count = Get_Prescript_Count(current_lang);
         const char *rule = Get_Prescript(current_lang, random(rule_count));
@@ -369,7 +372,7 @@ private:
         delay(30); HAL_Buzzer_Play_Tone(2000, 60);
         delay(30); SYS_SOUND_CONFIRM(); 
         
-        // 【新增】：指令接收完毕后，重新洗牌下一次的都市意志定时器！
+        // 指令接收完毕后，重新洗牌下一次的都市意志定时器
         SysAutoPush_ResetTimer();
     }
 
@@ -383,10 +386,23 @@ public:
     void onLoop() override {}
     void onDestroy() override {}
     void onKnob(int delta) override {}
-    void onKeyShort() override { SYS_SOUND_NAV(); executePrescriptSequence(); } 
+
+    void onKeyShort() override { 
+        SYS_SOUND_NAV(); 
+        // 界面内按短按刷新，默认走正常潜伏流程
+        Prescript_SetMode_Normal(); 
+        executePrescriptSequence(); 
+    } 
     void onKeyLong() override { appManager.popApp(); }
 };
 
-bool g_prescript_direct_decode = false; // 【定义全局标志位】
+// ==========================================
+// 【架构升级】：真正对外暴露的接口实现
+// ==========================================
+bool __internal_prescript_direct_mode = false; // 严禁外部直接访问！
+
+void Prescript_SetMode_Normal() { __internal_prescript_direct_mode = false; }
+void Prescript_SetMode_Direct() { __internal_prescript_direct_mode = true; }
+
 AppPrescript instancePrescript;
 AppBase *appPrescript = &instancePrescript;
