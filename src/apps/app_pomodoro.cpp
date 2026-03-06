@@ -65,7 +65,7 @@ private:
         
         // 【像素级微调】：数学上是 (sw - tw) / 2。
         // 因为字体右边距较宽，我们强行让文字整体向左移动 4 个像素（你可以根据强迫症程度改这个数字）
-        int text_offset_x = 8; 
+        int text_offset_x = 10; 
         int text_x = (sw - tw) / 2 - text_offset_x; 
         int text_y = center_y - 8;  
         HAL_Screen_ShowTextLine(text_x, text_y, time_buf);
@@ -75,7 +75,7 @@ private:
             if (is_paused) state_str = "已暂停 (单击继续 / 长按终止)";
             else state_str = (phase == 0) ? "正在执行专注..." : "正在休眠恢复...";
         } else {
-            if (is_paused) state_str = "PAUSED (CLICK: RESUME / LONG: STOP)";
+            if (is_paused) state_str = "PAUSED (CLICK:RESUME/LONG:STOP)";
             else state_str = (phase == 0) ? "WORKING..." : "RESTING...";
         }
         HAL_Screen_ShowChineseLine((sw - HAL_Get_Text_Width(state_str))/2, center_y + 26, state_str);
