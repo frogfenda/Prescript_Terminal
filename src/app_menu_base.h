@@ -19,37 +19,49 @@ protected:
     void drawMenuUI(float v_pos) {
         HAL_Sprite_Clear();
         
-        HAL_Screen_ShowChineseLine(70, 16, getTitle());
-        HAL_Draw_Line(20, 38, 220, 38, 1);
+        // 【解耦 1】：获取当前屏幕的动态宽高
+        int sw = HAL_Get_Screen_Width();
+        int sh = HAL_Get_Screen_Height();
+        int header_h = 38; // 顶部抬头区域的高度
+        int center_x = sw / 2; // 屏幕 X 轴绝对中心
+
+        // 【解耦 2】：让顶部的菜单标题自动绝对居中 (屏幕宽度一半 减去 文字宽度一半)
+        const char* title_text = getTitle();
+        int title_x = center_x - (HAL_Get_Text_Width(title_text) / 2);
+        HAL_Screen_ShowChineseLine(title_x, 16, title_text);
+        
+        // 【解耦 3】：顶部横线从写死的 220 变成“左右各留白 20 像素”
+        HAL_Draw_Line(20, header_h, sw - 20, header_h, 1);
 
         int count = getMenuCount();
         if (count == 0) return;
 
-        int center_y = 120; 
-        HAL_Draw_Rect(10, center_y - 16, 220, 32, 1); 
+        // 【解耦 4】：动态计算有效区域的 Y 轴中心点
+        int center_y = header_h + (sh - header_h) / 2; 
+        
+        // 【解耦 5】：选择框宽度自动填满，滚动条靠屏幕右侧边缘算起
+        HAL_Draw_Rect(10, center_y - 16, sw - 20, 32, 1); 
         HAL_Fill_Triangle(20, center_y - 10, 20, center_y + 10, 28, center_y, 1); 
-        HAL_Fill_Rect(190, center_y - 12, 8, 24, 1);
+        HAL_Fill_Rect(sw - 50, center_y - 12, 8, 24, 1); // 滚动条固定在右侧 50 像素处
 
-        for (int i = 0; i < count; i++) {
-            float offset = i - v_pos;
+        int base_idx = round(v_pos);
+        for (int i = base_idx - 3; i <= base_idx + 3; i++) {
             
-            if (offset > count / 2.0f) offset -= count;
-            else if (offset < -count / 2.0f) offset += count;
-
+            float offset = i - v_pos;
             int item_y = center_y + offset * 35; 
             
-            if (item_y < 50 || item_y > 230) continue;
+            // 【解耦 6】：裁剪区动态贴合顶部横线与底部边缘
+            if (item_y < header_h + 12 || item_y > sh - 10) continue;
 
-            const char* text = getItemText(i);
+            int real_idx = (i % count + count) % count;
+            const char* text = getItemText(real_idx);
 
-            // 【优化1：绝对居中】获取当前文本像素宽度，让它永远乖乖待在中间
+            // 【解耦 7】：选项文字基于屏幕中线动态计算居中
             int text_width = HAL_Get_Text_Width(text);
-            int base_x = 120 - (text_width / 2); // 240 屏幕宽度的一半是 120
+            int base_x = center_x - (text_width / 2); 
             
-            // 【优化2：二次方抛物线圆弧】让弧度极其明显（offset * offset）
             int item_x = base_x - (offset * offset * 9.0f);  
 
-            // 【优化3：3D 景深淡出】调用我们新写的真彩色渐变函数
             float distance = abs(offset);
             HAL_Screen_ShowChineseLine_Faded(item_x, item_y - 8, text, distance);
         }

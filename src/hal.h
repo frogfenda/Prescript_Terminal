@@ -35,5 +35,7 @@ void HAL_Draw_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color);
 void HAL_Sprite_Clear(void); 
-
+// 【新增 API】：获取当前屏幕的物理分辨率
+uint16_t HAL_Get_Screen_Width(void);
+uint16_t HAL_Get_Screen_Height(void);
 #endif

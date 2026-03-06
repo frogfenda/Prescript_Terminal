@@ -7,23 +7,30 @@ TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite textSprite = TFT_eSprite(&tft); 
 U8g2_for_TFT_eSPI u8f;        
 
-volatile int knob_counter = 0;
-volatile uint8_t last_A = 1;
+// 文件：src/hal.cpp
+// 文件：src/hal.cpp (仅替换这一部分)
+// 文件：src/hal.cpp
 
+// 【升级】：改用更精确的底层累加器
+volatile int raw_knob_counter = 0;
+
+// 【终极方案】：全波段状态机中断（彻底无视任何速度的物理抖动）
 IRAM_ATTR void ISR_Knob_Turn() {
-    static uint32_t last_isr_time = 0;
-    uint32_t current_time = millis();
-    if (current_time - last_isr_time < 5) return; 
-    uint8_t current_A = digitalRead(PIN_KNOB_A);
-    uint8_t current_B = digitalRead(PIN_KNOB_B);
-    if (last_A == 1 && current_A == 0) {
-        if (current_B == 0) knob_counter--; 
-        else knob_counter++;                
-        last_isr_time = current_time; 
-    }
-    last_A = current_A;
+    static uint8_t old_AB = 3; // 初始状态假设均为高电平
+    
+    // 核心数学滤波器：这个数组涵盖了A和B所有可能的跳变组合
+    // 正转+1，反转-1，无效跳变和物理抖动统统为 0！
+    static const int8_t enc_states[] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+    
+    uint8_t A = digitalRead(PIN_KNOB_A);
+    uint8_t B = digitalRead(PIN_KNOB_B);
+    
+    old_AB <<= 2;                   // 将旧状态左移两位
+    old_AB |= ((A << 1) | B);       // 拼接当前的新状态，组成 4 bit 索引
+    
+    // 查表并直接进行数学累加，不加任何 delay！
+    raw_knob_counter += enc_states[(old_AB & 0x0f)];
 }
-
 void HAL_Init() {
     tft.init();
     tft.setRotation(0);
@@ -41,7 +48,9 @@ void HAL_Init() {
     digitalWrite(PIN_BUZZER, HIGH); 
     pinMode(PIN_KNOB_A, INPUT_PULLUP);
     pinMode(PIN_KNOB_B, INPUT_PULLUP);
+    // 【更新】：A和B引脚全部开启 CHANGE (双边沿) 中断监听
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_A), ISR_Knob_Turn, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(PIN_KNOB_B), ISR_Knob_Turn, CHANGE);
 
     u8f.begin(textSprite);       
     u8f.setFontMode(1);          
@@ -50,7 +59,15 @@ void HAL_Init() {
     u8f.setFont(u8g2_font_wqy16_t_gb2312);
 }
 
-int HAL_Get_Knob_Delta(void) { int delta = knob_counter; knob_counter = 0; return delta; }
+// 【更新】：将底层的 4 次状态跳变，换算为 1 次 UI 移动
+int HAL_Get_Knob_Delta(void) { 
+    int delta = raw_knob_counter / 4;
+    if (delta != 0) {
+        // 提取出有效的移动格数后，只扣除相应的数值，绝不丢失极高速转动时的余数
+        raw_knob_counter -= delta * 4; 
+    }
+    return delta; 
+}
 bool HAL_Is_Key_Pressed() { return digitalRead(PIN_BTN) == LOW; }
 
 void HAL_Buzzer_Play_Tone(uint16_t freq, uint16_t duration_ms) {
@@ -117,3 +134,6 @@ void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x
     if(color == 1) color = TFT_CYAN; textSprite.fillTriangle(x0, y0, x1, y1, x2, y2, color); 
 }
 void HAL_Sprite_Clear() { textSprite.fillSprite(TFT_BLACK); }
+// 【新增实现】：返回当前画布的大小。以后换屏幕，只需改这里的数字和 tft.createSprite() 即可！
+uint16_t HAL_Get_Screen_Width(void) { return 240; }
+uint16_t HAL_Get_Screen_Height(void) { return 240; }
