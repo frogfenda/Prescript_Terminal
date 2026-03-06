@@ -10,7 +10,7 @@ private:
     void drawUI() {
         HAL_Screen_Clear();
         HAL_Screen_DrawHeader();
-        HAL_Screen_ShowChineseLine(70, 16, UI_Get_Language() == LANG_ZH ? "休眠时间设定" : "SLEEP SETTINGS");
+        HAL_Screen_ShowChineseLine(70, 16, appManager.getLanguage() == LANG_ZH ? "休眠时间设定" : "SLEEP SETTINGS");
         HAL_Draw_Line(20, 38, 220, 38, 1);
 
         int start_y = 90;
@@ -19,7 +19,7 @@ private:
 
         const char* opts_zh[] = {"30 秒 (推荐)", "60 秒", "5 分钟", "永不休眠"};
         const char* opts_en[] = {"30 SECONDS", "60 SECONDS", "5 MINUTES", "NEVER SLEEP"};
-        HAL_Screen_ShowChineseLine(50, start_y - 2, (UI_Get_Language() == LANG_ZH) ? opts_zh[sleep_opt_idx] : opts_en[sleep_opt_idx]);
+        HAL_Screen_ShowChineseLine(50, start_y - 2, (appManager.getLanguage() == LANG_ZH) ? opts_zh[sleep_opt_idx] : opts_en[sleep_opt_idx]);
         HAL_Screen_Update();
     }
 

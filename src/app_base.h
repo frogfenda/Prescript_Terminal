@@ -4,7 +4,7 @@
 
 #include <Arduino.h>
 #include "hal.h"
-#include "ui_render.h"
+
 
 class AppBase {
 public:

@@ -57,7 +57,7 @@ void HAL_Init() {
     u8f.setBackgroundColor(0);   
     
     Serial.println("===> HAL_Init: U8g2 Set Font");
-    u8f.setFont(u8g2_font_wqy16_t_chinese3); 
+    u8f.setFont(u8g2_font_wqy16_t_gb2312);
     
     Serial.println("===> HAL_Init: ALL SUCCESS");
 }

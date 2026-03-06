@@ -9,7 +9,7 @@ private:
     void drawUI() {
         HAL_Screen_Clear();
         HAL_Screen_DrawHeader();
-        HAL_Screen_ShowChineseLine(40, 84, (UI_Get_Language() == LANG_ZH) ? "网络未配置..." : "Network Offline..."); 
+        HAL_Screen_ShowChineseLine(40, 84, (appManager.getLanguage() == LANG_ZH) ? "网络未配置..." : "Network Offline..."); 
         HAL_Screen_Update();
     }
 

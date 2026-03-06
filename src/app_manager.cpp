@@ -1,6 +1,7 @@
+// 文件：src/app_manager.cpp
 #include "app_manager.h"
 
-AppManager appManager; // 实例化大管家
+AppManager appManager;
 
 AppManager::AppManager() {
     currentApp = nullptr;
@@ -9,7 +10,10 @@ AppManager::AppManager() {
     long_press_handled = false;
     idle_timer = 0;
     last_tick = 0;
-    config_sleep_time_ms = 30000; // 默认30秒
+    config_sleep_time_ms = 30000; 
+
+    // 【新增】：默认语言设为中文
+    current_lang = LANG_ZH;
 }
 
 void AppManager::launchApp(AppBase* newApp) {
@@ -52,7 +56,7 @@ void AppManager::run() {
             long_press_handled = true;
             HAL_Buzzer_Play_Tone(800, 150);
             resetIdleTimer();
-            currentApp->onKeyLong(); // 触发应用的长按事件
+            currentApp->onKeyLong(); // 触发长按
         }
     } else {
         if (btn_is_holding) {
@@ -60,19 +64,19 @@ void AppManager::run() {
             btn_is_holding = false;
             if (!long_press_handled && duration > 50) {
                 resetIdleTimer();
-                currentApp->onKeyShort(); // 触发应用的短按事件
+                currentApp->onKeyShort(); // 触发短按
             }
         }
     }
 
-    // 3. 运行当前应用的专属逻辑
+    // 3. 运行当前应用专属逻辑
     currentApp->onLoop();
 
-    // 4. 全局自动休眠判定 (如果当前不是待机界面，且超时，则强制切回待机)
+    // 4. 全局自动休眠判定
     if (currentApp != appStandby) {
         idle_timer += delta_time;
         if (config_sleep_time_ms != 0xFFFFFFFF && idle_timer > config_sleep_time_ms) {
-            launchApp(appStandby); // 强制踢回待机界面
+            launchApp(appStandby);
         }
     }
 }
