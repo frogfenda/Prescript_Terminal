@@ -6,12 +6,15 @@ class SysConfig {
 public:
     String wifi_ssid;
     String wifi_pass;
-    uint8_t language;       // 0: 英文, 1: 中文
-    uint32_t sleep_time_ms; // 休眠时间
+    uint8_t language;       
+    uint32_t sleep_time_ms; 
 
-    // 从单片机 Flash 硬盘中读取配置
+    // 【新增】：都市意志自动推送参数
+    bool auto_push_enable;
+    uint32_t auto_push_min_min; // 最短时间(分钟)
+    uint32_t auto_push_max_min; // 最长时间(分钟)
+
     void load();
-    // 将当前配置写入 Flash 硬盘永久保存
     void save();
 };
 

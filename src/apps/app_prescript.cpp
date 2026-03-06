@@ -2,7 +2,7 @@
 #include "app_base.h"
 #include "app_manager.h"
 #include "prescript_data.h"
-
+#include "sys_auto_push.h"
 class AppPrescript : public AppBase
 {
 private:
@@ -330,7 +330,11 @@ private:
     {
         SystemLang_t current_lang = appManager.getLanguage();
         
-        Engine_Chaos_Wait(current_lang);
+        // 【核心改造】：检查是否是被强制唤醒的。如果是，跳过等待动画直接破译！
+        if (!g_prescript_direct_decode) {
+            Engine_Chaos_Wait(current_lang);
+        }
+        g_prescript_direct_decode = false; // 消费掉这个标志，重置状态
 
         int rule_count = Get_Prescript_Count(current_lang);
         const char *rule = Get_Prescript(current_lang, random(rule_count));
@@ -348,22 +352,25 @@ private:
         {
             Format_Chinese_To_Grid(raw_prescript, formatted_buf);
             actual_lines = Split_To_Lines(formatted_buf, lines);
-            Decode_Animation_ZH(lines, actual_lines, UI_HEADER_HEIGHT + 10, 22); // 【净化】
+            Decode_Animation_ZH(lines, actual_lines, UI_HEADER_HEIGHT + 10, 22); 
         }
         else
         {
             Format_English_To_Grid(raw_prescript, formatted_buf);
             actual_lines = Split_To_Lines(formatted_buf, lines);
-            int max_screen_lines = (HAL_Get_Screen_Height() - UI_HEADER_HEIGHT - 10) / 16; // 【净化】
+            int max_screen_lines = (HAL_Get_Screen_Height() - UI_HEADER_HEIGHT - 10) / 16; 
             if (max_screen_lines > 15) max_screen_lines = 15;
             
-            Decode_Animation_EN(lines, actual_lines, UI_HEADER_HEIGHT + 10, 22); // 【净化】
+            Decode_Animation_EN(lines, actual_lines, UI_HEADER_HEIGHT + 10, 22); 
             if (actual_lines > max_screen_lines) Scroll_Text_EN(lines, actual_lines, max_screen_lines, UI_HEADER_HEIGHT + 10);
         }
 
         delay(100); HAL_Buzzer_Play_Tone(1500, 60);
         delay(30); HAL_Buzzer_Play_Tone(2000, 60);
-        delay(30); SYS_SOUND_CONFIRM(); // 【净化】
+        delay(30); SYS_SOUND_CONFIRM(); 
+        
+        // 【新增】：指令接收完毕后，重新洗牌下一次的都市意志定时器！
+        SysAutoPush_ResetTimer();
     }
 
 public:
@@ -376,9 +383,10 @@ public:
     void onLoop() override {}
     void onDestroy() override {}
     void onKnob(int delta) override {}
-    void onKeyShort() override { SYS_SOUND_NAV(); executePrescriptSequence(); } // 【净化】
+    void onKeyShort() override { SYS_SOUND_NAV(); executePrescriptSequence(); } 
     void onKeyLong() override { appManager.popApp(); }
 };
 
+bool g_prescript_direct_decode = false; // 【定义全局标志位】
 AppPrescript instancePrescript;
 AppBase *appPrescript = &instancePrescript;

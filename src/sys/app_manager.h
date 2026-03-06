@@ -55,4 +55,8 @@ extern AppBase* appNetworkSync;
 extern AppBase* appSystemSettings;
 extern AppBase* appWifiConnect;
 
+// 【新增】：自动推送专属的三大件
+extern AppBase* appPushNotify;
+extern AppBase* appPushSetting;
+extern bool g_prescript_direct_decode; // 全局通讯标志位
 #endif
