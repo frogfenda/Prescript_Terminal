@@ -1,23 +1,23 @@
+// 文件：src/main.cpp
 #include <Arduino.h>
 #include <WiFi.h>
+#include "sys_config.h"  // 【关键】：必须在头部引入我们新写的配置中心
 #include "hal.h"
 #include "app_manager.h"
 
 void setup() {
     Serial.begin(115200);
-    WiFi.mode(WIFI_OFF);
-    delay(10);
-
-    Serial.println(">>> 启动系统大管家 <<<");
     
-    HAL_Init(); // 初始化底层硬件
-
-    // 开机直接启动待机应用
-    appManager.launchApp(appStandby);
+    // 初始关闭 WiFi，极限省电！(网络模块启动时会自动唤醒)
+    WiFi.mode(WIFI_OFF); 
+    
+    // 开机第一时间，从 Flash 硬盘中加载用户配置
+    sysConfig.load();
+    
+    HAL_Init();
+    appManager.begin();
 }
 
 void loop() {
-    // 永远只跑管家，管家去调度应用
-    appManager.run();
-    delay(10);
+    appManager.update();
 }
