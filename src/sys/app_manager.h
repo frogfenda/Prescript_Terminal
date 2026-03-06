@@ -58,6 +58,11 @@ extern AppBase* appWifiConnect;
 // 【新增】：自动推送专属的三大件
 extern AppBase* appPushNotify;
 extern AppBase* appPushSetting;
-void Prescript_SetMode_Normal(); // 正常流程：先乱码黑屏 -> 按下解码
-void Prescript_SetMode_Direct(); // 突发流程：跳过等待 -> 直接解码
+extern AppBase* appPomodoro;
+
+void Prescript_Launch_PushNormal(); // 推送：带有黑屏乱码等待 -> 破译 -> 单击退出
+void Prescript_Launch_PushDirect(); // 推送：直接跳过等待破译 -> 单击退出
+extern volatile bool g_cross_core_trigger_push;
+void Prescript_Launch_Custom(const char* custom_text);
+
 #endif

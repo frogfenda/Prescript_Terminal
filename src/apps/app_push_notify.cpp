@@ -39,8 +39,8 @@ public:
 
     void onKeyShort() override {
         SYS_SOUND_CONFIRM();
-        // 【规范调用】：声明要跳过动画直接破译，然后强行拉起 APP！
-        Prescript_SetMode_Direct(); 
+        // 【强行推送】：宣告我要跳过动画直接破译！破译完单次退出！
+        Prescript_Launch_PushDirect(); 
         appManager.launchApp(appPrescript);
     }
     void onKeyLong() override { onKeyShort(); }

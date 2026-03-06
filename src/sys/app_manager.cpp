@@ -4,6 +4,7 @@
 #include "sys_network.h" 
 
 AppManager appManager;
+volatile bool g_cross_core_trigger_push = false;
 
 AppManager::AppManager() {
     currentApp = nullptr;
@@ -62,6 +63,15 @@ void AppManager::resetIdleTimer() { idle_timer = 0; }
 
 void AppManager::run() {
     Network_Update();
+    
+    if (g_cross_core_trigger_push) {
+        g_cross_core_trigger_push = false; // 取出信件，清空信箱
+        
+        // 防呆保护：如果当前已经在破译指令了，就别再弹出了
+        if (currentApp != appPrescript && currentApp != appPushNotify) {
+            launchApp(appPushNotify); // 绝对接管屏幕！拉起都市警报！
+        }
+    }
 
     uint32_t current_time = millis();
     uint32_t delta_time = current_time - last_tick;

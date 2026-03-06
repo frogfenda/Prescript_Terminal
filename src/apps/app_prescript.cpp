@@ -326,21 +326,30 @@ private:
         }
     }
 
-    void executePrescriptSequence()
+   void executePrescriptSequence()
     {
         SystemLang_t current_lang = appManager.getLanguage();
         
-        // 使用静态私有变量判断当前模式
-        extern bool __internal_prescript_direct_mode; 
+        // 【状态读取】
+        extern int __internal_prescript_mode; 
+        extern char __internal_custom_prescript[512]; // 自定义文本的信箱
         
-        if (!__internal_prescript_direct_mode) {
+        // 只有在模式 0 和 1 下，才播放黑屏乱码寻找动画
+        // 模式 2 (突发) 和 模式 3 (自定义突发) 直接跳过！
+        if (__internal_prescript_mode != 2 && __internal_prescript_mode != 3) {
             Engine_Chaos_Wait(current_lang);
         }
-        // 消费掉本次状态，重置为默认的正常模式
-        __internal_prescript_direct_mode = false; 
 
-        int rule_count = Get_Prescript_Count(current_lang);
-        const char *rule = Get_Prescript(current_lang, random(rule_count));
+        const char *rule;
+        
+        // 【核心分支】：如果是模式 3，直接用外界传进来的文字！
+        if (__internal_prescript_mode == 3) {
+            rule = __internal_custom_prescript;
+        } else {
+            // 否则正常去指令库里抽签
+            int rule_count = Get_Prescript_Count(current_lang);
+            rule = Get_Prescript(current_lang, random(rule_count));
+        }
         
         static char raw_prescript[512];
         static char formatted_buf[1024];
@@ -372,7 +381,6 @@ private:
         delay(30); HAL_Buzzer_Play_Tone(2000, 60);
         delay(30); SYS_SOUND_CONFIRM(); 
         
-        // 指令接收完毕后，重新洗牌下一次的都市意志定时器
         SysAutoPush_ResetTimer();
     }
 
@@ -384,25 +392,48 @@ public:
     }
     
     void onLoop() override {}
-    void onDestroy() override {}
+    
+    // APP 退出时，强制重置为默认菜单模式
+    void onDestroy() override {
+        extern int __internal_prescript_mode;
+        __internal_prescript_mode = 0; 
+    }
+    
     void onKnob(int delta) override {}
 
     void onKeyShort() override { 
         SYS_SOUND_NAV(); 
-        // 界面内按短按刷新，默认走正常潜伏流程
-        Prescript_SetMode_Normal(); 
-        executePrescriptSequence(); 
+        extern int __internal_prescript_mode;
+        
+        // 模式 0 是主动进入：继续抽卡
+        // 模式 1, 2, 3 是被动推送：看完了直接退出
+        if (__internal_prescript_mode == 0) {
+            executePrescriptSequence(); 
+        } else {
+            appManager.popApp();        
+        }
     } 
     void onKeyLong() override { appManager.popApp(); }
 };
 
 // ==========================================
-// 【架构升级】：真正对外暴露的接口实现
+// 【架构升级】：定义 4 种启动状态
+// 0 = 正常菜单进入 (随机指令，无限抽卡)
+// 1 = 推送: 带等待动画 (随机指令，单次退出)
+// 2 = 推送: 直接解码 (随机指令，单次退出)
+// 3 = 推送: 直接解码 (外界传入固定文字，单次退出)
 // ==========================================
-bool __internal_prescript_direct_mode = false; // 严禁外部直接访问！
+int __internal_prescript_mode = 0; 
+char __internal_custom_prescript[512] = {0}; // 存放自定义文字的静态内存
 
-void Prescript_SetMode_Normal() { __internal_prescript_direct_mode = false; }
-void Prescript_SetMode_Direct() { __internal_prescript_direct_mode = true; }
+void Prescript_Launch_PushNormal() { __internal_prescript_mode = 1; }
+void Prescript_Launch_PushDirect() { __internal_prescript_mode = 2; }
+
+// 【新增】：外界调用的传参接口
+void Prescript_Launch_Custom(const char* custom_text) {
+    __internal_prescript_mode = 3;
+    snprintf(__internal_custom_prescript, sizeof(__internal_custom_prescript), "%s", custom_text);
+}
 
 AppPrescript instancePrescript;
 AppBase *appPrescript = &instancePrescript;
