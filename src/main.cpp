@@ -19,5 +19,5 @@ void setup() {
 }
 
 void loop() {
-    appManager.update();
+    appManager.run();
 }

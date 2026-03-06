@@ -1,5 +1,6 @@
-// 文件：src/app_manager.cpp
+// 文件：src/app_manager.cpp (部分修改)
 #include "app_manager.h"
+#include "sys_config.h" // 【新增】：引入配置中心
 
 AppManager appManager;
 
@@ -10,13 +11,21 @@ AppManager::AppManager() {
     long_press_handled = false;
     idle_timer = 0;
     last_tick = 0;
-    config_sleep_time_ms = 30000; 
-    current_lang = LANG_ZH;
-
-    // 【新增】：初始化栈顶指针
     stackTop = -1;
+    // 构造函数里不再写死数据，交由 begin() 去处理
 }
 
+// 【新增】：开机同步配置并启动第一个 APP
+void AppManager::begin() {
+    // 1. 同步硬盘配置到系统管理器
+    current_lang = (SystemLang_t)sysConfig.language;
+    config_sleep_time_ms = sysConfig.sleep_time_ms;
+    
+    // 2. 启动系统（跳转到待机界面）
+    launchApp(appStandby); 
+}
+
+// ... 下面的 launchApp, pushApp, popApp, run 等保持你原来的代码不变即可 ...
 // 绝对跳转：清空所有历史记忆
 void AppManager::launchApp(AppBase* newApp) {
     stackTop = -1; 
@@ -31,10 +40,9 @@ void AppManager::pushApp(AppBase* newApp) {
         if (stackTop < 4) {
             stackTop++;
             navStack[stackTop] = currentApp; 
-            // 【核心修改】：不销毁，让老页面进入后台休眠
             currentApp->onBackground(); 
         } else {
-            currentApp->onDestroy(); // 栈满了才销毁
+            currentApp->onDestroy(); 
         }
     }
     currentApp = newApp;
@@ -46,16 +54,15 @@ void AppManager::popApp() {
     if (stackTop >= 0) {
         AppBase* prevApp = navStack[stackTop]; 
         stackTop--;                            
-        
         if (currentApp != nullptr) currentApp->onDestroy();
         currentApp = prevApp;
-        // 【核心修改】：原样唤醒老页面，保留它的所有内部变量！
         if (currentApp != nullptr) currentApp->onResume(); 
         resetIdleTimer();
     } else {
         launchApp(appMainMenu);
     }
 }
+
 void AppManager::resetIdleTimer() { idle_timer = 0; }
 
 void AppManager::run() {
@@ -96,7 +103,6 @@ void AppManager::run() {
 
     currentApp->onLoop();
 
-    // 自动休眠（绝对跳转回待机）
     if (currentApp != appStandby) {
         idle_timer += delta_time;
         if (config_sleep_time_ms != 0xFFFFFFFF && idle_timer > config_sleep_time_ms) {
