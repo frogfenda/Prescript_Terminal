@@ -36,9 +36,11 @@ void HAL_Init() {
     tft.setRotation(0);
     tft.fillScreen(TFT_BLACK);
 
-    // 【核心升级】：从 1-bit 升级到 16-bit 真彩色画布！
     textSprite.setColorDepth(16); 
-    void* ptr = textSprite.createSprite(240, 240); 
+    // 【解耦 1】：直接调用我们新写的尺寸 API，不再写死 240
+    uint16_t sw = HAL_Get_Screen_Width();
+    uint16_t sh = HAL_Get_Screen_Height();
+    void* ptr = textSprite.createSprite(sw, sh); 
     if (ptr == NULL) Serial.println("!!! Sprite 内存不足 !!!");
     
     textSprite.fillSprite(TFT_BLACK); 
@@ -48,7 +50,6 @@ void HAL_Init() {
     digitalWrite(PIN_BUZZER, HIGH); 
     pinMode(PIN_KNOB_A, INPUT_PULLUP);
     pinMode(PIN_KNOB_B, INPUT_PULLUP);
-    // 【更新】：A和B引脚全部开启 CHANGE (双边沿) 中断监听
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_A), ISR_Knob_Turn, CHANGE);
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_B), ISR_Knob_Turn, CHANGE);
 
@@ -58,7 +59,6 @@ void HAL_Init() {
     u8f.setBackgroundColor(TFT_BLACK);   
     u8f.setFont(u8g2_font_wqy16_t_gb2312);
 }
-
 // 【更新】：将底层的 4 次状态跳变，换算为 1 次 UI 移动
 int HAL_Get_Knob_Delta(void) { 
     int delta = raw_knob_counter / 4;
@@ -84,7 +84,9 @@ void HAL_Screen_DrawHeader() {
     textSprite.print("[ PRESCRIPT ]");
 }
 void HAL_Screen_DrawStandbyImage() {
-    tft.setSwapBytes(true); tft.pushImage(0, 0, 240, 240, my_image_array); 
+    tft.setSwapBytes(true); 
+    // 【解耦 2】：贴图时也使用动态的宽高参数
+    tft.pushImage(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), my_image_array); 
 }
 
 void HAL_Screen_ShowTextLine(uint8_t x, uint8_t y, const char* str) {

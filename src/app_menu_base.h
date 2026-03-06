@@ -19,30 +19,53 @@ protected:
     void drawMenuUI(float v_pos) {
         HAL_Sprite_Clear();
         
-        // 【解耦 1】：获取当前屏幕的动态宽高
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
-        int header_h = 38; // 顶部抬头区域的高度
-        int center_x = sw / 2; // 屏幕 X 轴绝对中心
+        int header_h = 38; 
+        int center_x = sw / 2; 
 
-        // 【解耦 2】：让顶部的菜单标题自动绝对居中 (屏幕宽度一半 减去 文字宽度一半)
         const char* title_text = getTitle();
         int title_x = center_x - (HAL_Get_Text_Width(title_text) / 2);
         HAL_Screen_ShowChineseLine(title_x, 16, title_text);
         
-        // 【解耦 3】：顶部横线从写死的 220 变成“左右各留白 20 像素”
         HAL_Draw_Line(20, header_h, sw - 20, header_h, 1);
 
         int count = getMenuCount();
         if (count == 0) return;
 
-        // 【解耦 4】：动态计算有效区域的 Y 轴中心点
         int center_y = header_h + (sh - header_h) / 2; 
         
-        // 【解耦 5】：选择框宽度自动填满，滚动条靠屏幕右侧边缘算起
         HAL_Draw_Rect(10, center_y - 16, sw - 20, 32, 1); 
         HAL_Fill_Triangle(20, center_y - 10, 20, center_y + 10, 28, center_y, 1); 
-        HAL_Fill_Rect(sw - 50, center_y - 12, 8, 24, 1); // 滚动条固定在右侧 50 像素处
+
+        // ==========================================
+        // 【新增黑科技：平滑跟随的呼吸动态色块】
+        // ==========================================
+        // 1. 获取当前滚动进度处于哪两个选项之间
+        int idx1 = (int)floor(v_pos);
+        int idx2 = idx1 + 1;
+        float fraction = v_pos - idx1; // 小数部分，代表两个选项间的滚动进度
+        
+        // 2. 环形折叠，算出真实的菜单索引
+        int real_idx1 = (idx1 % count + count) % count;
+        int real_idx2 = (idx2 % count + count) % count;
+        
+        // 3. 获取这两个选项的物理像素宽度
+        int w1 = HAL_Get_Text_Width(getItemText(real_idx1));
+        int w2 = HAL_Get_Text_Width(getItemText(real_idx2));
+        
+        // 4. 核心：通过线性插值，计算出当前动画帧下，绝对平滑的过度宽度
+        float dynamic_text_w = w1 + (w2 - w1) * fraction;
+        
+        // 5. 将实色块的 X 坐标死死咬住文字右边缘（中心点 + 文字一半 + 16像素安全间距）
+        int block_x = center_x + (int)(dynamic_text_w / 2.0f) + 16;
+        
+        // 6. 极限保护：防止文字过长导致色块直接飞出外框边缘
+        if (block_x > sw - 22) block_x = sw - 22; 
+        
+        // 画出这个具有生命力的跟随实色块！
+        HAL_Fill_Rect(block_x, center_y - 12, 8, 24, 1); 
+        // ==========================================
 
         int base_idx = round(v_pos);
         for (int i = base_idx - 3; i <= base_idx + 3; i++) {
@@ -50,13 +73,11 @@ protected:
             float offset = i - v_pos;
             int item_y = center_y + offset * 35; 
             
-            // 【解耦 6】：裁剪区动态贴合顶部横线与底部边缘
             if (item_y < header_h + 12 || item_y > sh - 10) continue;
 
             int real_idx = (i % count + count) % count;
             const char* text = getItemText(real_idx);
 
-            // 【解耦 7】：选项文字基于屏幕中线动态计算居中
             int text_width = HAL_Get_Text_Width(text);
             int base_x = center_x - (text_width / 2); 
             
