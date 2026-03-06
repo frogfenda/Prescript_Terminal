@@ -1,6 +1,7 @@
 // 文件：src/app_sleep_setting.cpp
 #include "app_base.h"
 #include "app_manager.h"
+#include "sys_config.h"
 
 class AppSleepSetting : public AppBase {
 private:
@@ -62,7 +63,11 @@ public:
             case 2: appManager.config_sleep_time_ms = 300000; break;
             case 3: appManager.config_sleep_time_ms = 0xFFFFFFFF; break;
         }
-        appManager.popApp(); 
+        sysConfig.sleep_time_ms = appManager.config_sleep_time_ms;
+        sysConfig.save();
+        
+        appManager.popApp();
+         
     }
     void onKeyLong() override { appManager.popApp(); } 
 };
