@@ -90,7 +90,11 @@ protected:
         }
     }
 
-    void onLongPressed() override { appManager.popApp(); }
+    void onLongPressed() override { 
+    // 【修复防呆】：不管你是怎么退出的，哪怕是长按强行返回，也强制写入硬盘！
+    SysAutoPush_UpdateConfig(t_en, t_min, t_max);
+    appManager.popApp(); 
+}
 
 public:
     void onCreate() override {
