@@ -35,10 +35,9 @@ public:
         is_finished = false;
 
         NetworkState state = Network_GetState();
-        // 【防呆设计】：如果没网，直接拒绝服务并退回
         if (state != NET_CONNECTED && state != NET_SYNC_SUCCESS) {
             drawUI((appManager.getLanguage() == LANG_ZH) ? "错误: 无网络连接!" : "ERR: NO NETWORK!");
-            HAL_Buzzer_Play_Tone(1000, 300);
+            SYS_SOUND_ERROR(); // 【净化】
             is_finished = true;
             result_show_time = millis();
             return;
@@ -68,14 +67,14 @@ public:
 
         if (state == NET_SYNC_SUCCESS) {
             drawUI((appManager.getLanguage() == LANG_ZH) ? "时间同步完成!" : "TIME SYNCED!");
+            // 保留连网成功专属组合音
             HAL_Buzzer_Play_Tone(2000, 80); delay(60); HAL_Buzzer_Play_Tone(2500, 150);
             is_finished = true;
             result_show_time = millis();
         } 
         else if (state == NET_CONNECTED) { 
-            // 如果超时，底层会退回到 CONNECTED 状态
             drawUI((appManager.getLanguage() == LANG_ZH) ? "服务器无响应!" : "NTP TIMEOUT!");
-            HAL_Buzzer_Play_Tone(1000, 300);
+            SYS_SOUND_ERROR(); // 【净化】
             is_finished = true;
             result_show_time = millis();
         }
@@ -83,7 +82,7 @@ public:
 
     void onDestroy() override {}
     void onKnob(int delta) override {}
-    void onKeyShort() override { HAL_Buzzer_Play_Tone(2200, 40); appManager.popApp(); } 
+    void onKeyShort() override { SYS_SOUND_NAV(); appManager.popApp(); } 
     void onKeyLong() override { appManager.popApp(); }
 };
 

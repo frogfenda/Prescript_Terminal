@@ -9,7 +9,23 @@
 #define PIN_KNOB_B 5
 #define PIN_BTN    6   
 #define PIN_BUZZER 7
+// ==========================================
+// 系统级 UI 布局尺寸定义 (消除 Magic Number)
+// ==========================================
+#define UI_HEADER_HEIGHT   38  // 顶部状态栏高度
+#define UI_MARGIN_LEFT     20  // 统一左边距
+#define UI_MARGIN_RIGHT    20  // 统一右边距
+#define UI_TEXT_Y_TOP      16  // 顶部文字基准线
+#define UI_TIME_SAFE_PAD   28  // 右侧时间防换行避让区
 
+// ==========================================
+// 语义化系统音效宏定义
+// ==========================================
+#define SYS_SOUND_CONFIRM() HAL_Buzzer_Play_Tone(2500, 80)
+#define SYS_SOUND_ERROR()   HAL_Buzzer_Play_Tone(1000, 300)
+#define SYS_SOUND_NAV()     HAL_Buzzer_Play_Tone(2200, 40)
+#define SYS_SOUND_LONG()    HAL_Buzzer_Play_Tone(800, 150)
+#define SYS_SOUND_GLITCH()  HAL_Buzzer_Random_Glitch()
 void HAL_Init(void);
 bool HAL_Is_Key_Pressed(void);
 int  HAL_Get_Knob_Delta(void); 

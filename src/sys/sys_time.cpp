@@ -1,3 +1,4 @@
+// 文件：src/sys/sys_time.cpp
 #include "sys_time.h"
 
 void SysTime_Init() {
@@ -14,7 +15,7 @@ void SysTime_GetTimeString(char* out_str) {
         snprintf(out_str, 10, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
     } else {
         // 兜底防御：万一硬件时钟卡死
-        strcpy(out_str, "00:00");
+        strcpy(out_str, "08:00");
     }
 }
 

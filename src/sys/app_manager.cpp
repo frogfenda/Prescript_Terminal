@@ -1,7 +1,7 @@
 // 文件：src/sys/app_manager.cpp
 #include "app_manager.h"
 #include "sys_config.h" 
-#include "sys_network.h" // 【新增】：在这里引入网络引擎！
+#include "sys_network.h" 
 
 AppManager appManager;
 
@@ -18,10 +18,7 @@ AppManager::AppManager() {
 void AppManager::begin() {
     current_lang = (SystemLang_t)sysConfig.language;
     config_sleep_time_ms = sysConfig.sleep_time_ms;
-    
-    // 【架构转移 1】：管家启动时，顺手把网络后台任务挂上！
     Network_Connect(sysConfig.wifi_ssid.c_str(), sysConfig.wifi_pass.c_str());
-    
     launchApp(appStandby); 
 }
 
@@ -35,7 +32,7 @@ void AppManager::launchApp(AppBase* newApp) {
 
 void AppManager::pushApp(AppBase* newApp) {
     if (currentApp != nullptr) {
-        if (stackTop < 4) {
+        if (stackTop < MAX_NAV_STACK - 1) { // 使用宏替换魔法数字 4
             stackTop++;
             navStack[stackTop] = currentApp; 
             currentApp->onBackground(); 
@@ -64,8 +61,6 @@ void AppManager::popApp() {
 void AppManager::resetIdleTimer() { idle_timer = 0; }
 
 void AppManager::run() {
-    // 【架构转移 2】：在管家的主循环里驱动网络底层的非阻塞服务！
-    // 这样它就成了一个真正的系统级后台 Daemon 进程
     Network_Update();
 
     uint32_t current_time = millis();
@@ -86,9 +81,9 @@ void AppManager::run() {
             btn_press_start_time = current_time;
             btn_is_holding = true;
             long_press_handled = false;
-        } else if (!long_press_handled && (current_time - btn_press_start_time > 600)) {
+        } else if (!long_press_handled && (current_time - btn_press_start_time > BTN_LONG_PRESS_MS)) {
             long_press_handled = true;
-            HAL_Buzzer_Play_Tone(800, 150);
+            SYS_SOUND_LONG(); // 使用语义化音效
             resetIdleTimer();
             currentApp->onKeyLong();
         }
@@ -96,7 +91,7 @@ void AppManager::run() {
         if (btn_is_holding) {
             uint32_t duration = current_time - btn_press_start_time;
             btn_is_holding = false;
-            if (!long_press_handled && duration > 50) {
+            if (!long_press_handled && duration > BTN_DEBOUNCE_MS) {
                 resetIdleTimer();
                 currentApp->onKeyShort();
             }

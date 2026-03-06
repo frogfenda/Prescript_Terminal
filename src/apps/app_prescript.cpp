@@ -1,4 +1,4 @@
-// 文件：src/app_prescript.cpp
+// 文件：src/apps/app_prescript.cpp
 #include "app_base.h"
 #include "app_manager.h"
 #include "prescript_data.h"
@@ -57,15 +57,13 @@ private:
         return line_idx;
     }
 
-    // ==========================================
-    // 一镜到底动画引擎（完美物理宽度版）
-    // ==========================================
     void Engine_Chaos_Wait(SystemLang_t lang)
     {
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
-        int header_h = 38;
-        int start_y = header_h + 10; 
+        
+        // 【净化】：根据宏定义自动推导起始坐标
+        int start_y = UI_HEADER_HEIGHT + 10; 
 
         while (HAL_Is_Key_Pressed()) { delay(10); yield(); }
 
@@ -73,15 +71,16 @@ private:
         {
             HAL_Sprite_Clear();
             HAL_Screen_DrawHeader();
-            HAL_Draw_Line(20, header_h, sw - 20, header_h, 1);
+            // 【净化】：画满全屏
+            HAL_Draw_Line(0, UI_HEADER_HEIGHT, sw, UI_HEADER_HEIGHT, 1);
 
             if (lang == LANG_ZH)
             {
                 int lines = (sh - start_y) / 16; 
                 if (lines > 12) lines = 12;
                 
-                // 【核心修复】：基于 8 像素的基础视觉宽度，一行最多塞 27 个单元
-                int max_visual_width = (sw - 20) / 8; 
+                // 【净化】：使用边距宏
+                int max_visual_width = (sw - UI_MARGIN_LEFT) / 8; 
 
                 for (int row = 0; row < lines; row++)
                 {
@@ -89,20 +88,17 @@ private:
                     int buf_idx = 0;
                     int current_w = 0;
                     
-                    // 只要没塞满这行，就一直塞，保证右侧绝对平齐！
                     while (current_w < max_visual_width - 1)
                     {
-                        // 【概率调整】：汉字概率骤降为 20%，且剩余空间必须够放一个汉字(宽2)
                         if (random(100) < 20 && current_w <= max_visual_width - 2) {
                             int pick = random(CACHE_SIZE);
                             row_buf[buf_idx++] = cached_glitch_pool[pick][0];
                             row_buf[buf_idx++] = cached_glitch_pool[pick][1];
                             row_buf[buf_idx++] = cached_glitch_pool[pick][2];
-                            current_w += 2; // 汉字占2个视觉宽度
+                            current_w += 2; 
                         } else {
-                            // 80% 的概率塞入密集的 ASCII 乱码
                             row_buf[buf_idx++] = 33 + random(94);
-                            current_w += 1; // 英文占1个视觉宽度
+                            current_w += 1; 
                         }
                     }
                     row_buf[buf_idx] = '\0';
@@ -125,7 +121,7 @@ private:
             }
 
             HAL_Screen_Update();
-            HAL_Buzzer_Random_Glitch();
+            SYS_SOUND_GLITCH(); // 【净化】
             delay(15);
             yield();
         }
@@ -138,7 +134,7 @@ private:
         int max_screen_lines = (HAL_Get_Screen_Height() - start_y) / 16;
         if(max_screen_lines > 12) max_screen_lines = 12;
         
-        int max_visual_width = (sw - 20) / 8; 
+        int max_visual_width = (sw - UI_MARGIN_LEFT) / 8; // 【净化】
         
         uint8_t lucky[15][40];
         for(int r = 0; r < max_screen_lines; r++) {
@@ -153,7 +149,7 @@ private:
             uint8_t all_locked = 1;
             HAL_Sprite_Clear();
             HAL_Screen_DrawHeader();
-            HAL_Draw_Line(20, 38, sw - 20, 38, 1);
+            HAL_Draw_Line(0, UI_HEADER_HEIGHT, sw, UI_HEADER_HEIGHT, 1); // 【净化】
 
             for (int r = 0; r < max_screen_lines; r++)
             {
@@ -162,7 +158,6 @@ private:
                 int current_w = 0;
                 int byte_idx = 0;
 
-                // 1. 优先解析真实的指令内容
                 if (r < actual_lines) {
                     while (real_lines[r][byte_idx] != '\0' && current_w < max_visual_width - 1) {
                         int char_len = get_utf8_char_len(real_lines[r][byte_idx]);
@@ -173,13 +168,11 @@ private:
                         } else {
                             all_locked = 0;
                             if (char_w == 2) { 
-                                // 汉字乱码
                                 int pick = random(CACHE_SIZE);
                                 row_buf[buf_idx++] = cached_glitch_pool[pick][0];
                                 row_buf[buf_idx++] = cached_glitch_pool[pick][1];
                                 row_buf[buf_idx++] = cached_glitch_pool[pick][2];
                             } else {
-                                // 英文乱码
                                 row_buf[buf_idx++] = 33 + random(94);
                             }
                         }
@@ -188,7 +181,6 @@ private:
                     }
                 }
 
-                // 2. 填充空白处：严丝合缝地蒸发
                 while (current_w < max_visual_width - 1) {
                     if (frame < lucky[r][current_w]) {
                         all_locked = 0;
@@ -203,7 +195,6 @@ private:
                             current_w += 1;
                         }
                     } else {
-                        // 解码完毕后，变成真正的半角空格以占位
                         row_buf[buf_idx++] = ' ';
                         current_w += 1;
                     }
@@ -216,7 +207,7 @@ private:
             }
 
             HAL_Screen_Update();
-            if (!all_locked) HAL_Buzzer_Random_Glitch();
+            if (!all_locked) SYS_SOUND_GLITCH(); // 【净化】
             if (all_locked) break;
             yield();
         }
@@ -224,7 +215,7 @@ private:
 
     void Format_Chinese_To_Grid(const char *raw_str, char *formatted_buf)
     {
-        int max_width = (HAL_Get_Screen_Width() - 20) / 8 - 1; 
+        int max_width = (HAL_Get_Screen_Width() - UI_MARGIN_LEFT) / 8 - 1; // 【净化】
         int i = 0, out_idx = 0, current_width = 0; 
         while (raw_str[i] != '\0')
         {
@@ -243,9 +234,6 @@ private:
         formatted_buf[out_idx] = '\0';
     }
 
-    // ==========================================
-    // 英文专属引擎 (EN Engine)
-    // ==========================================
     void Format_English_To_Grid(const char *raw_str, char *formatted_buf)
     {
         int max_cols = (HAL_Get_Screen_Width() - 10) / 12;
@@ -290,7 +278,7 @@ private:
             uint8_t all_locked = 1;
             HAL_Sprite_Clear();
             HAL_Screen_DrawHeader();
-            HAL_Draw_Line(20, 38, HAL_Get_Screen_Width() - 20, 38, 1);
+            HAL_Draw_Line(0, UI_HEADER_HEIGHT, HAL_Get_Screen_Width(), UI_HEADER_HEIGHT, 1); // 【净化】
 
             for (int r = 0; r < max_screen_lines; r++)
             {
@@ -312,7 +300,7 @@ private:
                 if (buf_idx > 0) HAL_Screen_ShowTextLine(5, start_y + r * 16, row_buf);
             }
             HAL_Screen_Update();
-            if (!all_locked) HAL_Buzzer_Random_Glitch();
+            if (!all_locked) SYS_SOUND_GLITCH(); // 【净化】
             if (all_locked) break;
             yield();
         }
@@ -329,7 +317,7 @@ private:
             for (int step = 0; step < 8; step++) {
                 HAL_Screen_Scroll_Up(2); HAL_Screen_Update(); yield();
             }
-            HAL_Buzzer_Play_Tone(3000, 15);
+            HAL_Buzzer_Play_Tone(3000, 15); // 特殊提示音保留
 
             char single_line_array[1][128];
             strcpy(single_line_array[0], real_lines[current_row]);
@@ -338,9 +326,6 @@ private:
         }
     }
 
-    // ==========================================
-    // 核心流转
-    // ==========================================
     void executePrescriptSequence()
     {
         SystemLang_t current_lang = appManager.getLanguage();
@@ -349,34 +334,36 @@ private:
 
         int rule_count = Get_Prescript_Count(current_lang);
         const char *rule = Get_Prescript(current_lang, random(rule_count));
-        char raw_prescript[512];
+        
+        static char raw_prescript[512];
+        static char formatted_buf[1024];
+        static char lines[30][128];
+        
         snprintf(raw_prescript, sizeof(raw_prescript), "_%s_", rule);
         raw_prescript[sizeof(raw_prescript) - 1] = '\0';
 
-        char formatted_buf[1024];
-        char lines[30][128];
         int actual_lines = 0;
 
         if (current_lang == LANG_ZH)
         {
             Format_Chinese_To_Grid(raw_prescript, formatted_buf);
             actual_lines = Split_To_Lines(formatted_buf, lines);
-            Decode_Animation_ZH(lines, actual_lines, 48, 22);
+            Decode_Animation_ZH(lines, actual_lines, UI_HEADER_HEIGHT + 10, 22); // 【净化】
         }
         else
         {
             Format_English_To_Grid(raw_prescript, formatted_buf);
             actual_lines = Split_To_Lines(formatted_buf, lines);
-            int max_screen_lines = (HAL_Get_Screen_Height() - 48) / 16;
+            int max_screen_lines = (HAL_Get_Screen_Height() - UI_HEADER_HEIGHT - 10) / 16; // 【净化】
             if (max_screen_lines > 15) max_screen_lines = 15;
             
-            Decode_Animation_EN(lines, actual_lines, 48, 22);
-            if (actual_lines > max_screen_lines) Scroll_Text_EN(lines, actual_lines, max_screen_lines, 48);
+            Decode_Animation_EN(lines, actual_lines, UI_HEADER_HEIGHT + 10, 22); // 【净化】
+            if (actual_lines > max_screen_lines) Scroll_Text_EN(lines, actual_lines, max_screen_lines, UI_HEADER_HEIGHT + 10);
         }
 
         delay(100); HAL_Buzzer_Play_Tone(1500, 60);
         delay(30); HAL_Buzzer_Play_Tone(2000, 60);
-        delay(30); HAL_Buzzer_Play_Tone(2500, 150);
+        delay(30); SYS_SOUND_CONFIRM(); // 【净化】
     }
 
 public:
@@ -389,7 +376,7 @@ public:
     void onLoop() override {}
     void onDestroy() override {}
     void onKnob(int delta) override {}
-    void onKeyShort() override { HAL_Buzzer_Play_Tone(2200, 40); executePrescriptSequence(); }
+    void onKeyShort() override { SYS_SOUND_NAV(); executePrescriptSequence(); } // 【净化】
     void onKeyLong() override { appManager.popApp(); }
 };
 

@@ -10,18 +10,14 @@ private:
     void drawUI() {
         HAL_Screen_Clear();
 
-        // 【极度解耦】：一句代码搞定整个顶部的状态栏！
         const char* title = appManager.getLanguage() == LANG_ZH ? "休眠时间设定" : "SLEEP SETTINGS";
         drawAppWindow(title);
 
-        // ==========================================
-        // 以下只保留应用专属的 UI 组件（菜单框和选项）
-        // ==========================================
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
 
-        // 依然基于 38 像素的安全线往下计算居中点
-        int start_y = 38 + (sh - 38) / 2 - 13;
+        // 【净化】：基于状态栏宏定义往下计算居中
+        int start_y = UI_HEADER_HEIGHT + (sh - UI_HEADER_HEIGHT) / 2 - 13;
 
         HAL_Draw_Rect(20, start_y - 4, sw - 40, 26, 1);
         HAL_Fill_Triangle(30, start_y, 30, start_y + 14, 37, start_y + 7, 1);
@@ -46,11 +42,11 @@ public:
     void onKnob(int delta) override {
         sleep_opt_idx = (sleep_opt_idx + delta + 4) % 4;
         drawUI();
-        HAL_Buzzer_Random_Glitch();
+        SYS_SOUND_GLITCH(); // 【净化】：使用语义化音效
     }
 
     void onKeyShort() override {
-        HAL_Buzzer_Play_Tone(2500, 80);
+        SYS_SOUND_CONFIRM(); // 【净化】：使用语义化音效
         switch (sleep_opt_idx) {
             case 0: appManager.config_sleep_time_ms = 30000; break;
             case 1: appManager.config_sleep_time_ms = 60000; break;

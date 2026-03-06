@@ -36,17 +36,15 @@ public:
         is_finished = false;
 
         NetworkState state = Network_GetState();
-        // 智能开关：如果已经连上了，进来就是执行断网操作！
         if (state == NET_CONNECTED || state == NET_SYNC_SUCCESS || state == NET_SYNCING_NTP) {
             Network_Disconnect();
             drawUI((appManager.getLanguage() == LANG_ZH) ? "网络已切断" : "WIFI DISCONNECTED");
-            HAL_Buzzer_Play_Tone(1500, 100);
+            HAL_Buzzer_Play_Tone(1500, 100); // 专属断开提示音保留
             is_finished = true;
             result_show_time = millis();
             return;
         }
         
-        // 否则执行连网操作
         Network_Connect(sysConfig.wifi_ssid.c_str(), sysConfig.wifi_pass.c_str());
         drawUI((appManager.getLanguage() == LANG_ZH) ? "启动网络模块" : "INIT NETWORK");
     }
@@ -71,13 +69,14 @@ public:
 
         if (state == NET_CONNECTED || state == NET_SYNCING_NTP || state == NET_SYNC_SUCCESS) {
             drawUI((appManager.getLanguage() == LANG_ZH) ? "网络已接入!" : "WIFI CONNECTED!");
+            // 专属开机组合音乐保留
             HAL_Buzzer_Play_Tone(2000, 80); delay(60); HAL_Buzzer_Play_Tone(2500, 150);
             is_finished = true;
             result_show_time = millis();
         } 
         else if (state == NET_FAIL) {
             drawUI((appManager.getLanguage() == LANG_ZH) ? "网络连接异常!" : "NETWORK ERROR!");
-            HAL_Buzzer_Play_Tone(1000, 300);
+            SYS_SOUND_ERROR(); // 【净化】
             is_finished = true;
             result_show_time = millis();
         }
@@ -85,7 +84,7 @@ public:
 
     void onDestroy() override {}
     void onKnob(int delta) override {}
-    void onKeyShort() override { HAL_Buzzer_Play_Tone(2200, 40); appManager.popApp(); } 
+    void onKeyShort() override { SYS_SOUND_NAV(); appManager.popApp(); } 
     void onKeyLong() override { appManager.popApp(); }
 };
 

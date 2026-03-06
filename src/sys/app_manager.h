@@ -1,8 +1,15 @@
-// 文件：src/app_manager.h (部分修改)
+// 文件：src/sys/app_manager.h
 #ifndef __APP_MANAGER_H
 #define __APP_MANAGER_H
 
 #include "app_base.h"
+
+// ==========================================
+// 交互与调度参数宏定义
+// ==========================================
+#define MAX_NAV_STACK      5    // 最大支持的页面返回层级
+#define BTN_LONG_PRESS_MS  600  // 长按触发阈值(毫秒)
+#define BTN_DEBOUNCE_MS    50   // 短按防抖阈值(毫秒)
 
 typedef enum {
     LANG_EN = 0,
@@ -20,17 +27,14 @@ private:
 
     SystemLang_t current_lang;
 
-    AppBase* navStack[5];  
+    AppBase* navStack[MAX_NAV_STACK];  
     int stackTop;          
 
 public:
     uint32_t config_sleep_time_ms; 
 
     AppManager();
-    
-    // 【新增】：系统启动同步函数
     void begin(); 
-
     void launchApp(AppBase* newApp); 
     void pushApp(AppBase* newApp);   
     void popApp();                   
