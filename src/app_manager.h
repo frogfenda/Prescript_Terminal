@@ -4,7 +4,6 @@
 
 #include "app_base.h"
 
-// 【移交过来】：全局语言枚举
 typedef enum {
     LANG_EN = 0,
     LANG_ZH = 1
@@ -19,25 +18,29 @@ private:
     uint32_t idle_timer;
     uint32_t last_tick;
 
-    // 【新增】：管家负责存储当前的系统语言
     SystemLang_t current_lang;
+
+    // 【新增】：历史导航栈 (最大支持 5 层深度)
+    AppBase* navStack[5];  
+    int stackTop;          
 
 public:
     uint32_t config_sleep_time_ms; 
 
     AppManager();
-    void launchApp(AppBase* newApp);
+    void launchApp(AppBase* newApp); // 绝对跳转（清空历史）
+    void pushApp(AppBase* newApp);   // 压栈前进（记住上一页）
+    void popApp();                   // 弹栈后退（返回上一页）
+
     void run(); 
     void resetIdleTimer();
 
-    // 【新增】：暴露给外部的极其轻量的语言控制接口
     SystemLang_t getLanguage() { return current_lang; }
     void toggleLanguage() { current_lang = (current_lang == LANG_EN) ? LANG_ZH : LANG_EN; }
 };
 
 extern AppManager appManager; 
 
-// 所有应用的指针声明
 extern AppBase* appStandby;
 extern AppBase* appMainMenu;
 extern AppBase* appPrescript;

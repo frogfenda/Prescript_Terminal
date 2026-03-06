@@ -5,57 +5,85 @@
 #include "app_base.h"
 #include "app_manager.h"
 
-
 class AppMenuBase : public AppBase {
 protected:
     int current_selection;
     float visual_selection;
 
-    // === 留给子类的“填空题”（纯虚函数） ===
-    virtual int getMenuCount() = 0;                  // 1. 有几个选项？
-    virtual const char* getTitle() = 0;              // 2. 菜单标题叫啥？
-    virtual const char* getItemText(int index) = 0;  // 3. 第 index 个选项的文字是啥？
-    virtual void onItemClicked(int index) = 0;       // 4. 点了第 index 个选项要干嘛？
-    virtual void onLongPressed() = 0;                // 5. 长按要干嘛？
+    virtual int getMenuCount() = 0;                  
+    virtual const char* getTitle() = 0;              
+    virtual const char* getItemText(int index) = 0;  
+    virtual void onItemClicked(int index) = 0;       
+    virtual void onLongPressed() = 0;                
 
-    // === 通用菜单渲染引擎（内置了排版和动画） ===
     void drawMenuUI(float v_pos) {
         HAL_Sprite_Clear();
+        
         HAL_Screen_ShowChineseLine(70, 16, getTitle());
         HAL_Draw_Line(20, 38, 220, 38, 1);
 
         int count = getMenuCount();
-        int start_y = (count <= 3) ? 65 : 52; // 选项少就居中一点
-        int spacing = (count <= 3) ? 40 : 30;
+        if (count == 0) return;
+
+        int center_y = 120; 
+        HAL_Draw_Rect(10, center_y - 16, 220, 32, 1); 
+        HAL_Fill_Triangle(20, center_y - 10, 20, center_y + 10, 28, center_y, 1); 
+        HAL_Fill_Rect(190, center_y - 12, 8, 24, 1);
 
         for (int i = 0; i < count; i++) {
-            HAL_Screen_ShowChineseLine(40, start_y + i * spacing - 2, getItemText(i));
-        }
+            float offset = i - v_pos;
+            
+            if (offset > count / 2.0f) offset -= count;
+            else if (offset < -count / 2.0f) offset += count;
 
-        float draw_y = start_y + v_pos * spacing;
-        HAL_Draw_Rect(10, (int)draw_y - 4, 220, 26, 1); 
-        HAL_Fill_Triangle(20, (int)draw_y, 20, (int)draw_y + 14, 27, (int)draw_y + 7, 1); 
-        HAL_Fill_Rect(190, (int)draw_y + 2, 8, 14, 1);
+            int item_y = center_y + offset * 35; 
+            
+            if (item_y < 50 || item_y > 230) continue;
+
+            const char* text = getItemText(i);
+
+            // 【优化1：绝对居中】获取当前文本像素宽度，让它永远乖乖待在中间
+            int text_width = HAL_Get_Text_Width(text);
+            int base_x = 120 - (text_width / 2); // 240 屏幕宽度的一半是 120
+            
+            // 【优化2：二次方抛物线圆弧】让弧度极其明显（offset * offset）
+            int item_x = base_x - (offset * offset * 9.0f);  
+
+            // 【优化3：3D 景深淡出】调用我们新写的真彩色渐变函数
+            float distance = abs(offset);
+            HAL_Screen_ShowChineseLine_Faded(item_x, item_y - 8, text, distance);
+        }
 
         HAL_Screen_Update();
     }
 
 public:
-    // 下面的生命周期和交互逻辑，子类永远不需要再写了！
     void onCreate() override {
         current_selection = 0;
         visual_selection = 0.0f;
-        HAL_Screen_Clear();
-        HAL_Screen_DrawHeader();
-        drawMenuUI(visual_selection);
+        onResume(); 
     }
 
+    void onResume() override { drawMenuUI(visual_selection); }
+    void onBackground() override {}
+
     void onLoop() override {
+        int count = getMenuCount();
+        if (count == 0) return;
+
         float target = (float)current_selection;
         float diff = target - visual_selection;
+
+        if (diff > count / 2.0f) diff -= count;
+        if (diff < -count / 2.0f) diff += count;
+
         if (abs(diff) > 0.01f) {
-            if (abs(diff) > 1.5f) visual_selection = target;
-            else visual_selection += diff * 0.25f; 
+            visual_selection += diff * 0.25f; 
+            while (visual_selection < 0) visual_selection += count;
+            while (visual_selection >= count) visual_selection -= count;
+            drawMenuUI(visual_selection);
+        } else if (visual_selection != target && abs(diff) <= 0.01f) {
+            visual_selection = target;
             drawMenuUI(visual_selection);
         }
     }
@@ -74,7 +102,6 @@ public:
         HAL_Buzzer_Play_Tone(2500, 80);
         onItemClicked(current_selection);
     }
-
     void onKeyLong() override { onLongPressed(); }
 };
 

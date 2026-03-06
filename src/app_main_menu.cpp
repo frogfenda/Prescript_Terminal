@@ -21,15 +21,13 @@ protected:
         }
     }
     
-    void onItemClicked(int index) override {
-        if (index == 0) appManager.launchApp(appPrescript);
-        else if (index == 1) appManager.launchApp(appSystemSettings);
-        else if (index == 2) appManager.launchApp(appStandby);
+void onItemClicked(int index) override {
+        if (index == 0) appManager.pushApp(appPrescript);      // 【修改】：压栈进指令
+        else if (index == 1) appManager.pushApp(appSystemSettings); // 【修改】：压栈进设置
+        else if (index == 2) appManager.launchApp(appStandby); // 回待机是绝对跳转
     }
     
-    void onLongPressed() override {
-        appManager.launchApp(appStandby);
-    }
+    void onLongPressed() override { appManager.launchApp(appStandby); }
 };
 
 AppMainMenu instanceMainMenu;

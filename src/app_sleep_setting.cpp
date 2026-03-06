@@ -46,12 +46,9 @@ public:
             case 2: appManager.config_sleep_time_ms = 300000; break;
             case 3: appManager.config_sleep_time_ms = 0xFFFFFFFF; break;
         }
-        appManager.launchApp(appMainMenu);
+        appManager.popApp(); // 【修改】：保存后原路返回
     }
-
-    void onKeyLong() override {
-        appManager.launchApp(appMainMenu);
-    }
+    void onKeyLong() override { appManager.popApp(); } // 【修改】：长按取消也原路返回
 };
 
 AppSleepSetting instanceSleepSetting;

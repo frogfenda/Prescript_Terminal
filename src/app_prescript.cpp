@@ -409,9 +409,9 @@ public:
         executePrescriptSequence();
     }
 
-    void onKeyLong() override
-    {
-        appManager.launchApp(appMainMenu);
+// 找到这一行，改成 popApp！
+    void onKeyLong() override {
+        appManager.popApp(); // 【修改】：看完了原路返回主菜单
     }
 };
 

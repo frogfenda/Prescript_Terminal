@@ -11,25 +11,52 @@ AppManager::AppManager() {
     idle_timer = 0;
     last_tick = 0;
     config_sleep_time_ms = 30000; 
-
-    // 【新增】：默认语言设为中文
     current_lang = LANG_ZH;
+
+    // 【新增】：初始化栈顶指针
+    stackTop = -1;
 }
 
+// 绝对跳转：清空所有历史记忆
 void AppManager::launchApp(AppBase* newApp) {
-    if (currentApp != nullptr) {
-        currentApp->onDestroy();
-    }
+    stackTop = -1; 
+    if (currentApp != nullptr) currentApp->onDestroy();
     currentApp = newApp;
-    if (currentApp != nullptr) {
-        currentApp->onCreate();
-    }
+    if (currentApp != nullptr) currentApp->onCreate();
     resetIdleTimer();
 }
 
-void AppManager::resetIdleTimer() {
-    idle_timer = 0;
+void AppManager::pushApp(AppBase* newApp) {
+    if (currentApp != nullptr) {
+        if (stackTop < 4) {
+            stackTop++;
+            navStack[stackTop] = currentApp; 
+            // 【核心修改】：不销毁，让老页面进入后台休眠
+            currentApp->onBackground(); 
+        } else {
+            currentApp->onDestroy(); // 栈满了才销毁
+        }
+    }
+    currentApp = newApp;
+    if (currentApp != nullptr) currentApp->onCreate();
+    resetIdleTimer();
 }
+
+void AppManager::popApp() {
+    if (stackTop >= 0) {
+        AppBase* prevApp = navStack[stackTop]; 
+        stackTop--;                            
+        
+        if (currentApp != nullptr) currentApp->onDestroy();
+        currentApp = prevApp;
+        // 【核心修改】：原样唤醒老页面，保留它的所有内部变量！
+        if (currentApp != nullptr) currentApp->onResume(); 
+        resetIdleTimer();
+    } else {
+        launchApp(appMainMenu);
+    }
+}
+void AppManager::resetIdleTimer() { idle_timer = 0; }
 
 void AppManager::run() {
     uint32_t current_time = millis();
@@ -38,14 +65,12 @@ void AppManager::run() {
 
     if (currentApp == nullptr) return;
 
-    // 1. 处理旋钮
     int knob_delta = HAL_Get_Knob_Delta();
     if (knob_delta != 0) {
         resetIdleTimer();
         currentApp->onKnob(knob_delta);
     }
 
-    // 2. 处理按键 (短按与长按分离)
     bool is_pressed = HAL_Is_Key_Pressed();
     if (is_pressed) {
         if (!btn_is_holding) {
@@ -56,7 +81,7 @@ void AppManager::run() {
             long_press_handled = true;
             HAL_Buzzer_Play_Tone(800, 150);
             resetIdleTimer();
-            currentApp->onKeyLong(); // 触发长按
+            currentApp->onKeyLong();
         }
     } else {
         if (btn_is_holding) {
@@ -64,15 +89,14 @@ void AppManager::run() {
             btn_is_holding = false;
             if (!long_press_handled && duration > 50) {
                 resetIdleTimer();
-                currentApp->onKeyShort(); // 触发短按
+                currentApp->onKeyShort();
             }
         }
     }
 
-    // 3. 运行当前应用专属逻辑
     currentApp->onLoop();
 
-    // 4. 全局自动休眠判定
+    // 自动休眠（绝对跳转回待机）
     if (currentApp != appStandby) {
         idle_timer += delta_time;
         if (config_sleep_time_ms != 0xFFFFFFFF && idle_timer > config_sleep_time_ms) {

@@ -21,20 +21,17 @@ protected:
         }
     }
     
-    void onItemClicked(int index) override {
-        if (index == 0) appManager.launchApp(appNetworkSync);
+void onItemClicked(int index) override {
+        if (index == 0) appManager.pushApp(appNetworkSync);   // 【修改】：压栈进网络
         else if (index == 1) {
-            // 【修复】：使用管家的新函数切换语言
             appManager.toggleLanguage();
             drawMenuUI(visual_selection); 
         }
-        else if (index == 2) appManager.launchApp(appSleepSetting);
-        else if (index == 3) appManager.launchApp(appMainMenu);
+        else if (index == 2) appManager.pushApp(appSleepSetting); // 【修改】：压栈进休眠
+        else if (index == 3) appManager.popApp();             // 【修改】：原路返回！
     }
     
-    void onLongPressed() override {
-        appManager.launchApp(appMainMenu);
-    }
+    void onLongPressed() override { appManager.popApp(); }
 };
 
 AppSystemSettings instanceSystemSettings;
