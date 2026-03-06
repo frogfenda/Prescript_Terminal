@@ -49,5 +49,6 @@ extern AppBase* appPrescript;
 extern AppBase* appSleepSetting;
 extern AppBase* appNetworkSync;
 extern AppBase* appSystemSettings;
+extern AppBase* appWifiConnect;
 
 #endif

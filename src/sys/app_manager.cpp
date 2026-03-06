@@ -1,6 +1,7 @@
-// 文件：src/app_manager.cpp (部分修改)
+// 文件：src/sys/app_manager.cpp
 #include "app_manager.h"
-#include "sys_config.h" // 【新增】：引入配置中心
+#include "sys_config.h" 
+#include "sys_network.h" // 【新增】：在这里引入网络引擎！
 
 AppManager appManager;
 
@@ -12,21 +13,18 @@ AppManager::AppManager() {
     idle_timer = 0;
     last_tick = 0;
     stackTop = -1;
-    // 构造函数里不再写死数据，交由 begin() 去处理
 }
 
-// 【新增】：开机同步配置并启动第一个 APP
 void AppManager::begin() {
-    // 1. 同步硬盘配置到系统管理器
     current_lang = (SystemLang_t)sysConfig.language;
     config_sleep_time_ms = sysConfig.sleep_time_ms;
     
-    // 2. 启动系统（跳转到待机界面）
+    // 【架构转移 1】：管家启动时，顺手把网络后台任务挂上！
+    Network_Connect(sysConfig.wifi_ssid.c_str(), sysConfig.wifi_pass.c_str());
+    
     launchApp(appStandby); 
 }
 
-// ... 下面的 launchApp, pushApp, popApp, run 等保持你原来的代码不变即可 ...
-// 绝对跳转：清空所有历史记忆
 void AppManager::launchApp(AppBase* newApp) {
     stackTop = -1; 
     if (currentApp != nullptr) currentApp->onDestroy();
@@ -66,6 +64,10 @@ void AppManager::popApp() {
 void AppManager::resetIdleTimer() { idle_timer = 0; }
 
 void AppManager::run() {
+    // 【架构转移 2】：在管家的主循环里驱动网络底层的非阻塞服务！
+    // 这样它就成了一个真正的系统级后台 Daemon 进程
+    Network_Update();
+
     uint32_t current_time = millis();
     uint32_t delta_time = current_time - last_tick;
     last_tick = current_time;

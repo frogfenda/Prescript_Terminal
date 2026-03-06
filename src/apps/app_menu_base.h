@@ -4,6 +4,7 @@
 
 #include "app_base.h"
 #include "app_manager.h"
+#include <time.h> // 【新增】：引入 ESP32 的内置时间库
 
 class AppMenuBase : public AppBase {
 protected:
@@ -16,7 +17,7 @@ protected:
     virtual void onItemClicked(int index) = 0;       
     virtual void onLongPressed() = 0;                
 
-    void drawMenuUI(float v_pos) {
+   void drawMenuUI(float v_pos) {
         HAL_Sprite_Clear();
         
         int sw = HAL_Get_Screen_Width();
@@ -25,10 +26,16 @@ protected:
         int center_x = sw / 2; 
 
         const char* title_text = getTitle();
-        int title_x = center_x - (HAL_Get_Text_Width(title_text) / 2);
-        HAL_Screen_ShowChineseLine(title_x, 16, title_text);
+        HAL_Screen_ShowChineseLine(20, 16, title_text);
+
+        // 【架构升级】：统一通过接口提取时间
+        char time_str[10];
+        SysTime_GetTimeString(time_str);
         
-        HAL_Draw_Line(20, header_h, sw - 20, header_h, 1);
+        int time_x = sw - 28 - HAL_Get_Text_Width(time_str);
+        HAL_Screen_ShowTextLine(time_x, 16, time_str); 
+        
+        HAL_Draw_Line(0, header_h, sw, header_h, 1);
 
         int count = getMenuCount();
         if (count == 0) return;
@@ -36,8 +43,7 @@ protected:
         int center_y = header_h + (sh - header_h) / 2; 
         
         HAL_Draw_Rect(10, center_y - 16, sw - 20, 32, 1); 
-        HAL_Fill_Triangle(20, center_y - 10, 20, center_y + 10, 28, center_y, 1); 
-
+        HAL_Fill_Triangle(20, center_y - 10, 20, center_y + 10, 28, center_y, 1);
         // ==========================================
         // 【新增黑科技：平滑跟随的呼吸动态色块】
         // ==========================================

@@ -1,9 +1,10 @@
-// 文件：src/apps/app_network_sync.cpp
+// 文件：src/apps/app_wifi_connect.cpp
 #include "app_base.h"
 #include "app_manager.h"
+#include "sys_config.h"
 #include "sys_network.h"
 
-class AppNetworkSync : public AppBase {
+class AppWifiConnect : public AppBase {
 private:
     uint32_t anim_time;
     int anim_dots;
@@ -35,17 +36,19 @@ public:
         is_finished = false;
 
         NetworkState state = Network_GetState();
-        // 【防呆设计】：如果没网，直接拒绝服务并退回
-        if (state != NET_CONNECTED && state != NET_SYNC_SUCCESS) {
-            drawUI((appManager.getLanguage() == LANG_ZH) ? "错误: 无网络连接!" : "ERR: NO NETWORK!");
-            HAL_Buzzer_Play_Tone(1000, 300);
+        // 智能开关：如果已经连上了，进来就是执行断网操作！
+        if (state == NET_CONNECTED || state == NET_SYNC_SUCCESS || state == NET_SYNCING_NTP) {
+            Network_Disconnect();
+            drawUI((appManager.getLanguage() == LANG_ZH) ? "网络已切断" : "WIFI DISCONNECTED");
+            HAL_Buzzer_Play_Tone(1500, 100);
             is_finished = true;
             result_show_time = millis();
             return;
         }
         
-        Network_StartNTP();
-        drawUI((appManager.getLanguage() == LANG_ZH) ? "校准时间戳" : "SYNCING NTP", true);
+        // 否则执行连网操作
+        Network_Connect(sysConfig.wifi_ssid.c_str(), sysConfig.wifi_pass.c_str());
+        drawUI((appManager.getLanguage() == LANG_ZH) ? "启动网络模块" : "INIT NETWORK");
     }
 
     void onLoop() override {
@@ -61,20 +64,19 @@ public:
         if (now - anim_time > 500) {
             anim_time = now;
             anim_dots = (anim_dots + 1) % 4;
-            if (state == NET_SYNCING_NTP) {
-                drawUI((appManager.getLanguage() == LANG_ZH) ? "校准时间戳" : "SYNCING NTP", true);
+            if (state == NET_CONNECTING) {
+                drawUI((appManager.getLanguage() == LANG_ZH) ? "连接神经网" : "CONNECTING", true);
             }
         }
 
-        if (state == NET_SYNC_SUCCESS) {
-            drawUI((appManager.getLanguage() == LANG_ZH) ? "时间同步完成!" : "TIME SYNCED!");
+        if (state == NET_CONNECTED || state == NET_SYNCING_NTP || state == NET_SYNC_SUCCESS) {
+            drawUI((appManager.getLanguage() == LANG_ZH) ? "网络已接入!" : "WIFI CONNECTED!");
             HAL_Buzzer_Play_Tone(2000, 80); delay(60); HAL_Buzzer_Play_Tone(2500, 150);
             is_finished = true;
             result_show_time = millis();
         } 
-        else if (state == NET_CONNECTED) { 
-            // 如果超时，底层会退回到 CONNECTED 状态
-            drawUI((appManager.getLanguage() == LANG_ZH) ? "服务器无响应!" : "NTP TIMEOUT!");
+        else if (state == NET_FAIL) {
+            drawUI((appManager.getLanguage() == LANG_ZH) ? "网络连接异常!" : "NETWORK ERROR!");
             HAL_Buzzer_Play_Tone(1000, 300);
             is_finished = true;
             result_show_time = millis();
@@ -87,5 +89,5 @@ public:
     void onKeyLong() override { appManager.popApp(); }
 };
 
-AppNetworkSync instanceNetworkSync;
-AppBase *appNetworkSync = &instanceNetworkSync;
+AppWifiConnect instanceWifiConnect;
+AppBase *appWifiConnect = &instanceWifiConnect;
