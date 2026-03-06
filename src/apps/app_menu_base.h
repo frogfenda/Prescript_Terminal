@@ -17,15 +17,19 @@ protected:
     virtual void onItemClicked(int index) = 0;       
     virtual void onLongPressed() = 0;                
 
+    // 【新增】：虚函数，询问子类是否需要分段渲染。默认不需要。
+    virtual bool getItemEditParts(int index, const char** prefix, const char** anim_val, const char** suffix) {
+        return false;
+    }
+
    void drawMenuUI(float v_pos) {
-        HAL_Sprite_Clear();
+        HAL_Sprite_Clear(); 
         
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
         int center_x = sw / 2; 
 
         const char* title_text = getTitle();
-        // 【净化】：使用宏对齐
         HAL_Screen_ShowChineseLine(UI_MARGIN_LEFT, UI_TEXT_Y_TOP, title_text);
 
         char time_str[10];
@@ -74,7 +78,17 @@ protected:
             int item_x = base_x - (offset * offset * 9.0f);  
 
             float distance = abs(offset);
-            HAL_Screen_ShowChineseLine_Faded(item_x, item_y - 8, text, distance);
+            int final_y = item_y - 8;
+
+            const char *p_pref = nullptr, *p_val = nullptr, *p_suff = nullptr;
+
+            // 【架构升级】：如果这一行正在被编辑，就启用“分段渲染魔法”！
+            if (real_idx == current_selection && getItemEditParts(real_idx, &p_pref, &p_val, &p_suff)) {
+                drawSegmentedAnimatedText(item_x, final_y, p_pref, p_val, p_suff, distance);
+            } else {
+                // 普通行直接整行渲染
+                HAL_Screen_ShowChineseLine_Faded(item_x, final_y, text, distance);
+            }
         }
         HAL_Screen_Update();
     }
@@ -90,6 +104,8 @@ public:
     void onBackground() override {}
 
     void onLoop() override {
+        bool needs_redraw = updateEditAnimation();
+
         int count = getMenuCount();
         if (count == 0) return;
 
@@ -103,25 +119,27 @@ public:
             visual_selection += diff * 0.25f; 
             while (visual_selection < 0) visual_selection += count;
             while (visual_selection >= count) visual_selection -= count;
-            drawMenuUI(visual_selection);
+            needs_redraw = true; 
         } else if (visual_selection != target && abs(diff) <= 0.01f) {
             visual_selection = target;
+            needs_redraw = true;
+        }
+
+        if (needs_redraw) {
             drawMenuUI(visual_selection);
         }
     }
 
     void onDestroy() override {}
-
     void onKnob(int delta) override {
         int count = getMenuCount();
         if (count > 0) {
             current_selection = (current_selection + delta + count) % count;
-            SYS_SOUND_GLITCH(); // 【净化】：语义化音效
+            SYS_SOUND_GLITCH();
         }
     }
-
     void onKeyShort() override {
-        SYS_SOUND_CONFIRM(); // 【净化】：语义化音效
+        SYS_SOUND_CONFIRM();
         onItemClicked(current_selection);
     }
     void onKeyLong() override { onLongPressed(); }
