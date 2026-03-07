@@ -99,22 +99,21 @@ public:
     void onLoop() override {
         if (!is_paused) {
             uint32_t elapsed = millis() - timer_start;
-            if (elapsed >= current_duration) {
+           if (elapsed >= current_duration) {
                 if (phase == 0) {
                     phase = 1;
                     current_duration = current_preset.rest_min * 60000;
                     timer_start = millis();
                     
-                    Prescript_Launch_Custom(appManager.getLanguage() == LANG_ZH ? 
+                    // 【极简替换】：呼叫全新警报引擎，并且 keep_stack = true
+                    PushNotify_Trigger_Custom(appManager.getLanguage() == LANG_ZH ? 
                         "专注周期结束。立刻起身活动恢复精力。" : 
-                        "WORK CYCLE COMPLETED. REST IMMEDIATELY.");
-                    appManager.pushApp(appPrescript); 
+                        "WORK CYCLE COMPLETED. REST IMMEDIATELY.", true);
                 } else {
                     appManager.popApp(); 
-                    Prescript_Launch_Custom(appManager.getLanguage() == LANG_ZH ? 
+                    PushNotify_Trigger_Custom(appManager.getLanguage() == LANG_ZH ? 
                         "休眠恢复完毕。系统已重置，准备接受新的专注指令。" : 
-                        "REST CYCLE COMPLETED. SYSTEM RESET. READY FOR NEXT TASK.");
-                    appManager.pushApp(appPrescript);
+                        "REST CYCLE COMPLETED. SYSTEM RESET. READY FOR NEXT TASK.", false);
                 }
                 return; 
             }
@@ -152,7 +151,7 @@ public:
             is_paused = false;
             last_sec_draw = 0xFFFFFFFF;
 
-            Prescript_Launch_Custom(appManager.getLanguage() == LANG_ZH ? 
+            PushNotify_Trigger_Custom(appManager.getLanguage() == LANG_ZH ? 
                 "立刻去休息。" : 
                 "Go rest immadiately.");
             appManager.pushApp(appPrescript);

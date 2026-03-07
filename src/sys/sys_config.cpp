@@ -40,6 +40,17 @@ void SysConfig::load() {
         alarms[i].prescript = prefs.getString(("al_p_" + String(i)).c_str(), "时间已到，立即切断休眠执行唤醒。");
     }
 
+    schedule_count = prefs.getUChar("sc_cnt", 0);
+    if (schedule_count > 15) schedule_count = 15;
+    for (int i = 0; i < schedule_count; i++) {
+        schedules[i].target_time = prefs.getUInt(("sc_tt_" + String(i)).c_str(), 0);
+        schedules[i].expire_time = prefs.getUInt(("sc_et_" + String(i)).c_str(), 0);
+        schedules[i].title = prefs.getString(("sc_tl_" + String(i)).c_str(), "待办");
+        schedules[i].prescript = prefs.getString(("sc_ps_" + String(i)).c_str(), "");
+        schedules[i].is_expired = prefs.getBool(("sc_ex_" + String(i)).c_str(), false);
+        schedules[i].is_restored = prefs.getBool(("sc_rs_" + String(i)).c_str(), false);
+    }
+
     prefs.end();
 }
 
@@ -70,6 +81,16 @@ void SysConfig::save() {
         prefs.putUChar(("al_m_" + String(i)).c_str(), alarms[i].min);
         prefs.putString(("al_n_" + String(i)).c_str(), alarms[i].name);
         prefs.putString(("al_p_" + String(i)).c_str(), alarms[i].prescript);
+    }
+    
+    prefs.putUChar("sc_cnt", schedule_count);
+    for (int i = 0; i < schedule_count; i++) {
+        prefs.putUInt(("sc_tt_" + String(i)).c_str(), schedules[i].target_time);
+        prefs.putUInt(("sc_et_" + String(i)).c_str(), schedules[i].expire_time);
+        prefs.putString(("sc_tl_" + String(i)).c_str(), schedules[i].title);
+        prefs.putString(("sc_ps_" + String(i)).c_str(), schedules[i].prescript);
+        prefs.putBool(("sc_ex_" + String(i)).c_str(), schedules[i].is_expired);
+        prefs.putBool(("sc_rs_" + String(i)).c_str(), schedules[i].is_restored);
     }
     
     prefs.end();

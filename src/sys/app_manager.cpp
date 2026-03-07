@@ -66,7 +66,7 @@ void AppManager::run() {
 
     // 【核心补齐】：每帧巡视所有闹钟，确保时间到了能触发！
     Alarm_UpdateBackground(); 
-
+    Schedule_UpdateBackground();
     // ==========================================
     // 【双核协同】：Core 1 的大管家每帧检查一次跨核信箱！
     // ==========================================
@@ -75,7 +75,7 @@ void AppManager::run() {
         
         // 防呆保护：如果当前已经在破译指令了，就别再弹出了
         if (currentApp != appPrescript && currentApp != appPushNotify) {
-            launchApp(appPushNotify); // 绝对接管屏幕！拉起都市警报！
+            PushNotify_Trigger_Random(false);
         }
     }
 

@@ -3,7 +3,7 @@
 
 class AppMainMenu : public AppMenuBase {
 protected:
-    int getMenuCount() override { return 6; } 
+    int getMenuCount() override { return 7; } // 增加到 7 个
     
     const char* getTitle() override {
         return (appManager.getLanguage() == LANG_ZH) ? "都市主控菜单" : "MAIN MENU";
@@ -11,22 +11,22 @@ protected:
     
     const char* getItemText(int index) override {
         if (appManager.getLanguage() == LANG_ZH) {
-            const char* items[] = {"接受都市意志", "都市唤醒闹钟", "番茄专注协议", "指令推送配置", "系统高级设置", "进入待机模式"};
+            const char* items[] = {"接受都市意志", "都市日程计划", "都市唤醒闹钟", "番茄专注协议", "指令推送配置", "系统高级设置", "进入待机模式"};
             return items[index];
         } else {
-            const char* items[] = {"RECEIVE PRESCRIPT", "WAKEUP ALARM", "POMODORO TIMER", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE"};
+            const char* items[] = {"RECEIVE PRESCRIPT", "SCHEDULES", "WAKEUP ALARM", "POMODORO TIMER", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE"};
             return items[index];
         }
     }
     
     void onItemClicked(int index) override {
-        // 【核心修复】：删掉报错的 Prescript_SetMode_Normal()，直接进入！
         if (index == 0) appManager.pushApp(appPrescript); 
-        else if (index == 1) appManager.pushApp(appAlarm);         
-        else if (index == 2) appManager.pushApp(appPomodoro);
-        else if (index == 3) appManager.pushApp(appPushSetting);
-        else if (index == 4) appManager.pushApp(appSystemSettings);
-        else if (index == 5) appManager.launchApp(appStandby);
+        else if (index == 1) appManager.pushApp(appSchedule);      // 【新增入口】
+        else if (index == 2) appManager.pushApp(appAlarm);         
+        else if (index == 3) appManager.pushApp(appPomodoro);
+        else if (index == 4) appManager.pushApp(appPushSetting);
+        else if (index == 5) appManager.pushApp(appSystemSettings);
+        else if (index == 6) appManager.launchApp(appStandby);
     }
     
     void onLongPressed() override { appManager.launchApp(appStandby); }

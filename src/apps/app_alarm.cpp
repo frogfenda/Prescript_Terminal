@@ -33,20 +33,15 @@ void Alarm_UpdateBackground() {
     static int last_trigger_min = -1;
     if (timeinfo.tm_min == last_trigger_min) return; 
 
-    for (int i = 0; i < sysConfig.alarm_count; i++) {
+  for (int i = 0; i < sysConfig.alarm_count; i++) {
         if (sysConfig.alarms[i].is_active &&
             sysConfig.alarms[i].hour == timeinfo.tm_hour &&
             sysConfig.alarms[i].min == timeinfo.tm_min) {
             
             last_trigger_min = timeinfo.tm_min;
 
-            for(int b=0; b<5; b++) {
-                HAL_Buzzer_Play_Tone(2500, 100);
-                delay(50);
-            }
-
-            Prescript_Launch_Custom_Wait(sysConfig.alarms[i].prescript.c_str());
-            appManager.launchApp(appPrescript); 
+            // 【极简替换】：完全删掉原来的 buzzer 循环，交给新引擎处理！
+            PushNotify_Trigger_Custom(sysConfig.alarms[i].prescript.c_str(), false);
             break;
         }
     }
