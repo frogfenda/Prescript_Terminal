@@ -30,18 +30,23 @@ void Alarm_UpdateBackground() {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) return; 
 
+    // 【新增】：检查系统并发锁
+    extern AppBase* appPushNotify;
+    extern AppBase* appPrescript;
+    if (AppManagerLock::isSystemBusy(appManager.getCurrentApp())) return;
+
     static int last_trigger_min = -1;
     if (timeinfo.tm_min == last_trigger_min) return; 
 
-  for (int i = 0; i < sysConfig.alarm_count; i++) {
+    for (int i = 0; i < sysConfig.alarm_count; i++) {
         if (sysConfig.alarms[i].is_active &&
             sysConfig.alarms[i].hour == timeinfo.tm_hour &&
             sysConfig.alarms[i].min == timeinfo.tm_min) {
             
             last_trigger_min = timeinfo.tm_min;
 
-            // 【极简替换】：完全删掉原来的 buzzer 循环，交给新引擎处理！
-            PushNotify_Trigger_Custom(sysConfig.alarms[i].prescript.c_str(), false);
+            // 【核心修复】：强制传入 true 保护原应用堆栈！
+            PushNotify_Trigger_Custom(sysConfig.alarms[i].prescript.c_str(), true);
             break;
         }
     }

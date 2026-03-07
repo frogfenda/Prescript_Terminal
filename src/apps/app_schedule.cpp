@@ -47,6 +47,9 @@ void Schedule_UpdateBackground() {
     time_t now;
     time(&now);
     if (now < 1000000000) return; // NTP没同步时不干活
+    extern AppBase* appPushNotify;
+    extern AppBase* appPrescript;
+    if (AppManagerLock::isSystemBusy(appManager.getCurrentApp())) return;
 
     bool need_save = false;
 
@@ -71,8 +74,8 @@ void Schedule_UpdateBackground() {
             need_save = true;
 
             // 【极简替换】：删掉原来的 buzzer，根据是否设置了固定语进入不同模式
-            if (s.prescript.length() == 0) PushNotify_Trigger_Random(false);
-            else PushNotify_Trigger_Custom(s.prescript.c_str(), false);
+            if (s.prescript.length() == 0) PushNotify_Trigger_Random(true);
+            else PushNotify_Trigger_Custom(s.prescript.c_str(), true);
         }
     }
     if (need_save) sysConfig.save();
@@ -172,6 +175,12 @@ public:
             struct tm t_info; localtime_r(&now, &t_info);
             t_info.tm_mon = mo - 1; t_info.tm_mday = d; t_info.tm_hour = h; t_info.tm_min = m; t_info.tm_sec = 0;
             time_t new_target = mktime(&t_info);
+
+            // 【核心修复时空 BUG】：如果设定的时间比现在还早，说明用户意图是明年的这一天！
+            if (new_target < now) {
+                t_info.tm_year += 1; // 强行推进一年
+                new_target = mktime(&t_info);
+            }
 
             if (g_schedule_edit_idx >= 0) {
                 sysConfig.schedules[g_schedule_edit_idx].target_time = new_target;

@@ -7,21 +7,23 @@
 #define BLE_SERVICE_UUID        "0000DEAD-0000-1000-8000-00805F9B34FB"
 #define BLE_CHARACTERISTIC_UUID "0000BEEF-0000-1000-8000-00805F9B34FB"
 
+// 文件：src/sys/sys_ble.cpp (替换 onWrite 函数)
 class TerminalBLECallbacks: public NimBLECharacteristicCallbacks {
     void onWrite(NimBLECharacteristic *pCharacteristic) {
         std::string value = pCharacteristic->getValue();
         
-        // 【新增硬核调试】：把手机发来的真实数据原封不动打印出来，带上单引号看清有没有换行！
-        Serial.print("[Core 0] BLE 收到真实数据: '");
+        Serial.print("[Core 0] BLE Rx: '");
         Serial.print(value.c_str());
         Serial.println("'");
         
-        // 【核心修复】：使用 .find() 模糊匹配！无视手机乱加的 \r\n 换行符
         if (value.find("CMD:PUSH_NOW") != std::string::npos) {
-            Serial.println("[Core 0] 💥 指令匹配成功！正在唤醒主核拉起警报！");
             g_cross_core_trigger_push = true; 
         } else {
-            Serial.println("[Core 0] ❌ 指令不匹配。");
+            // 【跨核安全投递】：将复杂指令放入信箱，由 Core 1 在安全时机拆解
+            if (value.length() < 500) {
+                snprintf(g_ble_msg_buf, sizeof(g_ble_msg_buf), "%s", value.c_str());
+                g_ble_has_msg = true;
+            }
         }
     }
 };
