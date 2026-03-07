@@ -27,13 +27,16 @@ void SysAutoPush_Init() {
 }
 
 void SysAutoPush_Update() {
+    // 检查是否在等待中，以及总开关是否开启
     if (!is_waiting || !sysConfig.auto_push_enable) return;
     
-    // 倒计时结束，强行拉起黑屏警报！
-    // (采用安全的减法判断，完美避开 millis() 50天溢出BUG)
+    // 倒计时结束，强行拉起警报！
     if (millis() - timer_start >= current_interval_ms) {
-        is_waiting = false;
-        appManager.launchApp(appPushNotify); // 绝对劫持屏幕
+        SysAutoPush_ResetTimer(); // 立刻重新抽签决定下一次的触发时间
+        
+        // 【核心解耦】：直接竖起跨核旗帜，让主干管家去拉起那个极其震撼的闪烁警报！
+        extern volatile bool g_cross_core_trigger_push;
+        g_cross_core_trigger_push = true; 
     }
 }
 

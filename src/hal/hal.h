@@ -43,8 +43,13 @@ void HAL_Screen_Update(void);
 
 // 【新增 API】：计算中文字符串在屏幕上的绝对像素宽度
 int HAL_Get_Text_Width(const char* str);
-// 【新增 API】：支持透明度渐变的文字渲染（实现 3D 景深淡出）
+// 文件：src/hal/hal.h (找到淡出渲染的声明并修改)
+
+void HAL_Screen_ShowChineseLine(uint8_t x, uint8_t y, const char* str);
 void HAL_Screen_ShowChineseLine_Faded(uint8_t x, uint8_t y, const char* str, float distance);
+
+// 【全新万能引擎】：支持传入任意 RGB565 颜色的景深渐变渲染！
+void HAL_Screen_ShowChineseLine_Faded_Color(uint8_t x, uint8_t y, const char* str, float distance, uint16_t base_color);
 
 void HAL_Draw_Line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color);
 void HAL_Draw_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);

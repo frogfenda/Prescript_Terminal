@@ -45,8 +45,8 @@ void Alarm_UpdateBackground() {
             
             last_trigger_min = timeinfo.tm_min;
 
-            // 【核心修复】：强制传入 true 保护原应用堆栈！
-            PushNotify_Trigger_Custom(sysConfig.alarms[i].prescript.c_str(), true);
+            // 【修复】：彻底抛弃旧接口，一键拉起新引擎！
+            PushNotify_Trigger_Custom(sysConfig.alarms[i].prescript.c_str(), false);
             break;
         }
     }

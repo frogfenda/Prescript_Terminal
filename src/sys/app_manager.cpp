@@ -1,10 +1,9 @@
 // 文件：src/sys/app_manager.cpp
 #include "app_manager.h"
 #include "sys_network.h"
+#include "sys_config.h" 
 #include <Arduino.h>
 
-
-// 确保文件开头有这些：
 volatile bool g_cross_core_trigger_push = false;
 volatile bool g_ble_has_msg = false;
 char g_ble_msg_buf[512] = {0};
@@ -20,7 +19,16 @@ AppManager::AppManager() {
     config_sleep_time_ms = 30000; 
 }
 
-void AppManager::begin() { last_tick = millis(); idle_timer = millis(); }
+void AppManager::begin() { 
+    // 【核心修复 1】：同步硬盘里的配置
+    current_lang = (SystemLang_t)sysConfig.language;
+    config_sleep_time_ms = sysConfig.sleep_time_ms;
+    last_tick = millis(); 
+    idle_timer = millis(); 
+    
+    // 【核心修复 2】：主引擎点火起步！没有这句就是黑屏植物人！
+    launchApp(appStandby); 
+}
 
 void AppManager::launchApp(AppBase* newApp) {
     stackTop = 0; 
@@ -50,33 +58,20 @@ void AppManager::popApp() {
     }
 }
 
-// 【修复】：记录最后一次操作的绝对时间，而不是清零
-// 【注意】：务必确保 resetIdleTimer 也改成了记录当前的绝对时间戳 millis()
-void AppManager::resetIdleTimer() { 
-    idle_timer = millis(); 
-}
+void AppManager::resetIdleTimer() { idle_timer = millis(); }
 
 void AppManager::run() {
-    // ==========================================
-    // 1. 系统底层服务与定时任务更新
-    // ==========================================
     Network_Update();
     Alarm_UpdateBackground(); 
     Schedule_UpdateBackground();
 
-    // ==========================================
-    // 2. 基础蓝牙突发指令处理 (带系统并发锁)
-    // ==========================================
     if (g_cross_core_trigger_push) {
         g_cross_core_trigger_push = false; 
         if (!AppManagerLock::isSystemBusy(currentApp)) {
-            PushNotify_Trigger_Random(true); // 保护原堆栈，退回原应用
+            PushNotify_Trigger_Random(true); 
         }
     }
 
-    // ==========================================
-    // 3. 高级蓝牙多维路由信箱 (带系统并发锁)
-    // ==========================================
     if (g_ble_has_msg) {
         g_ble_has_msg = false;
         String msg = g_ble_msg_buf;
@@ -120,23 +115,15 @@ void AppManager::run() {
 
     if (currentApp == nullptr) return;
 
-    // ==========================================
-    // 4. 旋钮事件处理
-    // ==========================================
     int knob_delta = HAL_Get_Knob_Delta();
     if (knob_delta != 0) {
         resetIdleTimer();
         currentApp->onKnob(knob_delta);
     }
 
-    // ==========================================
-    // 5. 按键事件处理与休眠防呆控制
-    // ==========================================
     bool is_pressed = HAL_Is_Key_Pressed();
     if (is_pressed) {
-        // 【终极防呆】：只要手指还按在旋钮上，就不断重置休眠时间，绝对不息屏！
         resetIdleTimer(); 
-        
         if (!btn_is_holding) {
             btn_press_start_time = current_time;
             btn_is_holding = true;
@@ -158,14 +145,8 @@ void AppManager::run() {
         }
     }
 
-    // ==========================================
-    // 6. 执行当前 App 的循环逻辑
-    // ==========================================
     currentApp->onLoop();
 
-    // ==========================================
-    // 7. 绝对时间休眠判定 (彻底免疫动画卡顿导致的时间跳变)
-    // ==========================================
     if (currentApp != appStandby) {
         if (config_sleep_time_ms != 0xFFFFFFFF && (millis() - idle_timer > config_sleep_time_ms)) {
             launchApp(appStandby);

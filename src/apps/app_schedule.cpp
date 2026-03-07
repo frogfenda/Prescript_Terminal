@@ -66,16 +66,16 @@ void Schedule_UpdateBackground() {
             i--; continue;
         }
 
-        // 2. 触发判定
+ // 2. 触发判定
         if (!s.is_expired && now >= s.target_time) {
             s.is_expired = true;
             s.expire_time = now;
             s.is_restored = false;
             need_save = true;
 
-            // 【极简替换】：删掉原来的 buzzer，根据是否设置了固定语进入不同模式
-            if (s.prescript.length() == 0) PushNotify_Trigger_Random(true);
-            else PushNotify_Trigger_Custom(s.prescript.c_str(), true);
+            // 【修复】：根据是否设置了固定语，拉起新引擎的不同模式！
+            if (s.prescript.length() == 0) PushNotify_Trigger_Random(false);
+            else PushNotify_Trigger_Custom(s.prescript.c_str(), false);
         }
     }
     if (need_save) sysConfig.save();
@@ -128,8 +128,21 @@ class AppScheduleEdit : public AppBase {
                 drawSegmentedAnimatedText((sw - tw)/2, center_y - 8, pref, val, suff, 0.0f);
             }
 
-            const char* tip = (phase == 0 && g_schedule_edit_idx >= 0) ? "长按删此日程 / 单击下一步" : "长按返回 / 单击下一步";
-            if (phase == 5) tip = "长按返回 / 单击保存";
+           const char* tip = "长按返回 / 单击下一步";
+            if (phase == 0) {
+                if (g_schedule_edit_idx >= 0) {
+                    if (!sysConfig.schedules[g_schedule_edit_idx].is_expired) {
+                        tip = "长按删此日程 / 单击下一步"; // 活着的日程：长按准备击杀
+                    } else {
+                        tip = "长按取消恢复 / 单击下一步"; // 尸体(过期)日程：长按放弃复活
+                    }
+                } else {
+                    tip = "长按取消新建 / 单击下一步"; // 全新日程：长按直接取消
+                }
+            } else if (phase == 5) {
+                tip = "长按返回 / 单击保存";
+            }
+            
             HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, sh - 20, tip, 0.6f);
         }
         HAL_Screen_Update();
@@ -269,6 +282,19 @@ class AppScheduleMenu : public AppMenuBase {
 protected:
     int getMenuCount() override { return active_count + 3; }
     const char* getTitle() override { return "都市日程计划"; }
+    
+    // 【优雅的颜色调度】：复活的日程变红，其他的保持默认青色！
+    uint16_t getItemColor(int index) override {
+        // 头部的过期库 和 尾部的新建菜单 永远是默认青色
+        if (index == 0 || index >= active_count + 1) return TFT_CYAN;
+        
+        int real_i = active_indices[index - 1];
+        if (sysConfig.schedules[real_i].is_restored) {
+            return TFT_RED;  // 恢复的日程：红色警示！
+            // (你以后甚至可以在这里加：如果是高优先级 return TFT_ORANGE 等等)
+        }
+        return TFT_CYAN;
+    }
     
     const char* getItemText(int index) override {
         if (index == 0) return "[ 打开已过期日程库 ]";

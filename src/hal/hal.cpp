@@ -104,15 +104,30 @@ int HAL_Get_Text_Width(const char* str) {
 }
 
 // 【新增实现】：景深渐变淡出渲染
-void HAL_Screen_ShowChineseLine_Faded(uint8_t x, uint8_t y, const char* str, float distance) {
-    // 根据距离计算亮度 (距离越远，亮度越低)
-    float intensity = 1.0f - (distance * 0.40f); 
-    if (intensity < 0.15f) intensity = 0.15f; // 保底亮度，不至于完全隐形
+// 文件：src/hal/hal.cpp (替换原来的 faded 渲染部分)
 
-    // 动态生成暗青色 (Cyan 是 RGB: 0, 255, 255)
-    uint8_t g = (uint8_t)(255.0f * intensity);
-    uint8_t b = (uint8_t)(255.0f * intensity);
-    uint16_t faded_color = tft.color565(0, g, b);
+// 【向下兼容】：原来的青色默认淡出，直接重定向给新引擎
+void HAL_Screen_ShowChineseLine_Faded(uint8_t x, uint8_t y, const char* str, float distance) {
+    HAL_Screen_ShowChineseLine_Faded_Color(x, y, str, distance, TFT_CYAN);
+}
+
+// 【全新万能引擎】：支持任意颜色的动态景深计算！
+void HAL_Screen_ShowChineseLine_Faded_Color(uint8_t x, uint8_t y, const char* str, float distance, uint16_t base_color) {
+    float intensity = 1.0f - (distance * 0.40f); 
+    if (intensity < 0.15f) intensity = 0.15f; 
+
+    // 1. 将 16 位的 RGB565 拆解为 8 位的 R, G, B
+    uint8_t r8 = ((base_color >> 11) & 0x1F) * 255 / 31;
+    uint8_t g8 = ((base_color >> 5)  & 0x3F) * 255 / 63;
+    uint8_t b8 =  (base_color        & 0x1F) * 255 / 31;
+
+    // 2. 将每个通道独立乘以衰减系数
+    uint8_t final_r = (uint8_t)(r8 * intensity);
+    uint8_t final_g = (uint8_t)(g8 * intensity);
+    uint8_t final_b = (uint8_t)(b8 * intensity);
+
+    // 3. 重新组装回屏幕能识别的 RGB565 颜色
+    uint16_t faded_color = tft.color565(final_r, final_g, final_b);
 
     u8f.setForegroundColor(faded_color);
     u8f.setCursor(x, y + 16); 

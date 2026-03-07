@@ -11,7 +11,7 @@ protected:
     int current_selection;
     float visual_selection;
 
-    virtual int getMenuCount() = 0;                  
+   virtual int getMenuCount() = 0;                  
     virtual const char* getTitle() = 0;              
     virtual const char* getItemText(int index) = 0;  
     virtual void onItemClicked(int index) = 0;       
@@ -20,7 +20,11 @@ protected:
     virtual bool getItemEditParts(int index, const char** prefix, const char** anim_val, const char** suffix) {
         return false;
     }
-
+    
+    // 【全新架构】：子类可以决定任意一条菜单的专属颜色！(默认青色)
+    virtual uint16_t getItemColor(int index) {
+        return TFT_CYAN;
+    }
    void drawMenuUI(float v_pos) {
         HAL_Sprite_Clear(); 
         
@@ -89,10 +93,12 @@ protected:
 
             const char *p_pref = nullptr, *p_val = nullptr, *p_suff = nullptr;
 
-            if (logical_idx == current_selection && getItemEditParts(real_idx, &p_pref, &p_val, &p_suff)) {
+           if (logical_idx == current_selection && getItemEditParts(real_idx, &p_pref, &p_val, &p_suff)) {
                 drawSegmentedAnimatedText(item_x, final_y, p_pref, p_val, p_suff, distance);
             } else {
-                HAL_Screen_ShowChineseLine_Faded(item_x, final_y, text, distance);
+                // 【核心调用】：获取当前条目的颜色，并交给万能渲染器！
+                uint16_t item_color = getItemColor(real_idx);
+                HAL_Screen_ShowChineseLine_Faded_Color(item_x, final_y, text, distance, item_color);
             }
         }
         HAL_Screen_Update();
