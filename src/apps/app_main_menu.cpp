@@ -3,7 +3,7 @@
 
 class AppMainMenu : public AppMenuBase {
 protected:
-    int getMenuCount() override { return 6; } // 增加到 6 个
+    int getMenuCount() override { return 6; } 
     
     const char* getTitle() override {
         return (appManager.getLanguage() == LANG_ZH) ? "都市主控菜单" : "MAIN MENU";
@@ -20,8 +20,9 @@ protected:
     }
     
     void onItemClicked(int index) override {
-        if (index == 0) { Prescript_SetMode_Normal(); appManager.pushApp(appPrescript); }
-        else if (index == 1) appManager.pushApp(appAlarm);         // 【新增入口】
+        // 【核心修复】：删掉报错的 Prescript_SetMode_Normal()，直接进入！
+        if (index == 0) appManager.pushApp(appPrescript); 
+        else if (index == 1) appManager.pushApp(appAlarm);         
         else if (index == 2) appManager.pushApp(appPomodoro);
         else if (index == 3) appManager.pushApp(appPushSetting);
         else if (index == 4) appManager.pushApp(appSystemSettings);

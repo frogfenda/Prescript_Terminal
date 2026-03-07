@@ -55,23 +55,25 @@ extern AppBase* appNetworkSync;
 extern AppBase* appSystemSettings;
 extern AppBase* appWifiConnect;
 
-// 【新增】：自动推送专属的三大件
+// 文件：src/sys/app_manager.h (仅替换文件最底部部分)
+
 extern AppBase* appPushNotify;
 extern AppBase* appPushSetting;
+
+// 【新增】：番茄钟和闹钟全局指针
+extern AppBase* appPomodoro;
 extern AppBase* appAlarm; 
 
+// 【指令弹窗 API】
 void Prescript_Launch_PushNormal(); 
 void Prescript_Launch_PushDirect(); 
 void Prescript_Launch_Custom(const char* custom_text); 
-
-// 【新增核心】：模式4：推送自定义文字，但必须先播放等待动画，按下按键才出字！
 void Prescript_Launch_Custom_Wait(const char* custom_text); 
 
-// 【新增核心】：后台闹钟更新任务
+// 【闹钟后台任务与手机接口】
 void Alarm_UpdateBackground();
-
-// 【新增接口】：供手机蓝牙直接下发带专属提示语的闹钟
 void Alarm_AddPresetMobile(const char* name, int hour, int min, const char* text);
 
 extern volatile bool g_cross_core_trigger_push;
+
 #endif

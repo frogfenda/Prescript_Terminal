@@ -17,7 +17,6 @@ protected:
     virtual void onItemClicked(int index) = 0;       
     virtual void onLongPressed() = 0;                
 
-    // 【新增】：虚函数，询问子类是否需要分段渲染。默认不需要。
     virtual bool getItemEditParts(int index, const char** prefix, const char** anim_val, const char** suffix) {
         return false;
     }
@@ -40,8 +39,11 @@ protected:
         
         HAL_Draw_Line(0, UI_HEADER_HEIGHT, sw, UI_HEADER_HEIGHT, 1);
 
-        int count = getMenuCount();
-        if (count == 0) return;
+        int real_count = getMenuCount();
+        if (real_count == 0) return;
+        
+        // 【核心优化】：如果只有 2 个选项，虚拟展开为 4 个，打破轮盘方向锁死！
+        int count = (real_count == 2) ? 4 : real_count;
 
         int center_y = UI_HEADER_HEIGHT + (sh - UI_HEADER_HEIGHT) / 2; 
         
@@ -51,8 +53,12 @@ protected:
         int idx1 = (int)floor(v_pos);
         int idx2 = idx1 + 1;
         float fraction = v_pos - idx1; 
-        int real_idx1 = (idx1 % count + count) % count;
-        int real_idx2 = (idx2 % count + count) % count;
+        
+        // 计算映射到真实文字索引
+        int logical_idx1 = (idx1 % count + count) % count;
+        int logical_idx2 = (idx2 % count + count) % count;
+        int real_idx1 = logical_idx1 % real_count;
+        int real_idx2 = logical_idx2 % real_count;
         
         int w1 = HAL_Get_Text_Width(getItemText(real_idx1));
         int w2 = HAL_Get_Text_Width(getItemText(real_idx2));
@@ -70,7 +76,8 @@ protected:
             
             if (item_y < UI_HEADER_HEIGHT + 12 || item_y > sh - 10) continue;
 
-            int real_idx = (i % count + count) % count;
+            int logical_idx = (i % count + count) % count;
+            int real_idx = logical_idx % real_count;
             const char* text = getItemText(real_idx);
 
             int text_width = HAL_Get_Text_Width(text);
@@ -82,11 +89,9 @@ protected:
 
             const char *p_pref = nullptr, *p_val = nullptr, *p_suff = nullptr;
 
-            // 【架构升级】：如果这一行正在被编辑，就启用“分段渲染魔法”！
-            if (real_idx == current_selection && getItemEditParts(real_idx, &p_pref, &p_val, &p_suff)) {
+            if (logical_idx == current_selection && getItemEditParts(real_idx, &p_pref, &p_val, &p_suff)) {
                 drawSegmentedAnimatedText(item_x, final_y, p_pref, p_val, p_suff, distance);
             } else {
-                // 普通行直接整行渲染
                 HAL_Screen_ShowChineseLine_Faded(item_x, final_y, text, distance);
             }
         }
@@ -106,8 +111,9 @@ public:
     void onLoop() override {
         bool needs_redraw = updateEditAnimation();
 
-        int count = getMenuCount();
-        if (count == 0) return;
+        int real_count = getMenuCount();
+        if (real_count == 0) return;
+        int count = (real_count == 2) ? 4 : real_count;
 
         float target = (float)current_selection;
         float diff = target - visual_selection;
@@ -131,17 +137,25 @@ public:
     }
 
     void onDestroy() override {}
+    
     void onKnob(int delta) override {
-        int count = getMenuCount();
-        if (count > 0) {
+        int real_count = getMenuCount();
+        if (real_count > 0) {
+            int count = (real_count == 2) ? 4 : real_count;
             current_selection = (current_selection + delta + count) % count;
             SYS_SOUND_GLITCH();
         }
     }
+    
     void onKeyShort() override {
         SYS_SOUND_CONFIRM();
-        onItemClicked(current_selection);
+        int real_count = getMenuCount();
+        if (real_count > 0) {
+            // 回归真实的执行索引
+            onItemClicked(current_selection % real_count);
+        }
     }
+    
     void onKeyLong() override { onLongPressed(); }
 };
 
