@@ -121,14 +121,6 @@
             font-family: inherit;
         }
 
-        /* 屏蔽原生下拉框的丑陋箭头，实现居中对齐 */
-        select.input-box {
-            appearance: none;
-            -webkit-appearance: none;
-            text-align-last: center;
-            outline: none;
-        }
-
         ::-webkit-calendar-picker-indicator {
             filter: invert(1) hue-rotate(180deg) brightness(2);
         }
@@ -164,9 +156,8 @@
 
     <div class="panel">
         <div class="panel-title"><span>>> TXT OVERRIDE (强制打断)</span></div>
-        <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;"
-            value="最高级别警告：立刻前往系统中心！">
-        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)">发射全局警报</button>
+        <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;" value="有内鬼,终止交易！">
+        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)">传递指令</button>
     </div>
 
     <div class="panel">
@@ -184,14 +175,27 @@
                 </div>
             </div>
 
-            <div class="input-row"><label>代号:</label><input type="text" class="input-box" id="alm_name" value="早间唤醒">
+            <div class="input-row"><label>代号:</label><input type="text" class="input-box" id="alm_name" value="早晨">
             </div>
             <div class="input-row"><label>指令:</label><input type="text" class="input-box" id="alm_text"
-                    value="系统强制脱离休眠，立刻起床！"></div>
+                    value="至..昏睡者..立刻起床"></div>
             <button class="btn" onclick="addAlarm()">+ 添加并同步到终端</button>
         </div>
     </div>
 
+    <div class="panel">
+        <div class="panel-title"><span>>> SCHEDULE (长期日程)</span><span onclick="sendRaw('GET:SYNC')"
+                style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
+        <div id="sch_list_container"></div>
+        <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
+            <div class="input-row"><label>时空:</label><input type="datetime-local" class="input-box" id="sch_time"></div>
+            <div class="input-row"><label>标题:</label><input type="text" class="input-box" id="sch_name" value="开会">
+            </div>
+            <div class="input-row"><label>内容:</label><input type="text" class="input-box" id="sch_text"
+                    value="至..大忙人..在十五分钟后到会议室"></div>
+            <button class="btn" onclick="addSchedule()">+ 登记并同步到终端</button>
+        </div>
+    </div>
     <div class="panel">
         <div class="panel-title"><span>>> SCHEDULE (长期日程)</span><span onclick="sendRaw('GET:SYNC')"
                 style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
@@ -231,16 +235,14 @@
         let terminalSchedules = [];
 
         window.onload = () => {
-            // 初始化日程时间
+            // 初始化日程时间（当前时间 + 1小时）
             let now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset() + 60);
             document.getElementById('sch_time').value = now.toISOString().slice(0, 16);
 
-            // 动态生成闹钟的原生下拉选项 (完美伪装成滚轮)
-            let hHtml = ''; for (let i = 0; i < 24; i++) { let v = String(i).padStart(2, '0'); hHtml += `<option value="${v}">${v} 时</option>`; }
-            document.getElementById('alm_h').innerHTML = hHtml; document.getElementById('alm_h').value = "08";
-
-            let mHtml = ''; for (let i = 0; i < 60; i++) { let v = String(i).padStart(2, '0'); mHtml += `<option value="${v}">${v} 分</option>`; }
-            document.getElementById('alm_m').innerHTML = mHtml; document.getElementById('alm_m').value = "00";
+            // 初始化闹钟时间（默认设定为今天的 08:00）
+            let almInit = new Date(); almInit.setMinutes(almInit.getMinutes() - almInit.getTimezoneOffset());
+            almInit.setHours(8, 0);
+            document.getElementById('alm_time').value = almInit.toISOString().slice(0, 16);
         };
 
         async function connectBLE() {
@@ -313,13 +315,14 @@
         }
 
         function addAlarm() {
-            // 【修改：直接从新版的 select 取值】
-            let h = document.getElementById('alm_h').value;
-            let m = document.getElementById('alm_m').value;
-
+            let dt = document.getElementById('alm_time').value;
             let n = document.getElementById('alm_name').value.replace(/:/g, "：");
             let txt = document.getElementById('alm_text').value.replace(/:/g, "：");
-            if (!n) return alert("代号不能为空");
+            if (!dt || !n) return alert("参数不完整");
+
+            // 【核心剥离魔法】：从包含年月日的字符串中，精准提取出 "时:分" 发给单片机闹钟
+            let timePart = dt.split('T')[1];
+            let [h, m] = timePart.split(':');
 
             sendRaw(`ALM:${h}:${m}:${n}:${txt}`);
             setTimeout(() => sendRaw('GET:SYNC'), 500);
@@ -329,6 +332,8 @@
             let dt = document.getElementById('sch_time').value;
             let n = document.getElementById('sch_name').value.replace(/:/g, "：");
             let txt = document.getElementById('sch_text').value.replace(/:/g, "：");
+            if (!dt || !n) return alert("参数不完整");
+
             let [y, mo, d] = dt.split('T')[0].split('-'); let [h, m] = dt.split('T')[1].split(':');
             sendRaw(`SCH:${y}:${mo}:${d}:${h}:${m}:${n}:${txt}`);
             setTimeout(() => sendRaw('GET:SYNC'), 500);
