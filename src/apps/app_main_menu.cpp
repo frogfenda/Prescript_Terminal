@@ -11,7 +11,7 @@ protected:
     
     const char* getItemText(int index) override {
         if (appManager.getLanguage() == LANG_ZH) {
-            const char* items[] = {"接受都市意志", "都市日程计划", "都市唤醒闹钟", "番茄专注协议", "指令推送配置", "系统高级设置", "进入待机模式"};
+            const char* items[] = {"接受指令", "定时指令", "但丁", "专注协议", "指令推送配置", "系统高级设置", "进入待机模式"};
             return items[index];
         } else {
             const char* items[] = {"RECEIVE PRESCRIPT", "SCHEDULES", "WAKEUP ALARM", "POMODORO TIMER", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE"};

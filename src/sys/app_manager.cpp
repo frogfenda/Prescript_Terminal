@@ -3,7 +3,7 @@
 #include "sys_network.h"
 #include "sys_config.h" 
 #include <Arduino.h>
-
+#include "sys_ble.h"
 volatile bool g_cross_core_trigger_push = false;
 volatile bool g_ble_has_msg = false;
 char g_ble_msg_buf[512] = {0};

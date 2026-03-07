@@ -157,9 +157,8 @@
 
     <div class="panel">
         <div class="panel-title"><span>>> TXT OVERRIDE (强制打断)</span></div>
-        <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;"
-            value="最高级别警告：立刻前往系统中心！">
-        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)">发射全局警报</button>
+        <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;" value="有内鬼,终止交易!">
+        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)">发送指令</button>
     </div>
 
     <div class="panel">
@@ -172,7 +171,7 @@
             <div class="input-row"><label>代号:</label><input type="text" class="input-box" id="alm_name" value="早间唤醒">
             </div>
             <div class="input-row"><label>指令:</label><input type="text" class="input-box" id="alm_text"
-                    value="系统强制脱离休眠，立刻起床！"></div>
+                    value="至..睡眠者...脱离休眠，立刻起床"></div>
             <button class="btn" onclick="addAlarm()">+ 添加并同步到终端</button>
         </div>
     </div>
@@ -183,10 +182,10 @@
         <div id="sch_list_container"></div>
         <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
             <div class="input-row"><label>时空:</label><input type="datetime-local" class="input-box" id="sch_time"></div>
-            <div class="input-row"><label>标题:</label><input type="text" class="input-box" id="sch_name" value="跨年节点">
+            <div class="input-row"><label>标题:</label><input type="text" class="input-box" id="sch_name" value="去开会">
             </div>
             <div class="input-row"><label>内容:</label><input type="text" class="input-box" id="sch_text"
-                    value="执行末日倒数程序。"></div>
+                    value="至..大忙人...十五分钟内到会议室"></div>
             <button class="btn" onclick="addSchedule()">+ 登记并同步到终端</button>
         </div>
     </div>
@@ -198,7 +197,7 @@
                 <option value="1">槽位 1</option>
                 <option value="2">槽位 2</option>
             </select></div>
-        <div class="input-row"><label>名称:</label><input type="text" class="input-box" id="pom_name" value="极限心流模式">
+        <div class="input-row"><label>名称:</label><input type="text" class="input-box" id="pom_name" value="请专注">
         </div>
         <div class="input-row"><label>专注(分):</label><input type="number" class="input-box" id="pom_work" value="45">
         </div>

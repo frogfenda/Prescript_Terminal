@@ -62,7 +62,7 @@ public:
             if (show_text) {
                 const char* txt;
                 if (g_push_notify_mode == 0) txt = (appManager.getLanguage() == LANG_ZH) ? "接受都市意志" : "RECEIVE PRESCRIPT";
-                else txt = (appManager.getLanguage() == LANG_ZH) ? "!!! 强制优先唤醒 !!!" : "SYSTEM OVERRIDE";
+                else txt = (appManager.getLanguage() == LANG_ZH) ? " 接受都市意志 " : "RECEIVE PRESCRIPT";
                 int x = (HAL_Get_Screen_Width() - HAL_Get_Text_Width(txt)) / 2;
                 HAL_Screen_ShowChineseLine(x, HAL_Get_Screen_Height()/2 - 8, txt);
             }

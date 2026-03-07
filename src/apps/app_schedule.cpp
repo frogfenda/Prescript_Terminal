@@ -229,10 +229,21 @@ protected:
         sprintf(buf, "%02d/%02d %02d:%02d %s %s%s", t_info.tm_mon+1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min, s.title.c_str(), zh ? "(过期)" : "(EXP)", mark);
         return buf;
     }
-    void onItemClicked(int index) override { appManager.popApp(); }
+void onItemClicked(int index) override { 
+        // 【修改】：单击具体的过期日程，进入恢复设置
+        if (index < expired_count) {
+            g_schedule_edit_idx = expired_indices[index]; 
+            appManager.pushApp(appScheduleEdit); 
+        } 
+        // 单击返回按钮
+        else {
+            appManager.popApp(); 
+        }
+    }
+
     void onLongPressed() override {
-        if (current_selection < expired_count) { g_schedule_edit_idx = expired_indices[current_selection]; appManager.pushApp(appScheduleEdit); } 
-        else appManager.popApp();
+        // 【修改】：列表界面未进入设置时，长按直接退出收容所
+        appManager.popApp();
     }
 public:
     void onResume() override { 
@@ -269,14 +280,26 @@ protected:
         return buf;
     }
     void onItemClicked(int index) override {
-        if (index == 0) appManager.pushApp(appScheduleExpired);
-        else if (index == active_count + 1) { g_schedule_edit_idx = -1; appManager.pushApp(appScheduleEdit); }
-        else if (index == active_count + 2) appManager.popApp();
+        if (index == 0) {
+            appManager.pushApp(appScheduleExpired);
+        }
+        // 【修改】：单击具体的日程，直接进入修改设置
+        else if (index > 0 && index <= active_count) {
+            g_schedule_edit_idx = active_indices[index - 1]; 
+            appManager.pushApp(appScheduleEdit);
+        }
+        else if (index == active_count + 1) { 
+            g_schedule_edit_idx = -1; 
+            appManager.pushApp(appScheduleEdit); 
+        }
+        else if (index == active_count + 2) {
+            appManager.popApp();
+        }
     }
+
     void onLongPressed() override {
-        if (current_selection > 0 && current_selection <= active_count) {
-            g_schedule_edit_idx = active_indices[current_selection - 1]; appManager.pushApp(appScheduleEdit);
-        } else appManager.popApp();
+        // 【修改】：列表界面未进入设置时，长按直接退出日程表
+        appManager.popApp();
     }
 public:
     void onResume() override { 
