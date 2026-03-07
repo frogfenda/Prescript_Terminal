@@ -58,12 +58,20 @@ extern AppBase* appWifiConnect;
 // 【新增】：自动推送专属的三大件
 extern AppBase* appPushNotify;
 extern AppBase* appPushSetting;
-extern AppBase* appPomodoro;
+extern AppBase* appAlarm; 
 
-void Prescript_Launch_PushNormal(); // 推送：带有黑屏乱码等待 -> 破译 -> 单击退出
-void Prescript_Launch_PushDirect(); // 推送：直接跳过等待破译 -> 单击退出
+void Prescript_Launch_PushNormal(); 
+void Prescript_Launch_PushDirect(); 
+void Prescript_Launch_Custom(const char* custom_text); 
+
+// 【新增核心】：模式4：推送自定义文字，但必须先播放等待动画，按下按键才出字！
+void Prescript_Launch_Custom_Wait(const char* custom_text); 
+
+// 【新增核心】：后台闹钟更新任务
+void Alarm_UpdateBackground();
+
+// 【新增接口】：供手机蓝牙直接下发带专属提示语的闹钟
+void Alarm_AddPresetMobile(const char* name, int hour, int min, const char* text);
+
 extern volatile bool g_cross_core_trigger_push;
-void Prescript_Launch_Custom(const char* custom_text);
-void Pomodoro_UpdatePreset(int index, const char* name, int work_m, int rest_m);
-
 #endif

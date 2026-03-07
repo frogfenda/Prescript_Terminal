@@ -64,15 +64,15 @@ void AppManager::resetIdleTimer() { idle_timer = 0; }
 void AppManager::run() {
     Network_Update();
     
+    // 【核心新增】：每帧巡视所有闹钟，看有没有到时间的
+    Alarm_UpdateBackground(); 
+
     if (g_cross_core_trigger_push) {
-        g_cross_core_trigger_push = false; // 取出信件，清空信箱
-        
-        // 防呆保护：如果当前已经在破译指令了，就别再弹出了
+        g_cross_core_trigger_push = false; 
         if (currentApp != appPrescript && currentApp != appPushNotify) {
-            launchApp(appPushNotify); // 绝对接管屏幕！拉起都市警报！
+            launchApp(appPushNotify); 
         }
     }
-
     uint32_t current_time = millis();
     uint32_t delta_time = current_time - last_tick;
     last_tick = current_time;

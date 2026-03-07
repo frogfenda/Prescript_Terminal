@@ -17,25 +17,29 @@ void SysConfig::load() {
     auto_push_min_min = prefs.getUInt("p_min", 30);
     auto_push_max_min = prefs.getUInt("p_max", 120);
     
-    // 【新增】：加载番茄钟预设
     pomodoro_current_idx = prefs.getUChar("pm_idx", 0);
     if (pomodoro_current_idx > 4) pomodoro_current_idx = 0;
 
-    // 默认的5个出厂预设参数
     const char* def_names[5] = {"常规专注", "深度工作", "短时冲刺", "阅读模式", "冥想休息"};
     uint32_t def_w[5] = {25, 60, 15, 45, 10};
     uint32_t def_r[5] = {5, 10, 3, 10, 5};
-
     for (int i = 0; i < 5; i++) {
-        String key_n = "pm_n_" + String(i);
-        String key_w = "pm_w_" + String(i);
-        String key_r = "pm_r_" + String(i);
-
-        pomodoro_presets[i].name = prefs.getString(key_n.c_str(), def_names[i]);
-        pomodoro_presets[i].work_min = prefs.getUInt(key_w.c_str(), def_w[i]);
-        pomodoro_presets[i].rest_min = prefs.getUInt(key_r.c_str(), def_r[i]);
+        pomodoro_presets[i].name = prefs.getString(("pm_n_" + String(i)).c_str(), def_names[i]);
+        pomodoro_presets[i].work_min = prefs.getUInt(("pm_w_" + String(i)).c_str(), def_w[i]);
+        pomodoro_presets[i].rest_min = prefs.getUInt(("pm_r_" + String(i)).c_str(), def_r[i]);
     }
     
+    // 【新增】：加载闹钟列表
+    alarm_count = prefs.getUChar("al_cnt", 0);
+    if (alarm_count > 10) alarm_count = 10;
+    for (int i = 0; i < alarm_count; i++) {
+        alarms[i].is_active = prefs.getBool(("al_en_" + String(i)).c_str(), false);
+        alarms[i].hour = prefs.getUChar(("al_h_" + String(i)).c_str(), 8);
+        alarms[i].min = prefs.getUChar(("al_m_" + String(i)).c_str(), 0);
+        alarms[i].name = prefs.getString(("al_n_" + String(i)).c_str(), "闹钟" + String(i+1));
+        alarms[i].prescript = prefs.getString(("al_p_" + String(i)).c_str(), "时间已到，立即切断休眠执行唤醒。");
+    }
+
     prefs.end();
 }
 
@@ -51,16 +55,21 @@ void SysConfig::save() {
     prefs.putUInt("p_min", auto_push_min_min);
     prefs.putUInt("p_max", auto_push_max_min);
     
-    // 【新增】：保存番茄钟预设
     prefs.putUChar("pm_idx", pomodoro_current_idx);
     for (int i = 0; i < 5; i++) {
-        String key_n = "pm_n_" + String(i);
-        String key_w = "pm_w_" + String(i);
-        String key_r = "pm_r_" + String(i);
-
-        prefs.putString(key_n.c_str(), pomodoro_presets[i].name);
-        prefs.putUInt(key_w.c_str(), pomodoro_presets[i].work_min);
-        prefs.putUInt(key_r.c_str(), pomodoro_presets[i].rest_min);
+        prefs.putString(("pm_n_" + String(i)).c_str(), pomodoro_presets[i].name);
+        prefs.putUInt(("pm_w_" + String(i)).c_str(), pomodoro_presets[i].work_min);
+        prefs.putUInt(("pm_r_" + String(i)).c_str(), pomodoro_presets[i].rest_min);
+    }
+    
+    // 【新增】：保存闹钟列表
+    prefs.putUChar("al_cnt", alarm_count);
+    for (int i = 0; i < alarm_count; i++) {
+        prefs.putBool(("al_en_" + String(i)).c_str(), alarms[i].is_active);
+        prefs.putUChar(("al_h_" + String(i)).c_str(), alarms[i].hour);
+        prefs.putUChar(("al_m_" + String(i)).c_str(), alarms[i].min);
+        prefs.putString(("al_n_" + String(i)).c_str(), alarms[i].name);
+        prefs.putString(("al_p_" + String(i)).c_str(), alarms[i].prescript);
     }
     
     prefs.end();

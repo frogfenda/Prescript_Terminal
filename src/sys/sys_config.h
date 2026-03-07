@@ -3,11 +3,19 @@
 #define __SYS_CONFIG_H
 #include <Arduino.h>
 
-// 【新增】：番茄钟预设结构体
 struct PomodoroPreset {
     String name;
     uint32_t work_min;
     uint32_t rest_min;
+};
+
+// 【新增】：闹钟结构体
+struct AlarmPreset {
+    bool is_active;    // 是否开启
+    uint8_t hour;      // 时
+    uint8_t min;       // 分
+    String name;       // 闹钟名
+    String prescript;  // 弹出指令
 };
 
 class SysConfig {
@@ -21,9 +29,12 @@ public:
     uint32_t auto_push_min_min; 
     uint32_t auto_push_max_min; 
 
-    // 【新增】：番茄钟硬盘数据
-    uint8_t pomodoro_current_idx; // 当前选中的预设编号
-    PomodoroPreset pomodoro_presets[5]; // 5个档位的预设
+    uint8_t pomodoro_current_idx; 
+    PomodoroPreset pomodoro_presets[5]; 
+
+    // 【新增】：闹钟硬盘数据
+    uint8_t alarm_count; // 当前闹钟数量
+    AlarmPreset alarms[10]; // 最多 10 个闹钟
 
     void load();
     void save();
