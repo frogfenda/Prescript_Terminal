@@ -30,28 +30,32 @@ void Alarm_UpdateBackground() {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) return; 
 
-    // 【新增】：检查系统并发锁
-    extern AppBase* appPushNotify;
-    extern AppBase* appPrescript;
-    if (AppManagerLock::isSystemBusy(appManager.getCurrentApp())) return;
-
     static int last_trigger_min = -1;
-    if (timeinfo.tm_min == last_trigger_min) return; 
+    static bool missed_alarm_pending = false; 
+    static int pending_alarm_idx = -1;
 
-    for (int i = 0; i < sysConfig.alarm_count; i++) {
-        if (sysConfig.alarms[i].is_active &&
-            sysConfig.alarms[i].hour == timeinfo.tm_hour &&
-            sysConfig.alarms[i].min == timeinfo.tm_min) {
-            
-            last_trigger_min = timeinfo.tm_min;
-
-            // 【修复】：彻底抛弃旧接口，一键拉起新引擎！
-            PushNotify_Trigger_Custom(sysConfig.alarms[i].prescript.c_str(), false);
-            break;
+    // 1. 抓取时间（无视系统是否繁忙，绝对不错过哪怕一秒）
+    if (timeinfo.tm_min != last_trigger_min) {
+        for (int i = 0; i < sysConfig.alarm_count; i++) {
+            if (sysConfig.alarms[i].is_active &&
+                sysConfig.alarms[i].hour == timeinfo.tm_hour &&
+                sysConfig.alarms[i].min == timeinfo.tm_min) {
+                
+                missed_alarm_pending = true; // 把闹钟挂起在内存里
+                pending_alarm_idx = i;
+                last_trigger_min = timeinfo.tm_min;
+                break; 
+            }
         }
     }
-}
+        // 2. 伺机触发（只要系统一闲下来，立刻把欠下的警报弹出来！）
+    if (missed_alarm_pending) {
+        if (AppManagerLock::isSystemBusy(appManager.getCurrentApp())) return;
 
+        missed_alarm_pending = false;
+        PushNotify_Trigger_Custom(sysConfig.alarms[pending_alarm_idx].prescript.c_str(), false);
+    }
+}
 // ---------------- 微模块 1: 闹钟参数设定 (绝妙融合新建、修改与删除) ----------------
 class AppAlarmEdit : public AppBase {
     int h, m, phase; // phase 0:时, 1:分, 2:删除确认界面
@@ -228,7 +232,12 @@ protected:
         }
     }
 public:
-    void onResume() override { AppMenuBase::onResume(); }
+    void onResume() override { 
+        // 斩断幽灵越界指针！
+        if (current_selection >= getMenuCount()) current_selection = getMenuCount() - 1;
+        if (current_selection < 0) current_selection = 0;
+        AppMenuBase::onResume(); 
+    }
 };
 AppAlarmMenu instanceAlarmMenu;
 AppBase* appAlarm = &instanceAlarmMenu;

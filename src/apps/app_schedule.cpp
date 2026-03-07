@@ -269,6 +269,8 @@ public:
         for(int i=0; i<sysConfig.schedule_count; i++) {
             if(sysConfig.schedules[i].is_expired) expired_indices[expired_count++] = i;
         }
+        if (current_selection >= getMenuCount()) current_selection = getMenuCount() - 1;
+        if (current_selection < 0) current_selection = 0;
         AppMenuBase::onResume(); 
     }
 };
@@ -328,6 +330,8 @@ public:
         for(int i=0; i<sysConfig.schedule_count; i++) {
             if(!sysConfig.schedules[i].is_expired) active_indices[active_count++] = i;
         }
+        if (current_selection >= getMenuCount()) current_selection = getMenuCount() - 1;
+        if (current_selection < 0) current_selection = 0;
         AppMenuBase::onResume(); 
     }
 };
