@@ -9,6 +9,75 @@ volatile bool g_ble_has_msg = false;
 char g_ble_msg_buf[512] = {0};
 AppManager appManager;
 
+// =========================================================
+// 【解耦中心】：独立的跨维协议路由器，将脏代码剥离出主调度器！
+// =========================================================
+static void BLE_Router_Process(String msg) {
+    if (msg.startsWith("TXT:")) {
+        if (!AppManagerLock::isSystemBusy(appManager.getCurrentApp())) {
+            PushNotify_Trigger_Custom(msg.substring(4).c_str(), true);
+        }
+    } 
+    else if (msg.startsWith("ALM:")) {
+        // 安全切割: ALM:时:分:名:字
+        int p1 = msg.indexOf(':', 4);
+        int p2 = msg.indexOf(':', p1+1);
+        int p3 = msg.indexOf(':', p2+1);
+        if (p1 > 0 && p2 > 0 && p3 > 0) {
+            Alarm_AddPresetMobile(
+                msg.substring(p2+1, p3).c_str(),
+                msg.substring(4, p1).toInt(),
+                msg.substring(p1+1, p2).toInt(),
+                msg.substring(p3+1).c_str()
+            );
+        }
+    }
+    else if (msg.startsWith("POM:")) {
+        // 安全切割: POM:索引:名:专注:休息
+        int p1 = msg.indexOf(':', 4);
+        int p2 = msg.indexOf(':', p1+1);
+        int p3 = msg.indexOf(':', p2+1);
+        if (p1 > 0 && p2 > 0 && p3 > 0) {
+            extern void Pomodoro_UpdatePreset(int, const char*, int, int);
+            Pomodoro_UpdatePreset(
+                msg.substring(4, p1).toInt(),
+                msg.substring(p1+1, p2).c_str(),
+                msg.substring(p2+1, p3).toInt(),
+                msg.substring(p3+1).toInt()
+            );
+        }
+    }
+    else if (msg.startsWith("SCH:")) {
+        // 【补齐遗漏接口】安全切割: SCH:月:日:时:分:标题:内容
+        // 示例: SCH:11:15:09:30:系统维护:执行全面内存清洗
+        int p1 = msg.indexOf(':', 4);
+        int p2 = msg.indexOf(':', p1+1);
+        int p3 = msg.indexOf(':', p2+1);
+        int p4 = msg.indexOf(':', p3+1);
+        int p5 = msg.indexOf(':', p4+1);
+        if (p1 > 0 && p2 > 0 && p3 > 0 && p4 > 0 && p5 > 0) {
+            int mo = msg.substring(4, p1).toInt();
+            int d  = msg.substring(p1+1, p2).toInt();
+            int h  = msg.substring(p2+1, p3).toInt();
+            int m  = msg.substring(p3+1, p4).toInt();
+            String title = msg.substring(p4+1, p5);
+            String text = msg.substring(p5+1);
+            
+            // 极其优雅的“时空推演”算法
+            time_t now; time(&now);
+            struct tm t_info; localtime_r(&now, &t_info);
+            t_info.tm_mon = mo - 1; t_info.tm_mday = d; 
+            t_info.tm_hour = h; t_info.tm_min = m; t_info.tm_sec = 0;
+            time_t target = mktime(&t_info);
+            if (target < now) {
+                t_info.tm_year += 1; // 如果时间早于现在，自动推算到明年！
+                target = mktime(&t_info);
+            }
+            Schedule_AddMobile(target, title.c_str(), text.c_str());
+        }
+    }
+}
+
 AppManager::AppManager() {
     currentApp = nullptr;
     stackTop = 0;
@@ -20,13 +89,10 @@ AppManager::AppManager() {
 }
 
 void AppManager::begin() { 
-    // 【核心修复 1】：同步硬盘里的配置
     current_lang = (SystemLang_t)sysConfig.language;
     config_sleep_time_ms = sysConfig.sleep_time_ms;
     last_tick = millis(); 
     idle_timer = millis(); 
-    
-    // 【核心修复 2】：主引擎点火起步！没有这句就是黑屏植物人！
     launchApp(appStandby); 
 }
 
@@ -72,42 +138,10 @@ void AppManager::run() {
         }
     }
 
+    // 【解耦中心】：调用极其干净的路由协议分发器
     if (g_ble_has_msg) {
         g_ble_has_msg = false;
-        String msg = g_ble_msg_buf;
-        
-        if (msg.startsWith("TXT:")) {
-            if (!AppManagerLock::isSystemBusy(currentApp)) {
-                PushNotify_Trigger_Custom(msg.substring(4).c_str(), true);
-            }
-        } 
-        else if (msg.startsWith("ALM:")) {
-            int p1 = msg.indexOf(':', 4);
-            int p2 = msg.indexOf(':', p1+1);
-            int p3 = msg.indexOf(':', p2+1);
-            if (p1>0 && p2>0 && p3>0) {
-                Alarm_AddPresetMobile(
-                    msg.substring(p2+1, p3).c_str(),
-                    msg.substring(4, p1).toInt(),
-                    msg.substring(p1+1, p2).toInt(),
-                    msg.substring(p3+1).c_str()
-                );
-            }
-        }
-        else if (msg.startsWith("POM:")) {
-            int p1 = msg.indexOf(':', 4);
-            int p2 = msg.indexOf(':', p1+1);
-            int p3 = msg.indexOf(':', p2+1);
-            if (p1>0 && p2>0 && p3>0) {
-                extern void Pomodoro_UpdatePreset(int, const char*, int, int);
-                Pomodoro_UpdatePreset(
-                    msg.substring(4, p1).toInt(),
-                    msg.substring(p1+1, p2).c_str(),
-                    msg.substring(p2+1, p3).toInt(),
-                    msg.substring(p3+1).toInt()
-                );
-            }
-        }
+        BLE_Router_Process(String(g_ble_msg_buf));
     }
 
     uint32_t current_time = millis();

@@ -99,20 +99,21 @@ public:
     void onLoop() override {
         if (!is_paused) {
             uint32_t elapsed = millis() - timer_start;
-          // 找到这部分并替换：
-            if (elapsed >= current_duration) {
+          if (elapsed >= current_duration) {
                 if (phase == 0) {
                     phase = 1;
                     current_duration = current_preset.rest_min * 60000;
-                    timer_start = millis();
                     
-                    // 【修复】：呼叫全新警报引擎，保持堆栈 (true) 以便退回番茄钟
+                    // 【逻辑终极修复】：强制自动暂停！绝不让弹窗时间盗窃休息时间！
+                    timer_start = millis();
+                    is_paused = true; 
+                    pause_start_time = millis();
+                    
                     PushNotify_Trigger_Custom(appManager.getLanguage() == LANG_ZH ? 
                         "专注周期结束。立刻起身活动恢复精力。" : 
                         "WORK CYCLE COMPLETED. REST IMMEDIATELY.", true);
                 } else {
                     appManager.popApp(); 
-                    // 【修复】：休息结束直接退回菜单，霸占屏幕 (false)
                     PushNotify_Trigger_Custom(appManager.getLanguage() == LANG_ZH ? 
                         "休眠恢复完毕。系统已重置，准备接受新的专注指令。" : 
                         "REST CYCLE COMPLETED. SYSTEM RESET. READY FOR NEXT TASK.", false);
