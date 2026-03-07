@@ -2,7 +2,7 @@
 #ifndef __SYS_CONFIG_H
 #define __SYS_CONFIG_H
 #include <Arduino.h>
-
+#define MAX_CUSTOM_PRESCRIPTS 20
 struct PomodoroPreset {
     String name;
     uint32_t work_min;
@@ -47,6 +47,8 @@ public:
     // 【新增】：日程表硬盘数据
     uint8_t schedule_count; 
     ScheduleItem schedules[15]; // 最多 15 个日程
+    String custom_prescripts[MAX_CUSTOM_PRESCRIPTS];
+    int custom_prescript_count;
 
     void load();
     void save();

@@ -188,7 +188,16 @@
             <button class="btn" onclick="addSchedule()">+ 登记并同步到终端</button>
         </div>
     </div>
-
+    <div class="panel">
+        <div class="panel-title"><span>>> PRESCRIPT LIBRARY (自定义指令池)</span><span onclick="sendRaw('GET:SYNC')"
+                style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
+        <div id="pre_list_container"></div>
+        <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
+            <input type="text" class="input-box" id="pre_text" style="width: 100%; margin-bottom: 10px;"
+                placeholder="输入新的指令文本...">
+            <button class="btn" onclick="addPre()">+ 注入自定义池</button>
+        </div>
+    </div>
 
     <div class="panel">
         <div class="panel-title"><span>>> POMODORO (专注预设)</span></div>
@@ -325,6 +334,46 @@
             let w = document.getElementById('pom_work').value;
             let r = document.getElementById('pom_rest').value;
             sendRaw(`POM:${slot}:${n}:${w}:${r}`);
+        }
+        // 增加数据容器
+        let terminalPrescripts = [];
+
+        // 找到 handleRX，修改为：
+        function handleRX(event) {
+            let val = new TextDecoder().decode(event.target.value);
+            if (val === "SYNC:CLEAR") {
+                terminalAlarms = []; terminalSchedules = []; terminalPrescripts = []; renderUI();
+            } else if (val.startsWith("SYNC:ALM:")) {
+                try { terminalAlarms.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
+            } else if (val.startsWith("SYNC:SCH:")) {
+                try { terminalSchedules.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
+            } else if (val.startsWith("SYNC:PRE:")) {
+                try { terminalPrescripts.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
+            }
+        }
+
+        // 找到 renderUI，追加对指令库的渲染：
+        function renderUI() {
+            // ... 原来的闹钟和日程渲染保持不变 ...
+
+            // 渲染指令库
+            let preHtml = terminalPrescripts.length === 0 ? "<div style='color:#555; text-align:center; font-size:12px;'>( 终端目前无自定义指令 )</div>" : "";
+            terminalPrescripts.forEach(p => {
+                preHtml += `<div class="list-item">
+                    <div class="item-info"><span style="color:#0ff;">${p.t}</span></div>
+                    <button class="btn-danger" onclick="executeDelete('PRE_DEL:${p.t}')">✖</button>
+                </div>`;
+            });
+            document.getElementById('pre_list_container').innerHTML = preHtml;
+        }
+
+        // 追加发送函数
+        function addPre() {
+            let txt = document.getElementById('pre_text').value.replace(/:/g, "：");
+            if (!txt) return alert("内容不能为空");
+            sendRaw(`PRE:${txt}`);
+            setTimeout(() => sendRaw('GET:SYNC'), 500);
+            document.getElementById('pre_text').value = ""; // 清空输入框
         }
     </script>
 </body>

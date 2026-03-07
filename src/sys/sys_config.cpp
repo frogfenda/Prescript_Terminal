@@ -50,7 +50,12 @@ void SysConfig::load() {
         schedules[i].is_expired = prefs.getBool(("sc_ex_" + String(i)).c_str(), false);
         schedules[i].is_restored = prefs.getBool(("sc_rs_" + String(i)).c_str(), false);
     }
-
+    custom_prescript_count = prefs.getInt("cp_cnt", 0);
+    if (custom_prescript_count > MAX_CUSTOM_PRESCRIPTS) custom_prescript_count = MAX_CUSTOM_PRESCRIPTS;
+    for (int i = 0; i < custom_prescript_count; i++) {
+        char key[16]; sprintf(key, "cp_%d", i);
+        custom_prescripts[i] = prefs.getString(key, "");
+    }
     prefs.end();
 }
 
@@ -91,6 +96,11 @@ void SysConfig::save() {
         prefs.putString(("sc_ps_" + String(i)).c_str(), schedules[i].prescript);
         prefs.putBool(("sc_ex_" + String(i)).c_str(), schedules[i].is_expired);
         prefs.putBool(("sc_rs_" + String(i)).c_str(), schedules[i].is_restored);
+    }
+    prefs.putInt("cp_cnt", custom_prescript_count);
+    for (int i = 0; i < custom_prescript_count; i++) {
+        char key[16]; sprintf(key, "cp_%d", i);
+        prefs.putString(key, custom_prescripts[i]);
     }
     
     prefs.end();

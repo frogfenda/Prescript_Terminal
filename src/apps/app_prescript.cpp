@@ -3,6 +3,7 @@
 #include "app_manager.h"
 #include "prescript_data.h"
 #include "sys_auto_push.h"
+#include "sys_config.h" // 【新增】：引入配置以便读取自定义指令池
 
 class AppPrescript : public AppBase {
 private:
@@ -34,7 +35,8 @@ private:
         return 1;
     }
 
-    int Split_To_Lines(const char* formatted_str, char lines[][128]) {
+    // 【修复 1】：增强缓冲容量，抵抗外部恶意超长指令
+    int Split_To_Lines(const char* formatted_str, char lines[][256]) {
         int line_idx = 0, buf_idx = 0;
         for(int i = 0; formatted_str[i] != '\0'; i++) {
             if (formatted_str[i] == '\n') {
@@ -42,20 +44,22 @@ private:
                 line_idx++; buf_idx = 0;
                 if (line_idx >= 30) break; 
             } else {
-                lines[line_idx][buf_idx++] = formatted_str[i];
+                if (buf_idx < 255) lines[line_idx][buf_idx++] = formatted_str[i];
             }
         }
         if (buf_idx > 0 && line_idx < 30) { lines[line_idx][buf_idx] = '\0'; line_idx++; }
         return line_idx;
     }
 
-    // ========================================================
-    // 【终极修复】：恢复中英双语的防溢出硬核排版引擎！
-    // ========================================================
     void Format_Chinese_To_Grid(const char *raw_str, char *formatted_buf) {
         int max_v = (HAL_Get_Screen_Width() - UI_MARGIN_LEFT) / 8; 
         int current_w = 0; int buf_idx = 0;
         for(int i = 0; raw_str[i] != '\0'; ) {
+            // 安全处理显式换行
+            if (raw_str[i] == '\n') {
+                formatted_buf[buf_idx++] = raw_str[i++];
+                current_w = 0; continue;
+            }
             int clen = get_utf8_char_len(raw_str[i]);
             int cw = (clen > 1) ? 2 : 1; 
             if (current_w + cw > max_v - 1) {
@@ -68,27 +72,33 @@ private:
         formatted_buf[buf_idx] = '\0';
     }
 
+    // 【修复 2】：重构英文单词换行与视觉宽度截断逻辑
     void Format_English_To_Grid(const char *raw_str, char *formatted_buf) {
         int max_v = (HAL_Get_Screen_Width() - 10) / 8;
         int current_w = 0; int buf_idx = 0;
-        int last_space_i = -1; int last_space_buf = -1;
+        int last_space_i = -1; int last_space_buf = -1; int last_space_w = 0;
         
         for(int i = 0; raw_str[i] != '\0'; ) {
+            // 兼容外部传来的强制换行
+            if (raw_str[i] == '\n') {
+                formatted_buf[buf_idx++] = raw_str[i++];
+                current_w = 0; last_space_i = -1; last_space_buf = -1;
+                continue;
+            }
             int clen = get_utf8_char_len(raw_str[i]);
-            if (raw_str[i] == ' ') { last_space_i = i; last_space_buf = buf_idx; }
+            if (raw_str[i] == ' ') { last_space_i = i; last_space_buf = buf_idx; last_space_w = current_w; }
             for(int b = 0; b < clen; b++) formatted_buf[buf_idx++] = raw_str[i++];
             
             current_w += (clen > 1) ? 2 : 1; 
             if (current_w >= max_v) {
-                // 英文优先按空格换行，防止单词被粗暴切断
-                if (last_space_i != -1 && last_space_buf != -1 && (buf_idx - last_space_buf < 20)) {
+                if (last_space_i != -1 && last_space_buf != -1 && (buf_idx - last_space_buf < 30)) {
                     formatted_buf[last_space_buf] = '\n';
-                    current_w = buf_idx - last_space_buf - 1;
+                    current_w = current_w - last_space_w - 1; // 完美重置下一行的前置视觉宽度
                 } else {
                     formatted_buf[buf_idx++] = '\n';
                     current_w = 0;
                 }
-                last_space_i = -1;
+                last_space_i = -1; last_space_buf = -1;
             }
         }
         formatted_buf[buf_idx] = '\0';
@@ -101,27 +111,25 @@ private:
         HAL_Screen_DrawHeader();
         HAL_Draw_Line(0, UI_HEADER_HEIGHT, sw, UI_HEADER_HEIGHT, 1);
 
+        // 统一限制最大绘图行数为 12 行，防止溢出屏幕显存！
+        int lines = (sh - start_y) / 16; if (lines > 12) lines = 12;
+
         if (lang == LANG_ZH) {
-            int lines = (sh - start_y) / 16; if (lines > 12) lines = 12;
             int max_visual_width = (sw - UI_MARGIN_LEFT) / 8; 
             for (int row = 0; row < lines; row++) {
                 char row_buf[256]; int buf_idx = 0, current_w = 0;
                 while (current_w < max_visual_width - 1) {
                     if (random(100) < 20 && current_w <= max_visual_width - 2) {
                         int pick = random(CACHE_SIZE);
-                        row_buf[buf_idx++] = cached_glitch_pool[pick][0];
-                        row_buf[buf_idx++] = cached_glitch_pool[pick][1];
-                        row_buf[buf_idx++] = cached_glitch_pool[pick][2];
+                        row_buf[buf_idx++] = cached_glitch_pool[pick][0]; row_buf[buf_idx++] = cached_glitch_pool[pick][1]; row_buf[buf_idx++] = cached_glitch_pool[pick][2];
                         current_w += 2; 
                     } else {
                         row_buf[buf_idx++] = 33 + random(94); current_w += 1; 
                     }
                 }
-                row_buf[buf_idx] = '\0';
-                HAL_Screen_ShowChineseLine(10, start_y + row * 16, row_buf);
+                row_buf[buf_idx] = '\0'; HAL_Screen_ShowChineseLine(10, start_y + row * 16, row_buf);
             }
         } else {
-            int lines = (sh - start_y) / 16; if (lines > 15) lines = 15;
             int chars_per_line = (sw - 10) / 8; 
             for (int row = 0; row < lines; row++) {
                 char row_buf[chars_per_line + 1];
@@ -139,26 +147,38 @@ private:
         extern char __internal_custom_prescript[512];
         const char *rule;
         
-        if (__internal_prescript_mode == 3 || __internal_prescript_mode == 4) rule = __internal_custom_prescript;
-        else rule = Get_Prescript(current_lang, random(Get_Prescript_Count(current_lang)));
+        if (__internal_prescript_mode == 3 || __internal_prescript_mode == 4) {
+            rule = __internal_custom_prescript;
+        } else {
+            // 【修复 3】：恢复缺失的“混合指令池”抽取魔法！
+            if (sysConfig.custom_prescript_count > 0 && random(100) < 30) {
+                int pick = random(sysConfig.custom_prescript_count);
+                rule = sysConfig.custom_prescripts[pick].c_str();
+            } else {
+                rule = Get_Prescript(current_lang, random(Get_Prescript_Count(current_lang)));
+            }
+        }
         
-        static char raw_prescript[512]; static char formatted_buf[1024]; static char lines[30][128];
+        static char raw_prescript[512]; static char formatted_buf[1024]; static char lines[30][256];
         snprintf(raw_prescript, sizeof(raw_prescript), "_%s_", rule);
         raw_prescript[sizeof(raw_prescript) - 1] = '\0';
         int actual_lines = 0;
         int sw = HAL_Get_Screen_Width(); 
+        
+        // 【核心修复】：中英模式统一限制最多渲染 12 行，彻底切断崩溃根源！
+        int draw_lines = 12;
 
         if (current_lang == LANG_ZH) {
             Format_Chinese_To_Grid(raw_prescript, formatted_buf);
             actual_lines = Split_To_Lines(formatted_buf, lines);
             int max_v = (sw - UI_MARGIN_LEFT) / 8;
             uint8_t lucky[15][40];
-            for(int r=0; r<12; r++) for(int c=0; c<max_v; c++) lucky[r][c] = random(11) + 2;
+            for(int r=0; r<draw_lines; r++) for(int c=0; c<max_v; c++) lucky[r][c] = random(11) + 2;
             
             for(int frame=0; frame<22; frame++) {
                 uint8_t all_locked=1; HAL_Sprite_Clear(); HAL_Screen_DrawHeader(); HAL_Draw_Line(0,UI_HEADER_HEIGHT,sw,UI_HEADER_HEIGHT,1);
-                for(int r=0; r<12; r++) {
-                    char row_buf[256]; int buf_idx=0, current_w=0, byte_idx=0;
+                for(int r=0; r<draw_lines; r++) {
+                    char row_buf[512]; int buf_idx=0, current_w=0, byte_idx=0;
                     if(r < actual_lines) {
                         while(lines[r][byte_idx]!='\0' && current_w<max_v-1) {
                             int clen=get_utf8_char_len(lines[r][byte_idx]); int cw=(clen>1)?2:1;
@@ -176,25 +196,29 @@ private:
                 HAL_Screen_Update(); if(!all_locked) SYS_SOUND_GLITCH(); if(all_locked) break; yield();
             }
         } else {
-            // 【彻底恢复】：被省略掉的纯正英文解码序列
             Format_English_To_Grid(raw_prescript, formatted_buf);
             actual_lines = Split_To_Lines(formatted_buf, lines);
             int max_v = (sw - 10) / 8;
             uint8_t lucky[15][40];
-            for(int r=0; r<15; r++) for(int c=0; c<max_v; c++) lucky[r][c] = random(11) + 2;
+            for(int r=0; r<draw_lines; r++) for(int c=0; c<max_v; c++) lucky[r][c] = random(11) + 2;
             
             for(int frame=0; frame<22; frame++) {
                 uint8_t all_locked=1; HAL_Sprite_Clear(); HAL_Screen_DrawHeader(); HAL_Draw_Line(0,UI_HEADER_HEIGHT,sw,UI_HEADER_HEIGHT,1);
-                for(int r=0; r<15; r++) {
-                    char row_buf[256]; int buf_idx=0, current_w=0, byte_idx=0;
+                for(int r=0; r<draw_lines; r++) {
+                    char row_buf[512]; int buf_idx=0, current_w=0, byte_idx=0;
                     if(r < actual_lines) {
                         while(lines[r][byte_idx]!='\0' && current_w < max_v) {
                             int clen = get_utf8_char_len(lines[r][byte_idx]);
                             int cw = (clen > 1) ? 2 : 1;
-                            if(frame>=lucky[r][current_w]) { for(int b=0; b<clen; b++) row_buf[buf_idx++] = lines[r][byte_idx+b]; }
+                            if(frame>=lucky[r][current_w]) { 
+                                for(int b=0; b<clen; b++) row_buf[buf_idx++] = lines[r][byte_idx+b]; 
+                            }
                             else { 
                                 all_locked=0; 
-                                if(cw==2) { int p=random(CACHE_SIZE); row_buf[buf_idx++]=cached_glitch_pool[p][0]; row_buf[buf_idx++]=cached_glitch_pool[p][1]; row_buf[buf_idx++]=cached_glitch_pool[p][2]; }
+                                if(cw==2) { 
+                                    int p=random(CACHE_SIZE); 
+                                    row_buf[buf_idx++]=cached_glitch_pool[p][0]; row_buf[buf_idx++]=cached_glitch_pool[p][1]; row_buf[buf_idx++]=cached_glitch_pool[p][2]; 
+                                }
                                 else row_buf[buf_idx++] = 33+random(94); 
                             }
                             current_w += cw; byte_idx += clen;

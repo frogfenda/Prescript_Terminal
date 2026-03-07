@@ -51,6 +51,12 @@ static void BLE_Router_Process(String msg) {
             SysBLE_Notify(out.c_str());
             delay(50);
         }
+        for (int i = 0; i < sysConfig.custom_prescript_count; i++) {
+            String safeTxt = sysConfig.custom_prescripts[i]; safeTxt.replace("\"", "\\\"");
+            String out = "SYNC:PRE:{\"t\":\"" + safeTxt + "\"}";
+            SysBLE_Notify(out.c_str());
+            delay(50);
+        }
         return; 
     }
 
@@ -99,6 +105,29 @@ static void BLE_Router_Process(String msg) {
     }
     else if (msg.startsWith("SCH_DEL:")) {
         Schedule_DeleteMobile(msg.substring(8).c_str());
+    }
+    else if (msg.startsWith("PRE:")) {
+        String text = msg.substring(4);
+        if (sysConfig.custom_prescript_count < MAX_CUSTOM_PRESCRIPTS) {
+            sysConfig.custom_prescripts[sysConfig.custom_prescript_count] = text;
+            sysConfig.custom_prescript_count++;
+            sysConfig.save();
+        }
+    }
+    // 【新增】：删除自定义指令 (PRE_DEL:内容)
+    else if (msg.startsWith("PRE_DEL:")) {
+        String target = msg.substring(8);
+        bool deleted = false;
+        for (int i = 0; i < sysConfig.custom_prescript_count; i++) {
+            if (sysConfig.custom_prescripts[i] == target) {
+                for (int j = i; j < sysConfig.custom_prescript_count - 1; j++) {
+                    sysConfig.custom_prescripts[j] = sysConfig.custom_prescripts[j+1];
+                }
+                sysConfig.custom_prescript_count--;
+                deleted = true; i--; 
+            }
+        }
+        if (deleted) sysConfig.save();
     }
 }
 
