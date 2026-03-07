@@ -9,6 +9,27 @@ int g_schedule_edit_idx = -1; // -1:新建, >=0:修改或恢复
 extern AppBase* appScheduleEdit;
 extern AppBase* appScheduleExpired;
 
+// 文件：src/apps/app_schedule.cpp (在文件顶部添加)
+
+
+
+// 【新增】：根据标题遍历并抹除未过期的日程
+void Schedule_DeleteMobile(const char* title) {
+    bool deleted = false;
+    for (int i = 0; i < sysConfig.schedule_count; i++) {
+        // 只删除标题匹配的日程（不管过没过期直接清理）
+        if (sysConfig.schedules[i].title == title) {
+            for (int j = i; j < sysConfig.schedule_count - 1; j++) {
+                sysConfig.schedules[j] = sysConfig.schedules[j+1];
+            }
+            sysConfig.schedule_count--;
+            deleted = true;
+            i--; 
+        }
+    }
+    if (deleted) sysConfig.save();
+}
+
 // 【多语言适配】：提取动态预设语句
 const char* Get_Title_Preset(int idx) {
     const char* zh_t[] = {"常规待办", "高维会议", "系统维护", "突发任务"};
@@ -51,7 +72,7 @@ void Schedule_UpdateBackground() {
     last_check = millis();
     time_t now; time(&now);
     if (now < 1000000000) return; 
-    if (AppManagerLock::isSystemBusy(appManager.getCurrentApp())) return;
+    
 
     bool need_save = false;
     for (int i = 0; i < sysConfig.schedule_count; i++) {

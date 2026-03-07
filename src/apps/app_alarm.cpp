@@ -7,6 +7,7 @@
 int g_alarm_edit_idx = -1; 
 extern AppBase* appAlarmEdit;
 
+
 void Alarm_AddPresetMobile(const char* name, int hour, int min, const char* text) {
     if (sysConfig.alarm_count >= 10) return;
     int idx = sysConfig.alarm_count;
@@ -17,6 +18,23 @@ void Alarm_AddPresetMobile(const char* name, int hour, int min, const char* text
     sysConfig.alarms[idx].prescript = text;
     sysConfig.alarm_count++;
     sysConfig.save();
+}
+
+// 【新增】：根据名字遍历并抹除闹钟
+void Alarm_DeleteMobile(const char* name) {
+    bool deleted = false;
+    for (int i = 0; i < sysConfig.alarm_count; i++) {
+        if (sysConfig.alarms[i].name == name) {
+            // 找到同名闹钟，执行数组平移抹除
+            for (int j = i; j < sysConfig.alarm_count - 1; j++) {
+                sysConfig.alarms[j] = sysConfig.alarms[j+1];
+            }
+            sysConfig.alarm_count--;
+            deleted = true;
+            i--; // 防止连号的同名闹钟被漏删
+        }
+    }
+    if (deleted) sysConfig.save(); // 有删除动作才写入硬盘
 }
 
 void Alarm_UpdateBackground() {
@@ -35,7 +53,7 @@ void Alarm_UpdateBackground() {
         }
     }
     if (missed_alarm_pending) {
-        if (AppManagerLock::isSystemBusy(appManager.getCurrentApp())) return;
+        
         missed_alarm_pending = false;
         PushNotify_Trigger_Custom(sysConfig.alarms[pending_alarm_idx].prescript.c_str(), false);
     }

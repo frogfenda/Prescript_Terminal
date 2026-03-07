@@ -12,14 +12,42 @@ AppManager appManager;
 // =========================================================
 // 【解耦中心】：独立的跨维协议路由器，将脏代码剥离出主调度器！
 // =========================================================
+// 文件：src/sys/app_manager.cpp (找到并完全替换 BLE_Router_Process 函数)
+
 static void BLE_Router_Process(String msg) {
-    if (msg.startsWith("TXT:")) {
-        if (!AppManagerLock::isSystemBusy(appManager.getCurrentApp())) {
-            PushNotify_Trigger_Custom(msg.substring(4).c_str(), true);
+    // 1. 推送闪烁强制指令
+    if (msg.startsWith("GET:SYNC")) {
+        SysBLE_Notify("SYNC:CLEAR"); // 让手机端清空旧列表
+        delay(50);
+        
+        // 发送所有闹钟数据
+        for (int i = 0; i < sysConfig.alarm_count; i++) {
+            String out = "SYNC:ALM:{\"h\":" + String(sysConfig.alarms[i].hour) + 
+                         ",\"m\":" + String(sysConfig.alarms[i].min) + 
+                         ",\"n\":\"" + sysConfig.alarms[i].name + 
+                         "\",\"t\":\"" + sysConfig.alarms[i].prescript + "\"}";
+            SysBLE_Notify(out.c_str());
+            delay(50); // 必须延时，防止蓝牙数据包连车
         }
-    } 
+        
+        // 发送所有日程数据
+        for (int i = 0; i < sysConfig.schedule_count; i++) {
+            struct tm t_info; time_t tt = sysConfig.schedules[i].target_time; localtime_r(&tt, &t_info);
+            char dt[32]; sprintf(dt, "%04d-%02d-%02dT%02d:%02d", t_info.tm_year+1900, t_info.tm_mon+1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min);
+            String out = "SYNC:SCH:{\"dt\":\"" + String(dt) + 
+                         "\",\"n\":\"" + sysConfig.schedules[i].title + 
+                         "\",\"t\":\"" + sysConfig.schedules[i].prescript + "\"}";
+            SysBLE_Notify(out.c_str());
+            delay(50);
+        }
+        return; // 同步指令不需要往下走了
+    }
+  if (msg.startsWith("TXT:")) {
+        // 直接无脑打断！不再进行任何限制
+        PushNotify_Trigger_Custom(msg.substring(4).c_str(), true);
+    }
+    // 2. 添加闹钟
     else if (msg.startsWith("ALM:")) {
-        // 安全切割: ALM:时:分:名:字
         int p1 = msg.indexOf(':', 4);
         int p2 = msg.indexOf(':', p1+1);
         int p3 = msg.indexOf(':', p2+1);
@@ -32,8 +60,12 @@ static void BLE_Router_Process(String msg) {
             );
         }
     }
+    // 3. 【新增】：删除闹钟 (格式 ALM_DEL:闹钟名)
+    else if (msg.startsWith("ALM_DEL:")) {
+        Alarm_DeleteMobile(msg.substring(8).c_str());
+    }
+    // 4. 覆盖番茄钟预设
     else if (msg.startsWith("POM:")) {
-        // 安全切割: POM:索引:名:专注:休息
         int p1 = msg.indexOf(':', 4);
         int p2 = msg.indexOf(':', p1+1);
         int p3 = msg.indexOf(':', p2+1);
@@ -47,9 +79,8 @@ static void BLE_Router_Process(String msg) {
             );
         }
     }
+    // 5. 添加日程
     else if (msg.startsWith("SCH:")) {
-        // 【补齐遗漏接口】安全切割: SCH:月:日:时:分:标题:内容
-        // 示例: SCH:11:15:09:30:系统维护:执行全面内存清洗
         int p1 = msg.indexOf(':', 4);
         int p2 = msg.indexOf(':', p1+1);
         int p3 = msg.indexOf(':', p2+1);
@@ -63,18 +94,21 @@ static void BLE_Router_Process(String msg) {
             String title = msg.substring(p4+1, p5);
             String text = msg.substring(p5+1);
             
-            // 极其优雅的“时空推演”算法
             time_t now; time(&now);
             struct tm t_info; localtime_r(&now, &t_info);
             t_info.tm_mon = mo - 1; t_info.tm_mday = d; 
             t_info.tm_hour = h; t_info.tm_min = m; t_info.tm_sec = 0;
             time_t target = mktime(&t_info);
             if (target < now) {
-                t_info.tm_year += 1; // 如果时间早于现在，自动推算到明年！
+                t_info.tm_year += 1; 
                 target = mktime(&t_info);
             }
             Schedule_AddMobile(target, title.c_str(), text.c_str());
         }
+    }
+    // 6. 【新增】：删除日程 (格式 SCH_DEL:日程名)
+    else if (msg.startsWith("SCH_DEL:")) {
+        Schedule_DeleteMobile(msg.substring(8).c_str());
     }
 }
 
@@ -131,11 +165,10 @@ void AppManager::run() {
     Alarm_UpdateBackground(); 
     Schedule_UpdateBackground();
 
-    if (g_cross_core_trigger_push) {
+   if (g_cross_core_trigger_push) {
         g_cross_core_trigger_push = false; 
-        if (!AppManagerLock::isSystemBusy(currentApp)) {
-            PushNotify_Trigger_Random(true); 
-        }
+        // 直接无脑打断！
+        PushNotify_Trigger_Random(true); 
     }
 
     // 【解耦中心】：调用极其干净的路由协议分发器
