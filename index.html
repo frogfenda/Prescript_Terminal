@@ -121,11 +121,18 @@
             font-family: inherit;
         }
 
+        /* 屏蔽原生下拉框的丑陋箭头，实现居中对齐 */
+        select.input-box {
+            appearance: none;
+            -webkit-appearance: none;
+            text-align-last: center;
+            outline: none;
+        }
+
         ::-webkit-calendar-picker-indicator {
             filter: invert(1) hue-rotate(180deg) brightness(2);
         }
 
-        /* 同步列表专属样式 */
         .list-item {
             border: 1px solid #005555;
             background: #001111;
@@ -157,8 +164,9 @@
 
     <div class="panel">
         <div class="panel-title"><span>>> TXT OVERRIDE (强制打断)</span></div>
-        <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;" value="有内鬼,终止交易!">
-        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)">发送指令</button>
+        <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;"
+            value="最高级别警告：立刻前往系统中心！">
+        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)">发射全局警报</button>
     </div>
 
     <div class="panel">
@@ -166,12 +174,20 @@
                 style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
         <div id="alarm_list_container"></div>
         <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
-            <div class="input-row"><label>时间:</label><input type="time" class="input-box" id="alm_time" value="08:00">
+
+            <div class="input-row">
+                <label>时间:</label>
+                <div style="width: 65%; display: flex; justify-content: space-between;">
+                    <select class="input-box" id="alm_h" style="width: 46%;"></select>
+                    <span style="color: var(--main-color); line-height: 35px; font-weight: bold;">:</span>
+                    <select class="input-box" id="alm_m" style="width: 46%;"></select>
+                </div>
             </div>
+
             <div class="input-row"><label>代号:</label><input type="text" class="input-box" id="alm_name" value="早间唤醒">
             </div>
             <div class="input-row"><label>指令:</label><input type="text" class="input-box" id="alm_text"
-                    value="至..睡眠者...脱离休眠，立刻起床"></div>
+                    value="系统强制脱离休眠，立刻起床！"></div>
             <button class="btn" onclick="addAlarm()">+ 添加并同步到终端</button>
         </div>
     </div>
@@ -182,10 +198,10 @@
         <div id="sch_list_container"></div>
         <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
             <div class="input-row"><label>时空:</label><input type="datetime-local" class="input-box" id="sch_time"></div>
-            <div class="input-row"><label>标题:</label><input type="text" class="input-box" id="sch_name" value="去开会">
+            <div class="input-row"><label>标题:</label><input type="text" class="input-box" id="sch_name" value="跨年节点">
             </div>
             <div class="input-row"><label>内容:</label><input type="text" class="input-box" id="sch_text"
-                    value="至..大忙人...十五分钟内到会议室"></div>
+                    value="执行末日倒数程序。"></div>
             <button class="btn" onclick="addSchedule()">+ 登记并同步到终端</button>
         </div>
     </div>
@@ -197,7 +213,7 @@
                 <option value="1">槽位 1</option>
                 <option value="2">槽位 2</option>
             </select></div>
-        <div class="input-row"><label>名称:</label><input type="text" class="input-box" id="pom_name" value="请专注">
+        <div class="input-row"><label>名称:</label><input type="text" class="input-box" id="pom_name" value="极限心流模式">
         </div>
         <div class="input-row"><label>专注(分):</label><input type="number" class="input-box" id="pom_work" value="45">
         </div>
@@ -211,13 +227,20 @@
         const SERVICE_UUID = "0000dead-0000-1000-8000-00805f9b34fb";
         const CHAR_UUID = "0000beef-0000-1000-8000-00805f9b34fb";
 
-        // 用于存储从终端拉取的数据
         let terminalAlarms = [];
         let terminalSchedules = [];
 
         window.onload = () => {
+            // 初始化日程时间
             let now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset() + 60);
             document.getElementById('sch_time').value = now.toISOString().slice(0, 16);
+
+            // 动态生成闹钟的原生下拉选项 (完美伪装成滚轮)
+            let hHtml = ''; for (let i = 0; i < 24; i++) { let v = String(i).padStart(2, '0'); hHtml += `<option value="${v}">${v} 时</option>`; }
+            document.getElementById('alm_h').innerHTML = hHtml; document.getElementById('alm_h').value = "08";
+
+            let mHtml = ''; for (let i = 0; i < 60; i++) { let v = String(i).padStart(2, '0'); mHtml += `<option value="${v}">${v} 分</option>`; }
+            document.getElementById('alm_m').innerHTML = mHtml; document.getElementById('alm_m').value = "00";
         };
 
         async function connectBLE() {
@@ -229,14 +252,12 @@
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 bleCharacteristic = await service.getCharacteristic(CHAR_UUID);
 
-                // 【核心新增】：开启监听，并主动拉取硬盘数据！
                 await bleCharacteristic.startNotifications();
                 bleCharacteristic.addEventListener('characteristicvaluechanged', handleRX);
 
                 statusBox.innerHTML = "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[SYNCING DATABASE...]</span>";
                 statusBox.style.borderColor = "#0f0"; statusBox.style.color = "#0f0";
 
-                // 连接成功后，立刻要求全盘同步
                 setTimeout(() => sendRaw('GET:SYNC'), 500);
 
                 device.addEventListener('gattserverdisconnected', () => {
@@ -245,10 +266,8 @@
             } catch (error) { alert("连接失败: " + error.message); }
         }
 
-        // 处理单片机发来的数据流
         function handleRX(event) {
             let val = new TextDecoder().decode(event.target.value);
-            console.log("RX: ", val);
             if (val === "SYNC:CLEAR") {
                 terminalAlarms = []; terminalSchedules = []; renderUI();
             } else if (val.startsWith("SYNC:ALM:")) {
@@ -258,9 +277,7 @@
             }
         }
 
-        // 图形化渲染列表
         function renderUI() {
-            // 渲染闹钟列表
             let almHtml = terminalAlarms.length === 0 ? "<div style='color:#555; text-align:center; font-size:12px;'>( 终端目前无闹钟 )</div>" : "";
             terminalAlarms.forEach(a => {
                 let hh = String(a.h).padStart(2, '0'); let mm = String(a.m).padStart(2, '0');
@@ -271,10 +288,9 @@
             });
             document.getElementById('alarm_list_container').innerHTML = almHtml;
 
-            // 渲染日程列表
             let schHtml = terminalSchedules.length === 0 ? "<div style='color:#555; text-align:center; font-size:12px;'>( 终端目前无未过期的日程 )</div>" : "";
             terminalSchedules.forEach(s => {
-                let niceDate = s.dt.replace('T', ' '); // 把 "YYYY-MM-DDTHH:MM" 变好看点
+                let niceDate = s.dt.replace('T', ' ');
                 schHtml += `<div class="list-item">
                     <div class="item-info"><span class="item-time">${niceDate}</span><br>📌 ${s.n}<br><span style="color:#666; font-size:12px;">${s.t}</span></div>
                     <button class="btn-danger" onclick="executeDelete('SCH_DEL:${s.n}')">✖</button>
@@ -291,28 +307,38 @@
             } catch (error) { console.error(error); }
         }
 
-        // ================= 快捷交互组 =================
         function executeDelete(cmd) {
             sendRaw(cmd);
-            // 延时 500ms 等单片机删完硬盘，重新拉取全盘数据！(动态热重载)
             setTimeout(() => sendRaw('GET:SYNC'), 500);
         }
 
         function addAlarm() {
-            let t = document.getElementById('alm_time').value; let n = document.getElementById('alm_name').value; let txt = document.getElementById('alm_text').value;
-            let [h, m] = t.split(':'); sendRaw(`ALM:${h}:${m}:${n}:${txt}`);
+            // 【修改：直接从新版的 select 取值】
+            let h = document.getElementById('alm_h').value;
+            let m = document.getElementById('alm_m').value;
+
+            let n = document.getElementById('alm_name').value.replace(/:/g, "：");
+            let txt = document.getElementById('alm_text').value.replace(/:/g, "：");
+            if (!n) return alert("代号不能为空");
+
+            sendRaw(`ALM:${h}:${m}:${n}:${txt}`);
             setTimeout(() => sendRaw('GET:SYNC'), 500);
         }
 
         function addSchedule() {
-            let dt = document.getElementById('sch_time').value; let n = document.getElementById('sch_name').value; let txt = document.getElementById('sch_text').value;
+            let dt = document.getElementById('sch_time').value;
+            let n = document.getElementById('sch_name').value.replace(/:/g, "：");
+            let txt = document.getElementById('sch_text').value.replace(/:/g, "：");
             let [y, mo, d] = dt.split('T')[0].split('-'); let [h, m] = dt.split('T')[1].split(':');
-            sendRaw(`SCH:${mo}:${d}:${h}:${m}:${n}:${txt}`);
+            sendRaw(`SCH:${y}:${mo}:${d}:${h}:${m}:${n}:${txt}`);
             setTimeout(() => sendRaw('GET:SYNC'), 500);
         }
 
         function updatePom() {
-            let slot = document.getElementById('pom_slot').value; let n = document.getElementById('pom_name').value; let w = document.getElementById('pom_work').value; let r = document.getElementById('pom_rest').value;
+            let slot = document.getElementById('pom_slot').value;
+            let n = document.getElementById('pom_name').value.replace(/:/g, "：");
+            let w = document.getElementById('pom_work').value;
+            let r = document.getElementById('pom_rest').value;
             sendRaw(`POM:${slot}:${n}:${w}:${r}`);
         }
     </script>

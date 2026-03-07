@@ -14,99 +14,89 @@ AppManager appManager;
 // =========================================================
 // 文件：src/sys/app_manager.cpp (找到并完全替换 BLE_Router_Process 函数)
 
+// 文件：src/sys/app_manager.cpp (仅替换 BLE_Router_Process 函数)
+
+extern void SysBLE_Notify(const char* data);
+
 static void BLE_Router_Process(String msg) {
-    // 1. 推送闪烁强制指令
     if (msg.startsWith("GET:SYNC")) {
-        SysBLE_Notify("SYNC:CLEAR"); // 让手机端清空旧列表
+        SysBLE_Notify("SYNC:CLEAR"); 
         delay(50);
         
-        // 发送所有闹钟数据
         for (int i = 0; i < sysConfig.alarm_count; i++) {
+            // 【核心修复】：JSON 引号护盾，防止数据崩溃
+            String safeName = sysConfig.alarms[i].name.c_str(); safeName.replace("\"", "\\\"");
+            String safeTxt = sysConfig.alarms[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
+            
             String out = "SYNC:ALM:{\"h\":" + String(sysConfig.alarms[i].hour) + 
                          ",\"m\":" + String(sysConfig.alarms[i].min) + 
-                         ",\"n\":\"" + sysConfig.alarms[i].name + 
-                         "\",\"t\":\"" + sysConfig.alarms[i].prescript + "\"}";
+                         ",\"n\":\"" + safeName + 
+                         "\",\"t\":\"" + safeTxt + "\"}";
             SysBLE_Notify(out.c_str());
-            delay(50); // 必须延时，防止蓝牙数据包连车
+            delay(50); 
         }
         
-        // 发送所有日程数据
         for (int i = 0; i < sysConfig.schedule_count; i++) {
+            if (sysConfig.schedules[i].is_expired) continue;
             struct tm t_info; time_t tt = sysConfig.schedules[i].target_time; localtime_r(&tt, &t_info);
             char dt[32]; sprintf(dt, "%04d-%02d-%02dT%02d:%02d", t_info.tm_year+1900, t_info.tm_mon+1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min);
+            
+            // 【核心修复】：JSON 引号护盾
+            String safeName = sysConfig.schedules[i].title.c_str(); safeName.replace("\"", "\\\"");
+            String safeTxt = sysConfig.schedules[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
+            
             String out = "SYNC:SCH:{\"dt\":\"" + String(dt) + 
-                         "\",\"n\":\"" + sysConfig.schedules[i].title + 
-                         "\",\"t\":\"" + sysConfig.schedules[i].prescript + "\"}";
+                         "\",\"n\":\"" + safeName + 
+                         "\",\"t\":\"" + safeTxt + "\"}";
             SysBLE_Notify(out.c_str());
             delay(50);
         }
-        return; // 同步指令不需要往下走了
+        return; 
     }
-  if (msg.startsWith("TXT:")) {
-        // 直接无脑打断！不再进行任何限制
+
+    if (msg.startsWith("TXT:")) {
         PushNotify_Trigger_Custom(msg.substring(4).c_str(), true);
     }
-    // 2. 添加闹钟
     else if (msg.startsWith("ALM:")) {
-        int p1 = msg.indexOf(':', 4);
-        int p2 = msg.indexOf(':', p1+1);
-        int p3 = msg.indexOf(':', p2+1);
+        int p1 = msg.indexOf(':', 4); int p2 = msg.indexOf(':', p1+1); int p3 = msg.indexOf(':', p2+1);
         if (p1 > 0 && p2 > 0 && p3 > 0) {
-            Alarm_AddPresetMobile(
-                msg.substring(p2+1, p3).c_str(),
-                msg.substring(4, p1).toInt(),
-                msg.substring(p1+1, p2).toInt(),
-                msg.substring(p3+1).c_str()
-            );
+            Alarm_AddPresetMobile(msg.substring(p2+1, p3).c_str(), msg.substring(4, p1).toInt(), msg.substring(p1+1, p2).toInt(), msg.substring(p3+1).c_str());
         }
     }
-    // 3. 【新增】：删除闹钟 (格式 ALM_DEL:闹钟名)
     else if (msg.startsWith("ALM_DEL:")) {
         Alarm_DeleteMobile(msg.substring(8).c_str());
     }
-    // 4. 覆盖番茄钟预设
     else if (msg.startsWith("POM:")) {
-        int p1 = msg.indexOf(':', 4);
-        int p2 = msg.indexOf(':', p1+1);
-        int p3 = msg.indexOf(':', p2+1);
+        int p1 = msg.indexOf(':', 4); int p2 = msg.indexOf(':', p1+1); int p3 = msg.indexOf(':', p2+1);
         if (p1 > 0 && p2 > 0 && p3 > 0) {
             extern void Pomodoro_UpdatePreset(int, const char*, int, int);
-            Pomodoro_UpdatePreset(
-                msg.substring(4, p1).toInt(),
-                msg.substring(p1+1, p2).c_str(),
-                msg.substring(p2+1, p3).toInt(),
-                msg.substring(p3+1).toInt()
-            );
+            Pomodoro_UpdatePreset(msg.substring(4, p1).toInt(), msg.substring(p1+1, p2).c_str(), msg.substring(p2+1, p3).toInt(), msg.substring(p3+1).toInt());
         }
     }
-    // 5. 添加日程
     else if (msg.startsWith("SCH:")) {
-        int p1 = msg.indexOf(':', 4);
-        int p2 = msg.indexOf(':', p1+1);
-        int p3 = msg.indexOf(':', p2+1);
-        int p4 = msg.indexOf(':', p3+1);
-        int p5 = msg.indexOf(':', p4+1);
-        if (p1 > 0 && p2 > 0 && p3 > 0 && p4 > 0 && p5 > 0) {
-            int mo = msg.substring(4, p1).toInt();
-            int d  = msg.substring(p1+1, p2).toInt();
-            int h  = msg.substring(p2+1, p3).toInt();
-            int m  = msg.substring(p3+1, p4).toInt();
-            String title = msg.substring(p4+1, p5);
-            String text = msg.substring(p5+1);
+        // 【核心修复】：补齐年份协议位，彻底解决时空错乱！
+        int p1 = msg.indexOf(':', 4); int p2 = msg.indexOf(':', p1+1); int p3 = msg.indexOf(':', p2+1); int p4 = msg.indexOf(':', p3+1); int p5 = msg.indexOf(':', p4+1); int p6 = msg.indexOf(':', p5+1);
+        if (p1 > 0 && p2 > 0 && p3 > 0 && p4 > 0 && p5 > 0 && p6 > 0) {
+            int y  = msg.substring(4, p1).toInt();
+            int mo = msg.substring(p1+1, p2).toInt();
+            int d  = msg.substring(p2+1, p3).toInt();
+            int h  = msg.substring(p3+1, p4).toInt();
+            int m  = msg.substring(p4+1, p5).toInt();
+            String title = msg.substring(p5+1, p6);
+            String text = msg.substring(p6+1);
             
             time_t now; time(&now);
             struct tm t_info; localtime_r(&now, &t_info);
-            t_info.tm_mon = mo - 1; t_info.tm_mday = d; 
-            t_info.tm_hour = h; t_info.tm_min = m; t_info.tm_sec = 0;
+            t_info.tm_year = y - 1900; 
+            t_info.tm_mon = mo - 1; 
+            t_info.tm_mday = d; 
+            t_info.tm_hour = h; 
+            t_info.tm_min = m; 
+            t_info.tm_sec = 0;
             time_t target = mktime(&t_info);
-            if (target < now) {
-                t_info.tm_year += 1; 
-                target = mktime(&t_info);
-            }
             Schedule_AddMobile(target, title.c_str(), text.c_str());
         }
     }
-    // 6. 【新增】：删除日程 (格式 SCH_DEL:日程名)
     else if (msg.startsWith("SCH_DEL:")) {
         Schedule_DeleteMobile(msg.substring(8).c_str());
     }

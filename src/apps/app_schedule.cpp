@@ -42,6 +42,8 @@ const char* Get_Text_Preset(int p_idx) {
     return (appManager.getLanguage() == LANG_ZH) ? zh_p[p_idx] : en_p[p_idx];
 }
 
+void Sort_Schedules(); 
+
 void Schedule_AddMobile(uint32_t target_time, const char* title, const char* text) {
     if (sysConfig.schedule_count >= 15) return;
     int idx = sysConfig.schedule_count;
@@ -51,6 +53,9 @@ void Schedule_AddMobile(uint32_t target_time, const char* title, const char* tex
     sysConfig.schedules[idx].is_expired = false;
     sysConfig.schedules[idx].is_restored = false;
     sysConfig.schedule_count++;
+    
+    // 【核心修复】：蓝牙强行注入的数据必须进行时间线排序！
+    Sort_Schedules(); 
     sysConfig.save();
 }
 
