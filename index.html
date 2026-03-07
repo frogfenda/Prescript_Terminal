@@ -159,26 +159,18 @@
         <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;" value="有内鬼,终止交易！">
         <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)">传递指令</button>
     </div>
-
     <div class="panel">
         <div class="panel-title"><span>>> ALARM MATRIX (唤醒调度)</span><span onclick="sendRaw('GET:SYNC')"
                 style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
         <div id="alarm_list_container"></div>
         <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
 
-            <div class="input-row">
-                <label>时间:</label>
-                <div style="width: 65%; display: flex; justify-content: space-between;">
-                    <select class="input-box" id="alm_h" style="width: 46%;"></select>
-                    <span style="color: var(--main-color); line-height: 35px; font-weight: bold;">:</span>
-                    <select class="input-box" id="alm_m" style="width: 46%;"></select>
-                </div>
-            </div>
+            <div class="input-row"><label>时间:</label><input type="datetime-local" class="input-box" id="alm_time"></div>
 
-            <div class="input-row"><label>代号:</label><input type="text" class="input-box" id="alm_name" value="早晨">
+            <div class="input-row"><label>代号:</label><input type="text" class="input-box" id="alm_name" value="早间唤醒">
             </div>
             <div class="input-row"><label>指令:</label><input type="text" class="input-box" id="alm_text"
-                    value="至..昏睡者..立刻起床"></div>
+                    value="至..沉睡者..立刻清醒"></div>
             <button class="btn" onclick="addAlarm()">+ 添加并同步到终端</button>
         </div>
     </div>
@@ -196,19 +188,7 @@
             <button class="btn" onclick="addSchedule()">+ 登记并同步到终端</button>
         </div>
     </div>
-    <div class="panel">
-        <div class="panel-title"><span>>> SCHEDULE (长期日程)</span><span onclick="sendRaw('GET:SYNC')"
-                style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
-        <div id="sch_list_container"></div>
-        <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
-            <div class="input-row"><label>时空:</label><input type="datetime-local" class="input-box" id="sch_time"></div>
-            <div class="input-row"><label>标题:</label><input type="text" class="input-box" id="sch_name" value="跨年节点">
-            </div>
-            <div class="input-row"><label>内容:</label><input type="text" class="input-box" id="sch_text"
-                    value="执行末日倒数程序。"></div>
-            <button class="btn" onclick="addSchedule()">+ 登记并同步到终端</button>
-        </div>
-    </div>
+
 
     <div class="panel">
         <div class="panel-title"><span>>> POMODORO (专注预设)</span></div>
