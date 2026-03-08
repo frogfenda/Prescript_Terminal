@@ -27,6 +27,7 @@
             flex-direction: column;
             align-items: center;
             overflow-x: hidden;
+            position: relative;
         }
 
         h2 {
@@ -34,7 +35,18 @@
             padding-bottom: 10px;
             width: 100%;
             text-align: center;
-            margin-top: 10px;
+            margin-top: 20px;
+        }
+
+        /* 语言切换按钮样式 */
+        #langToggle {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: auto;
+            padding: 5px 15px;
+            font-size: 14px;
+            border-radius: 4px;
         }
 
         .status-box {
@@ -149,86 +161,234 @@
 
 <body>
 
-    <h2>Terminal Uplink</h2>
+    <button id="langToggle" class="btn" onclick="toggleLanguage()">EN</button>
+    <h2 data-i18n="title">Terminal Uplink</h2>
+
     <div class="status-box" id="statusBox" onclick="connectBLE()">
-        SYS_STATUS: OFFLINE<br><span style="font-size: 12px; color: #888;">(CLICK TO ESTABLISH LINK)</span>
+        SYS_STATUS: OFFLINE<br><span style="font-size: 12px; color: #888;" data-i18n="status_click">(点击建立链接)</span>
     </div>
 
     <div class="panel">
-        <div class="panel-title"><span>>> TXT OVERRIDE (强制打断)</span></div>
+        <div class="panel-title"><span data-i18n="panel_txt">>> TXT OVERRIDE (强制打断)</span></div>
         <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;" value="有内鬼,终止交易！">
-        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)">传递指令</button>
+        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)"
+            data-i18n="btn_txt">传递指令</button>
     </div>
+
     <div class="panel">
-        <div class="panel-title"><span>>> ALARM MATRIX (唤醒调度)</span><span onclick="sendRaw('GET:SYNC')"
-                style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
+        <div class="panel-title">
+            <span data-i18n="panel_alm">>> ALARM MATRIX (唤醒调度)</span>
+            <span onclick="sendRaw('GET:SYNC')" style="cursor:pointer; color:var(--main-color)"
+                data-i18n="btn_refresh">[ 刷新 ]</span>
+        </div>
         <div id="alarm_list_container"></div>
         <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
-
-            <div class="input-row"><label>时间:</label><input type="datetime-local" class="input-box" id="alm_time"></div>
-
-            <div class="input-row"><label>代号:</label><input type="text" class="input-box" id="alm_name" value="早间唤醒">
-            </div>
-            <div class="input-row"><label>指令:</label><input type="text" class="input-box" id="alm_text"
-                    value="至..沉睡者..立刻清醒"></div>
-            <button class="btn" onclick="addAlarm()">+ 添加并同步到终端</button>
+            <div class="input-row"><label data-i18n="lbl_time">时间:</label><input type="datetime-local" class="input-box"
+                    id="alm_time"></div>
+            <div class="input-row"><label data-i18n="lbl_code">代号:</label><input type="text" class="input-box"
+                    id="alm_name" value="早间唤醒"></div>
+            <div class="input-row"><label data-i18n="lbl_cmd">指令:</label><input type="text" class="input-box"
+                    id="alm_text" value="至..沉睡者..立刻清醒"></div>
+            <button class="btn" onclick="addAlarm()" data-i18n="btn_alm_add">+ 添加并同步到终端</button>
         </div>
     </div>
 
     <div class="panel">
-        <div class="panel-title"><span>>> SCHEDULE (长期日程)</span><span onclick="sendRaw('GET:SYNC')"
-                style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
+        <div class="panel-title">
+            <span data-i18n="panel_sch">>> SCHEDULE (长期日程)</span>
+            <span onclick="sendRaw('GET:SYNC')" style="cursor:pointer; color:var(--main-color)"
+                data-i18n="btn_refresh">[ 刷新 ]</span>
+        </div>
         <div id="sch_list_container"></div>
         <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
-            <div class="input-row"><label>时空:</label><input type="datetime-local" class="input-box" id="sch_time"></div>
-            <div class="input-row"><label>标题:</label><input type="text" class="input-box" id="sch_name" value="开会">
-            </div>
-            <div class="input-row"><label>内容:</label><input type="text" class="input-box" id="sch_text"
-                    value="至..大忙人..在十五分钟后到会议室"></div>
-            <button class="btn" onclick="addSchedule()">+ 登记并同步到终端</button>
+            <div class="input-row"><label data-i18n="lbl_st">时空:</label><input type="datetime-local" class="input-box"
+                    id="sch_time"></div>
+            <div class="input-row"><label data-i18n="lbl_title">标题:</label><input type="text" class="input-box"
+                    id="sch_name" value="开会"></div>
+            <div class="input-row"><label data-i18n="lbl_content">内容:</label><input type="text" class="input-box"
+                    id="sch_text" value="至..大忙人..在十五分钟后到会议室"></div>
+            <button class="btn" onclick="addSchedule()" data-i18n="btn_sch_add">+ 登记并同步到终端</button>
         </div>
     </div>
+
     <div class="panel">
-        <div class="panel-title"><span>>> PRESCRIPT LIBRARY (自定义指令池)</span><span onclick="sendRaw('GET:SYNC')"
-                style="cursor:pointer; color:var(--main-color)">[ 刷新 ]</span></div>
+        <div class="panel-title">
+            <span data-i18n="panel_pre">>> PRESCRIPT LIBRARY (自定义指令池)</span>
+            <span onclick="sendRaw('GET:SYNC')" style="cursor:pointer; color:var(--main-color)"
+                data-i18n="btn_refresh">[ 刷新 ]</span>
+        </div>
         <div id="pre_list_container"></div>
         <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
             <input type="text" class="input-box" id="pre_text" style="width: 100%; margin-bottom: 10px;"
-                placeholder="输入新的指令文本...">
-            <button class="btn" onclick="addPre()">+ 注入自定义池</button>
+                placeholder="输入新的指令文本..." data-i18n-ph="ph_pre">
+            <button class="btn" onclick="addPre()" data-i18n="btn_pre_add">+ 注入自定义池</button>
         </div>
     </div>
 
     <div class="panel">
-        <div class="panel-title"><span>>> POMODORO (专注预设)</span></div>
-        <div class="input-row"><label>槽位:</label><select class="input-box" id="pom_slot">
-                <option value="0">槽位 0</option>
-                <option value="1">槽位 1</option>
-                <option value="2">槽位 2</option>
-            </select></div>
-        <div class="input-row"><label>名称:</label><input type="text" class="input-box" id="pom_name" value="极限心流模式">
+        <div class="panel-title"><span data-i18n="panel_pom">>> POMODORO (专注预设)</span></div>
+        <div class="input-row">
+            <label data-i18n="lbl_slot">槽位:</label>
+            <select class="input-box" id="pom_slot">
+                <option value="0" data-i18n="opt_s0">槽位 0</option>
+                <option value="1" data-i18n="opt_s1">槽位 1</option>
+                <option value="2" data-i18n="opt_s2">槽位 2</option>
+            </select>
         </div>
-        <div class="input-row"><label>专注(分):</label><input type="number" class="input-box" id="pom_work" value="45">
-        </div>
-        <div class="input-row"><label>休息(分):</label><input type="number" class="input-box" id="pom_rest" value="10">
-        </div>
-        <button class="btn" onclick="updatePom()">覆盖该槽位并重载</button>
+        <div class="input-row"><label data-i18n="lbl_name">名称:</label><input type="text" class="input-box" id="pom_name"
+                value="极限心流模式"></div>
+        <div class="input-row"><label data-i18n="lbl_work">专注(分):</label><input type="number" class="input-box"
+                id="pom_work" value="45"></div>
+        <div class="input-row"><label data-i18n="lbl_rest">休息(分):</label><input type="number" class="input-box"
+                id="pom_rest" value="10"></div>
+        <button class="btn" onclick="updatePom()" data-i18n="btn_pom_add">覆盖该槽位并重载</button>
     </div>
 
     <script>
+        // ==========================================
+        // 多语言字典与动态引擎 (i18n Engine)
+        // ==========================================
+        let currentLang = 'zh';
+
+        const i18n = {
+            zh: {
+                title: "Terminal Uplink",
+                status_click: "(点击建立链接)",
+                btn_refresh: "[ 刷新 ]",
+                panel_txt: ">> TXT OVERRIDE (强制打断)",
+                btn_txt: "传递指令",
+                panel_alm: ">> ALARM MATRIX (唤醒调度)",
+                lbl_time: "时间:", lbl_code: "代号:", lbl_cmd: "指令:",
+                btn_alm_add: "+ 添加并同步到终端",
+                panel_sch: ">> SCHEDULE (长期日程)",
+                lbl_st: "时空:", lbl_title: "标题:", lbl_content: "内容:",
+                btn_sch_add: "+ 登记并同步到终端",
+                panel_pre: ">> PRESCRIPT LIBRARY (自定义指令池)",
+                ph_pre: "输入新的指令文本...",
+                btn_pre_add: "+ 注入自定义池",
+                panel_pom: ">> POMODORO (专注预设)",
+                lbl_slot: "槽位:", lbl_name: "名称:", lbl_work: "专注(分):", lbl_rest: "休息(分):",
+                btn_pom_add: "覆盖该槽位并重载",
+                opt_s0: "槽位 0", opt_s1: "槽位 1", opt_s2: "槽位 2",
+
+                // 默认输入框文本保护映射
+                v_txt: "有内鬼,终止交易！",
+                v_alm_n: "早间唤醒",
+                v_alm_t: "至..沉睡者..立刻清醒",
+                v_sch_n: "开会",
+                v_sch_t: "至..大忙人..在十五分钟后到会议室",
+                v_pom_n: "极限心流模式",
+
+                // 动态提示语
+                msg_conn_err: "未建立连接",
+                msg_param_err: "参数不完整",
+                msg_empty: "内容不能为空",
+                msg_no_alm: "( 终端目前无闹钟 )",
+                msg_no_sch: "( 终端目前无未过期的日程 )",
+                msg_no_pre: "( 终端目前无自定义指令 )",
+                status_connecting: "SYS_STATUS: CONNECTING...<br><span style='font-size: 12px; color: #ff0;'>[等待配对]</span>",
+                status_online: "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[正在同步数据库...]</span>",
+                status_offline: "SYS_STATUS: OFFLINE<br><span style='font-size: 12px; color: #f03;'>[连接断开]</span>"
+            },
+            en: {
+                title: "Terminal Uplink",
+                status_click: "(CLICK TO ESTABLISH LINK)",
+                btn_refresh: "[ REFRESH ]",
+                panel_txt: ">> TXT OVERRIDE",
+                btn_txt: "TRANSMIT",
+                panel_alm: ">> ALARM MATRIX",
+                lbl_time: "Time:", lbl_code: "Code:", lbl_cmd: "Cmd:",
+                btn_alm_add: "+ ADD & SYNC TO TERMINAL",
+                panel_sch: ">> SCHEDULE",
+                lbl_st: "Target:", lbl_title: "Title:", lbl_content: "Content:",
+                btn_sch_add: "+ REGISTER & SYNC",
+                panel_pre: ">> PRESCRIPT LIBRARY",
+                ph_pre: "Enter new prescript text...",
+                btn_pre_add: "+ INJECT TO POOL",
+                panel_pom: ">> POMODORO PRESETS",
+                lbl_slot: "Slot:", lbl_name: "Name:", lbl_work: "Work(m):", lbl_rest: "Rest(m):",
+                btn_pom_add: "OVERWRITE SLOT",
+                opt_s0: "Slot 0", opt_s1: "Slot 1", opt_s2: "Slot 2",
+
+                // 英文对应的默认输入文本
+                v_txt: "Do not go home until you finish reading the value of e",
+                v_alm_n: "Morning Wake",
+                v_alm_t: "To.. the sleeper.. wake up immediately",
+                v_sch_n: "Meeting",
+                v_sch_t: "To.. the busy one.. meeting room in 15 mins",
+                v_pom_n: "Extreme Flow Mode",
+
+                // 动态提示语
+                msg_conn_err: "Connection not established",
+                msg_param_err: "Missing parameters",
+                msg_empty: "Content cannot be empty",
+                msg_no_alm: "( NO ALARMS IN TERMINAL )",
+                msg_no_sch: "( NO ACTIVE SCHEDULES IN TERMINAL )",
+                msg_no_pre: "( NO CUSTOM PRESCRIPTS )",
+                status_connecting: "SYS_STATUS: CONNECTING...<br><span style='font-size: 12px; color: #ff0;'>[AWAITING PAIRING]</span>",
+                status_online: "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[SYNCING DATABASE...]</span>",
+                status_offline: "SYS_STATUS: OFFLINE<br><span style='font-size: 12px; color: #f03;'>[CONNECTION LOST]</span>"
+            }
+        };
+
+        // 核心切换逻辑
+        function toggleLanguage() {
+            currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            document.getElementById('langToggle').innerText = currentLang === 'zh' ? 'EN' : '中文';
+
+            // 1. 替换所有静态标签
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                el.innerText = i18n[currentLang][el.getAttribute('data-i18n')];
+            });
+
+            // 2. 替换输入框 Placeholder
+            document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+                el.placeholder = i18n[currentLang][el.getAttribute('data-i18n-ph')];
+            });
+
+            // 3. 智能替换输入框 Value (仅当用户没有自己修改时才翻译！)
+            const otherLang = currentLang === 'zh' ? 'en' : 'zh';
+            const checkAndSwap = (id, key) => {
+                let el = document.getElementById(id);
+                if (el.value === i18n[otherLang][key]) {
+                    el.value = i18n[currentLang][key];
+                }
+            };
+            checkAndSwap('txt_msg', 'v_txt');
+            checkAndSwap('alm_name', 'v_alm_n');
+            checkAndSwap('alm_text', 'v_alm_t');
+            checkAndSwap('sch_name', 'v_sch_n');
+            checkAndSwap('sch_text', 'v_sch_t');
+            checkAndSwap('pom_name', 'v_pom_n');
+
+            // 4. 更新连接状态栏和动态列表
+            if (bleCharacteristic) {
+                document.getElementById('statusBox').innerHTML = i18n[currentLang].status_online;
+            } else {
+                let sBox = document.getElementById('statusBox');
+                if (sBox.innerHTML.includes("OFFLINE")) {
+                    sBox.innerHTML = `SYS_STATUS: OFFLINE<br><span style="font-size: 12px; color: #888;">${i18n[currentLang].status_click}</span>`;
+                }
+            }
+            renderUI(); // 刷新列表中的空状态提示语
+        }
+
+
+        // ==========================================
+        // 核心蓝牙业务逻辑
+        // ==========================================
         let bleCharacteristic = null;
         const SERVICE_UUID = "0000dead-0000-1000-8000-00805f9b34fb";
         const CHAR_UUID = "0000beef-0000-1000-8000-00805f9b34fb";
 
         let terminalAlarms = [];
         let terminalSchedules = [];
+        let terminalPrescripts = [];
 
         window.onload = () => {
-            // 初始化日程时间（当前时间 + 1小时）
             let now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset() + 60);
             document.getElementById('sch_time').value = now.toISOString().slice(0, 16);
 
-            // 初始化闹钟时间（默认设定为今天的 08:00）
             let almInit = new Date(); almInit.setMinutes(almInit.getMinutes() - almInit.getTimezoneOffset());
             almInit.setHours(8, 0);
             document.getElementById('alm_time').value = almInit.toISOString().slice(0, 16);
@@ -237,7 +397,7 @@
         async function connectBLE() {
             const statusBox = document.getElementById('statusBox');
             try {
-                statusBox.innerHTML = "SYS_STATUS: CONNECTING...<br><span style='font-size: 12px; color: #ff0;'>[AWAITING PAIRING]</span>";
+                statusBox.innerHTML = i18n[currentLang].status_connecting;
                 const device = await navigator.bluetooth.requestDevice({ filters: [{ name: 'Terminal_01' }], optionalServices: [SERVICE_UUID] });
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
@@ -246,30 +406,34 @@
                 await bleCharacteristic.startNotifications();
                 bleCharacteristic.addEventListener('characteristicvaluechanged', handleRX);
 
-                statusBox.innerHTML = "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[SYNCING DATABASE...]</span>";
+                statusBox.innerHTML = i18n[currentLang].status_online;
                 statusBox.style.borderColor = "#0f0"; statusBox.style.color = "#0f0";
 
                 setTimeout(() => sendRaw('GET:SYNC'), 500);
 
                 device.addEventListener('gattserverdisconnected', () => {
-                    bleCharacteristic = null; statusBox.innerHTML = "SYS_STATUS: OFFLINE<br><span style='font-size: 12px; color: #f03;'>[CONNECTION LOST]</span>"; statusBox.style.borderColor = "#f03"; statusBox.style.color = "#f03";
+                    bleCharacteristic = null;
+                    statusBox.innerHTML = i18n[currentLang].status_offline;
+                    statusBox.style.borderColor = "#f03"; statusBox.style.color = "#f03";
                 });
-            } catch (error) { alert("连接失败: " + error.message); }
+            } catch (error) { alert("Error: " + error.message); }
         }
 
         function handleRX(event) {
             let val = new TextDecoder().decode(event.target.value);
             if (val === "SYNC:CLEAR") {
-                terminalAlarms = []; terminalSchedules = []; renderUI();
+                terminalAlarms = []; terminalSchedules = []; terminalPrescripts = []; renderUI();
             } else if (val.startsWith("SYNC:ALM:")) {
                 try { terminalAlarms.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
             } else if (val.startsWith("SYNC:SCH:")) {
                 try { terminalSchedules.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
+            } else if (val.startsWith("SYNC:PRE:")) {
+                try { terminalPrescripts.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
             }
         }
 
         function renderUI() {
-            let almHtml = terminalAlarms.length === 0 ? "<div style='color:#555; text-align:center; font-size:12px;'>( 终端目前无闹钟 )</div>" : "";
+            let almHtml = terminalAlarms.length === 0 ? `<div style='color:#555; text-align:center; font-size:12px;'>${i18n[currentLang].msg_no_alm}</div>` : "";
             terminalAlarms.forEach(a => {
                 let hh = String(a.h).padStart(2, '0'); let mm = String(a.m).padStart(2, '0');
                 almHtml += `<div class="list-item">
@@ -279,7 +443,7 @@
             });
             document.getElementById('alarm_list_container').innerHTML = almHtml;
 
-            let schHtml = terminalSchedules.length === 0 ? "<div style='color:#555; text-align:center; font-size:12px;'>( 终端目前无未过期的日程 )</div>" : "";
+            let schHtml = terminalSchedules.length === 0 ? `<div style='color:#555; text-align:center; font-size:12px;'>${i18n[currentLang].msg_no_sch}</div>` : "";
             terminalSchedules.forEach(s => {
                 let niceDate = s.dt.replace('T', ' ');
                 schHtml += `<div class="list-item">
@@ -288,10 +452,19 @@
                 </div>`;
             });
             document.getElementById('sch_list_container').innerHTML = schHtml;
+
+            let preHtml = terminalPrescripts.length === 0 ? `<div style='color:#555; text-align:center; font-size:12px;'>${i18n[currentLang].msg_no_pre}</div>` : "";
+            terminalPrescripts.forEach(p => {
+                preHtml += `<div class="list-item">
+                    <div class="item-info"><span style="color:#0ff;">${p.t}</span></div>
+                    <button class="btn-danger" onclick="executeDelete('PRE_DEL:${p.t}')">✖</button>
+                </div>`;
+            });
+            document.getElementById('pre_list_container').innerHTML = preHtml;
         }
 
         async function sendRaw(cmdStr) {
-            if (!bleCharacteristic) return alert("未建立连接");
+            if (!bleCharacteristic) return alert(i18n[currentLang].msg_conn_err);
             try {
                 await bleCharacteristic.writeValue(new TextEncoder().encode(cmdStr));
                 document.body.style.backgroundColor = "#003333"; setTimeout(() => document.body.style.backgroundColor = "#050505", 100);
@@ -307,9 +480,8 @@
             let dt = document.getElementById('alm_time').value;
             let n = document.getElementById('alm_name').value.replace(/:/g, "：");
             let txt = document.getElementById('alm_text').value.replace(/:/g, "：");
-            if (!dt || !n) return alert("参数不完整");
+            if (!dt || !n) return alert(i18n[currentLang].msg_param_err);
 
-            // 【核心剥离魔法】：从包含年月日的字符串中，精准提取出 "时:分" 发给单片机闹钟
             let timePart = dt.split('T')[1];
             let [h, m] = timePart.split(':');
 
@@ -321,11 +493,19 @@
             let dt = document.getElementById('sch_time').value;
             let n = document.getElementById('sch_name').value.replace(/:/g, "：");
             let txt = document.getElementById('sch_text').value.replace(/:/g, "：");
-            if (!dt || !n) return alert("参数不完整");
+            if (!dt || !n) return alert(i18n[currentLang].msg_param_err);
 
             let [y, mo, d] = dt.split('T')[0].split('-'); let [h, m] = dt.split('T')[1].split(':');
             sendRaw(`SCH:${y}:${mo}:${d}:${h}:${m}:${n}:${txt}`);
             setTimeout(() => sendRaw('GET:SYNC'), 500);
+        }
+
+        function addPre() {
+            let txt = document.getElementById('pre_text').value.replace(/:/g, "：");
+            if (!txt) return alert(i18n[currentLang].msg_empty);
+            sendRaw(`PRE:${txt}`);
+            setTimeout(() => sendRaw('GET:SYNC'), 500);
+            document.getElementById('pre_text').value = "";
         }
 
         function updatePom() {
@@ -334,46 +514,6 @@
             let w = document.getElementById('pom_work').value;
             let r = document.getElementById('pom_rest').value;
             sendRaw(`POM:${slot}:${n}:${w}:${r}`);
-        }
-        // 增加数据容器
-        let terminalPrescripts = [];
-
-        // 找到 handleRX，修改为：
-        function handleRX(event) {
-            let val = new TextDecoder().decode(event.target.value);
-            if (val === "SYNC:CLEAR") {
-                terminalAlarms = []; terminalSchedules = []; terminalPrescripts = []; renderUI();
-            } else if (val.startsWith("SYNC:ALM:")) {
-                try { terminalAlarms.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
-            } else if (val.startsWith("SYNC:SCH:")) {
-                try { terminalSchedules.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
-            } else if (val.startsWith("SYNC:PRE:")) {
-                try { terminalPrescripts.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
-            }
-        }
-
-        // 找到 renderUI，追加对指令库的渲染：
-        function renderUI() {
-            // ... 原来的闹钟和日程渲染保持不变 ...
-
-            // 渲染指令库
-            let preHtml = terminalPrescripts.length === 0 ? "<div style='color:#555; text-align:center; font-size:12px;'>( 终端目前无自定义指令 )</div>" : "";
-            terminalPrescripts.forEach(p => {
-                preHtml += `<div class="list-item">
-                    <div class="item-info"><span style="color:#0ff;">${p.t}</span></div>
-                    <button class="btn-danger" onclick="executeDelete('PRE_DEL:${p.t}')">✖</button>
-                </div>`;
-            });
-            document.getElementById('pre_list_container').innerHTML = preHtml;
-        }
-
-        // 追加发送函数
-        function addPre() {
-            let txt = document.getElementById('pre_text').value.replace(/:/g, "：");
-            if (!txt) return alert("内容不能为空");
-            sendRaw(`PRE:${txt}`);
-            setTimeout(() => sendRaw('GET:SYNC'), 500);
-            document.getElementById('pre_text').value = ""; // 清空输入框
         }
     </script>
 </body>
