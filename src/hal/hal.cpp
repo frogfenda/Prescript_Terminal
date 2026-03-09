@@ -21,7 +21,7 @@ IRAM_ATTR void ISR_Knob_Turn() {
 
 void HAL_Init() {
     tft.init();
-    tft.setRotation(0);
+    tft.setRotation(1);
     tft.fillScreen(TFT_BLACK);
 
     textSprite.setColorDepth(16); 
@@ -126,5 +126,5 @@ void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x
     if(color == 1) color = TFT_CYAN; textSprite.fillTriangle(x0, y0, x1, y1, x2, y2, color); 
 }
 void HAL_Sprite_Clear() { textSprite.fillSprite(TFT_BLACK); }
-uint16_t HAL_Get_Screen_Width(void) { return 240; }
-uint16_t HAL_Get_Screen_Height(void) { return 240; }
+uint16_t HAL_Get_Screen_Width(void) { return 284; }
+uint16_t HAL_Get_Screen_Height(void) { return 76; }

@@ -11,7 +11,7 @@ protected:
     int current_selection;
     float visual_selection;
 
-   virtual int getMenuCount() = 0;                  
+    virtual int getMenuCount() = 0;                  
     virtual const char* getTitle() = 0;              
     virtual const char* getItemText(int index) = 0;  
     virtual void onItemClicked(int index) = 0;       
@@ -21,44 +21,58 @@ protected:
         return false;
     }
     
-    // 【全新架构】：子类可以决定任意一条菜单的专属颜色！(默认青色)
     virtual uint16_t getItemColor(int index) {
         return TFT_CYAN;
     }
-   void drawMenuUI(float v_pos) {
+
+    void drawMenuUI(float v_pos) {
         HAL_Sprite_Clear(); 
         
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
-        int center_x = sw / 2; 
 
+        // ==========================================
+        // 1. 左侧：静态 HUD 信息面板
+        // ==========================================
+        int left_panel_w = 104; // 划定左侧面板宽度
+
+        // 垂直居中偏上：绘制系统抬头
         const char* title_text = getTitle();
-        HAL_Screen_ShowChineseLine(UI_MARGIN_LEFT, UI_TEXT_Y_TOP, title_text);
+        int title_w = HAL_Get_Text_Width(title_text);
+        int title_x = (left_panel_w - title_w) / 2;
+        if(title_x < 2) title_x = 2; // 防止字太长顶到边缘
+        HAL_Screen_ShowChineseLine(title_x, sh / 2 - 22, title_text);
 
+        // 垂直居中偏下：绘制数字时钟
         char time_str[10];
         SysTime_GetTimeString(time_str);
+        int time_w = HAL_Get_Text_Width(time_str);
+        int time_x = (left_panel_w - time_w) / 2;
+        HAL_Screen_ShowTextLine(time_x, sh / 2 + 6, time_str); 
         
-        int time_x = sw - UI_TIME_SAFE_PAD - HAL_Get_Text_Width(time_str);
-        HAL_Screen_ShowTextLine(time_x, UI_TEXT_Y_TOP, time_str); 
-        
-        HAL_Draw_Line(0, UI_HEADER_HEIGHT, sw, UI_HEADER_HEIGHT, 1);
+        // 分割装甲线：切断左右视觉
+        HAL_Draw_Line(left_panel_w, 8, left_panel_w, sh - 8, 1);
+
+        // ==========================================
+        // 2. 右侧：3D 滚轴核心阵列
+        // ==========================================
+        int right_panel_x = left_panel_w;
+        int right_panel_w = sw - left_panel_w;
+        int center_x = right_panel_x + right_panel_w / 2; 
+        int center_y = sh / 2; // 滚轮绝对居中
 
         int real_count = getMenuCount();
         if (real_count == 0) return;
-        
-        // 【核心优化】：如果只有 2 个选项，虚拟展开为 4 个，打破轮盘方向锁死！
         int count = (real_count == 2) ? 4 : real_count;
 
-        int center_y = UI_HEADER_HEIGHT + (sh - UI_HEADER_HEIGHT) / 2; 
-        
-        HAL_Draw_Rect(10, center_y - 16, sw - 20, 32, 1); 
-        HAL_Fill_Triangle(20, center_y - 10, 20, center_y + 10, 28, center_y, 1);
+        // 绘制扫描锁定框 (收缩至右侧区域)
+        HAL_Draw_Rect(right_panel_x + 6, center_y - 14, right_panel_w - 12, 28, 1); 
+        HAL_Fill_Triangle(right_panel_x + 12, center_y - 6, right_panel_x + 12, center_y + 6, right_panel_x + 18, center_y, 1);
 
         int idx1 = (int)floor(v_pos);
         int idx2 = idx1 + 1;
         float fraction = v_pos - idx1; 
         
-        // 计算映射到真实文字索引
         int logical_idx1 = (idx1 % count + count) % count;
         int logical_idx2 = (idx2 % count + count) % count;
         int real_idx1 = logical_idx1 % real_count;
@@ -68,17 +82,21 @@ protected:
         int w2 = HAL_Get_Text_Width(getItemText(real_idx2));
         float dynamic_text_w = w1 + (w2 - w1) * fraction;
         
-        int block_x = center_x + (int)(dynamic_text_w / 2.0f) + 16;
-        if (block_x > sw - 22) block_x = sw - 22; 
-        
-        HAL_Fill_Rect(block_x, center_y - 12, 8, 24, 1); 
+        // 动态尾随光标块
+        int block_x = center_x + (int)(dynamic_text_w / 2.0f) + 12;
+        if (block_x > sw - 12) block_x = sw - 12; 
+        HAL_Fill_Rect(block_x, center_y - 10, 6, 20, 1); 
 
         int base_idx = round(v_pos);
-        for (int i = base_idx - 3; i <= base_idx + 3; i++) {
+        
+        // 【极限视口渲染】：高度只有 76，循环上下各渲染 2 个就足够了
+        for (int i = base_idx - 2; i <= base_idx + 2; i++) {
             float offset = i - v_pos;
-            int item_y = center_y + offset * 35; 
+            // 【关键】：缩小条目行距为 26，以完美嵌合 76 像素高的极限视野
+            int item_y = center_y + offset * 26; 
             
-            if (item_y < UI_HEADER_HEIGHT + 12 || item_y > sh - 10) continue;
+            // 视口裁剪：超出上下边缘直接丢弃，不浪费算力
+            if (item_y < -10 || item_y > sh + 10) continue;
 
             int logical_idx = (i % count + count) % count;
             int real_idx = logical_idx % real_count;
@@ -86,17 +104,17 @@ protected:
 
             int text_width = HAL_Get_Text_Width(text);
             int base_x = center_x - (text_width / 2); 
-            int item_x = base_x - (offset * offset * 9.0f);  
+            // 【关键】：减弱 3D 轮盘的曲率，防止顶撞左侧分割线
+            int item_x = base_x - (offset * offset * 4.0f);  
 
             float distance = abs(offset);
             int final_y = item_y - 8;
 
             const char *p_pref = nullptr, *p_val = nullptr, *p_suff = nullptr;
 
-           if (logical_idx == current_selection && getItemEditParts(real_idx, &p_pref, &p_val, &p_suff)) {
+            if (logical_idx == current_selection && getItemEditParts(real_idx, &p_pref, &p_val, &p_suff)) {
                 drawSegmentedAnimatedText(item_x, final_y, p_pref, p_val, p_suff, distance);
             } else {
-                // 【核心调用】：获取当前条目的颜色，并交给万能渲染器！
                 uint16_t item_color = getItemColor(real_idx);
                 HAL_Screen_ShowChineseLine_Faded_Color(item_x, final_y, text, distance, item_color);
             }
@@ -157,7 +175,6 @@ public:
         SYS_SOUND_CONFIRM();
         int real_count = getMenuCount();
         if (real_count > 0) {
-            // 回归真实的执行索引
             onItemClicked(current_selection % real_count);
         }
     }
