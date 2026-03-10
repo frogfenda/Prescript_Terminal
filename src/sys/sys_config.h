@@ -43,7 +43,7 @@ public:
 
     uint8_t alarm_count; 
     AlarmPreset alarms[10]; 
-
+    uint8_t decode_anim_style; // 【新增】：解码动画样式 (0:动画一, 1:动画二)
     // 【新增】：日程表硬盘数据
     uint8_t schedule_count; 
     ScheduleItem schedules[15]; // 最多 15 个日程

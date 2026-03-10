@@ -12,6 +12,7 @@ void SysConfig::load() {
     wifi_pass = prefs.getString("pass", "12345678");
     language = prefs.getUChar("lang", 1);             
     sleep_time_ms = prefs.getUInt("sleep", 30000);    
+    decode_anim_style = prefs.getUChar("anim_s", 0); // 【新增】：加载动画样式
 
     auto_push_enable = prefs.getBool("p_en", false);
     auto_push_min_min = prefs.getUInt("p_min", 30);
@@ -66,7 +67,8 @@ void SysConfig::save() {
     prefs.putString("pass", wifi_pass);
     prefs.putUChar("lang", language);
     prefs.putUInt("sleep", sleep_time_ms);
-
+    prefs.putUChar("anim_s", decode_anim_style);
+    
     prefs.putBool("p_en", auto_push_enable);
     prefs.putUInt("p_min", auto_push_min_min);
     prefs.putUInt("p_max", auto_push_max_min);

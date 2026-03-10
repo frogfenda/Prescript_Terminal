@@ -3,9 +3,11 @@
 #include "sys_config.h" 
 #include "sys_network.h" 
 
+extern AppBase* appAnimSetting; // 【新增】：引入动画设置 APP
+
 class AppSystemSettings : public AppMenuBase {
 protected:
-    int getMenuCount() override { return 5; } // 【修改】：减回到 5 个
+    int getMenuCount() override { return 6; } // 【修改】：增加到 6 个
     
     const char* getTitle() override {
         return (appManager.getLanguage() == LANG_ZH) ? "系统设置菜单" : "SYSTEM SETTINGS";
@@ -17,12 +19,12 @@ protected:
 
         if (appManager.getLanguage() == LANG_ZH) {
             if (index == 0) return is_connected ? "断开无线网络" : "连接无线网络"; 
-            // 【修改】：去掉了推送设置
-            const char* items[] = {"", "同步网络时间", "切换系统语言", "设定休眠时间", "返回上一级"};
+            // 【修改】：在返回上一级前，加入“解码动画配置”
+            const char* items[] = {"", "同步网络时间", "切换系统语言", "设定休眠时间", "解码动画配置", "返回上一级"};
             return items[index];
         } else {
             if (index == 0) return is_connected ? "DISCONNECT WIFI" : "CONNECT WIFI"; 
-            const char* items[] = {"", "SYNC NTP TIME", "SWITCH LANGUAGE", "SLEEP SETTINGS", "BACK TO MAIN"};
+            const char* items[] = {"", "SYNC NTP TIME", "SWITCH LANGUAGE", "SLEEP SETTINGS", "ANIMATION SETUP", "BACK TO MAIN"};
             return items[index];
         }
     }
@@ -37,8 +39,8 @@ protected:
             drawMenuUI(visual_selection); 
         }
         else if (index == 3) appManager.pushApp(appSleepSetting); 
-        // 【修改】：5 退回 4
-        else if (index == 4) appManager.popApp();             
+        else if (index == 4) appManager.pushApp(appAnimSetting); // 【新增】：进入动画设置
+        else if (index == 5) appManager.popApp();             
     }
     
     void onLongPressed() override { appManager.popApp(); }
