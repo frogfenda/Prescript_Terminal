@@ -21,7 +21,7 @@ IRAM_ATTR void ISR_Knob_Turn() {
 
 void HAL_Init() {
     tft.init();
-    tft.setRotation(1);
+    tft.setRotation(1); 
     tft.fillScreen(TFT_BLACK);
 
     textSprite.setColorDepth(16); 
@@ -31,9 +31,6 @@ void HAL_Init() {
     if (ptr == NULL) Serial.println("!!! Sprite 内存不足 !!!");
     
     textSprite.fillSprite(TFT_BLACK); 
-    
-    // 【核心修复！！！】：强制关闭 TFT_eSPI 的幽灵自动换行！
-    // 宁可让超出的文字被屏幕边缘切掉一半，也绝不让它去下一行捣乱覆盖！
     textSprite.setTextWrap(false); 
 
     pinMode(PIN_BTN, INPUT_PULLUP);
@@ -48,7 +45,9 @@ void HAL_Init() {
     u8f.setFontMode(1);          
     u8f.setFontDirection(0);     
     u8f.setBackgroundColor(TFT_BLACK);   
-    u8f.setFont(u8g2_font_wqy16_t_gb2312);
+    
+    // 【修改1：缩小中文字库】改为 12x12 的文泉驿微型点阵字库
+    u8f.setFont(u8g2_font_wqy12_t_gb2312);
 }
 
 int HAL_Get_Knob_Delta(void) { 
@@ -65,24 +64,33 @@ void HAL_Buzzer_Random_Glitch() {
     digitalWrite(PIN_BUZZER, LOW); delay(random(2) + 1); digitalWrite(PIN_BUZZER, HIGH);
 }
 void HAL_Screen_Clear() { tft.fillScreen(TFT_BLACK); textSprite.fillSprite(TFT_BLACK); }
+
 void HAL_Screen_DrawHeader() {
     textSprite.setTextColor(TFT_RED, TFT_BLACK); 
-    textSprite.setTextSize(2); 
+    // 【修改2：解除英文放大】改为 1 倍原生大小
+    textSprite.setTextSize(1); 
     textSprite.setCursor(10, 8); 
     textSprite.print("[ PRESCRIPT ]");
 }
+
 void HAL_Screen_DrawStandbyImage() {
     tft.setSwapBytes(true); 
-    tft.pushImage(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), my_image_array); 
+    tft.pushImage(18, 82, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), my_image_array); 
 }
 
 void HAL_Screen_ShowTextLine(uint8_t x, uint8_t y, const char* str) {
     textSprite.setTextColor(TFT_CYAN, TFT_BLACK); 
-    textSprite.setTextSize(2); textSprite.setCursor(x, y); textSprite.print(str);
+    // 【修改3：解除英文放大】改为 1 倍原生大小
+    textSprite.setTextSize(1); 
+    textSprite.setCursor(x, y); 
+    textSprite.print(str);
 }
+
 void HAL_Screen_ShowChineseLine(uint8_t x, uint8_t y, const char* str) {
     u8f.setForegroundColor(TFT_CYAN);
-    u8f.setCursor(x, y + 16); u8f.print(str);
+    // 【修改4：修正基线】字变矮了，把偏移量从 16 缩减为 12
+    u8f.setCursor(x, y + 12); 
+    u8f.print(str);
 }
 
 int HAL_Get_Text_Width(const char* str) { return u8f.getUTF8Width(str); }
@@ -106,12 +114,16 @@ void HAL_Screen_ShowChineseLine_Faded_Color(uint8_t x, uint8_t y, const char* st
     uint16_t faded_color = tft.color565(final_r, final_g, final_b);
 
     u8f.setForegroundColor(faded_color);
-    u8f.setCursor(x, y + 16); 
+    // 【修改4：修正基线】字变矮了，把偏移量从 16 缩减为 12
+    u8f.setCursor(x, y + 12); 
     u8f.print(str);
 }
 
 void HAL_Screen_Scroll_Up(uint8_t scroll_pixels) { textSprite.scroll(0, -scroll_pixels); }
-void HAL_Screen_Update() { textSprite.pushSprite(0, 0); }
+
+void HAL_Screen_Update() { 
+    textSprite.pushSprite(18, 82); 
+}
 
 void HAL_Draw_Line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color) { 
     if(color == 1) color = TFT_CYAN; textSprite.drawLine(x0, y0, x1, y1, color); 
