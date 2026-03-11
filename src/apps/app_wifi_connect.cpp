@@ -45,7 +45,8 @@ public:
             return;
         }
         
-        Network_Connect(sysConfig.wifi_ssid.c_str(), sysConfig.wifi_pass.c_str());
+        // 【修复 1】：去掉多余的参数，底层会自动读取配置
+        Network_Connect();
         drawUI((appManager.getLanguage() == LANG_ZH) ? "启动网络模块" : "INIT NETWORK");
     }
 
@@ -74,9 +75,10 @@ public:
             is_finished = true;
             result_show_time = millis();
         } 
-        else if (state == NET_FAIL) {
+        // 【修复 2】：适配最新的错误枚举状态
+        else if (state == NET_CONNECT_FAILED || state == NET_SYNC_FAILED) {
             drawUI((appManager.getLanguage() == LANG_ZH) ? "网络连接异常!" : "NETWORK ERROR!");
-            SYS_SOUND_ERROR(); // 【净化】
+            SYS_SOUND_ERROR(); 
             is_finished = true;
             result_show_time = millis();
         }

@@ -5,26 +5,43 @@
 
 class AppNetworkSync : public AppBase {
 private:
+    int m_state; 
+    uint32_t m_timer;
+    bool m_was_connected;
+
+    // 动画控制
     uint32_t anim_time;
     int anim_dots;
-    uint32_t result_show_time;
-    bool is_finished;
 
-    void drawUI(const char* base_text, bool show_dots = false) {
-        HAL_Screen_Clear();
-        HAL_Screen_DrawHeader();
+    // 【新增】：全局动态居中渲染器
+    void drawCenteredText(const char* text1, const char* text2, bool show_dots = false) {
+        HAL_Sprite_Clear();
+        SystemLang_t lang = appManager.getLanguage();
         int sw = HAL_Get_Screen_Width();
-        int sh = HAL_Get_Screen_Height();
         
-        char display_buf[64];
-        strcpy(display_buf, base_text);
+        char buf1[64];
+        strcpy(buf1, text1);
         if (show_dots) {
-            for(int i = 0; i < anim_dots; i++) strcat(display_buf, ".");
+            for(int i = 0; i < anim_dots; i++) strcat(buf1, ".");
         }
         
-        int text_x = (sw - HAL_Get_Text_Width(display_buf)) / 2;
-        int text_y = sh / 2 - 8; 
-        HAL_Screen_ShowChineseLine(text_x, text_y, display_buf);
+        // 为了让两行文字垂直居中：
+        // 假设行高 16，两行总高 32。屏幕总高 76。 上下各留白 22 像素
+        int y1 = 20; 
+        int y2 = 40;
+        
+        // 动态计算文字宽度以实现绝对居中
+        int x1 = (sw - HAL_Get_Text_Width(buf1)) / 2;
+        int x2 = (sw - HAL_Get_Text_Width(text2)) / 2;
+
+        if (lang == LANG_ZH) {
+            HAL_Screen_ShowChineseLine(x1, y1, buf1);
+            HAL_Screen_ShowChineseLine(x2, y2, text2);
+        } else {
+            HAL_Screen_ShowTextLine(x1, y1, buf1);
+            HAL_Screen_ShowTextLine(x2, y2, text2);
+        }
+        
         HAL_Screen_Update();
     }
 
@@ -32,59 +49,103 @@ public:
     void onCreate() override {
         anim_dots = 0;
         anim_time = millis();
-        is_finished = false;
 
-        NetworkState state = Network_GetState();
-        if (state != NET_CONNECTED && state != NET_SYNC_SUCCESS) {
-            drawUI((appManager.getLanguage() == LANG_ZH) ? "错误: 无网络连接!" : "ERR: NO NETWORK!");
-            SYS_SOUND_ERROR(); // 【净化】
-            is_finished = true;
-            result_show_time = millis();
-            return;
-        }
+        NetworkState s = Network_GetState();
+        m_was_connected = (s == NET_CONNECTED || s == NET_SYNCING_NTP || s == NET_SYNC_SUCCESS);
         
-        Network_StartNTP();
-        drawUI((appManager.getLanguage() == LANG_ZH) ? "校准时间戳" : "SYNCING NTP", true);
+        if (m_was_connected) {
+            Network_ForceNTP();
+        } else {
+            Network_Connect();
+        }
+        m_state = 0;
     }
 
     void onLoop() override {
-        if (is_finished) {
-            if (millis() - result_show_time > 1500) appManager.popApp();
-            return;
-        }
-
+        // 控制小点点的跳动频率 (每0.5秒跳一下)
         uint32_t now = millis();
-        Network_Update(); 
-        NetworkState state = Network_GetState();
-
         if (now - anim_time > 500) {
             anim_time = now;
             anim_dots = (anim_dots + 1) % 4;
-            if (state == NET_SYNCING_NTP) {
-                drawUI((appManager.getLanguage() == LANG_ZH) ? "校准时间戳" : "SYNCING NTP", true);
-            }
         }
 
+        NetworkState state = Network_GetState();
+        
         if (state == NET_SYNC_SUCCESS) {
-            drawUI((appManager.getLanguage() == LANG_ZH) ? "时间同步完成!" : "TIME SYNCED!");
-            // 保留连网成功专属组合音
-            HAL_Buzzer_Play_Tone(2000, 80); delay(60); HAL_Buzzer_Play_Tone(2500, 150);
-            is_finished = true;
-            result_show_time = millis();
-        } 
-        else if (state == NET_CONNECTED) { 
-            drawUI((appManager.getLanguage() == LANG_ZH) ? "服务器无响应!" : "NTP TIMEOUT!");
-            SYS_SOUND_ERROR(); // 【净化】
-            is_finished = true;
-            result_show_time = millis();
+            if (m_state != 2) {
+                m_state = 2;
+                m_timer = millis();
+                HAL_Buzzer_Play_Tone(2000, 80); delay(60); HAL_Buzzer_Play_Tone(2500, 150);
+            }
+            // 【修改】：成功后停留 0.7s (700ms)
+            if (millis() - m_timer > 700) { 
+                if (!m_was_connected) {
+                    Network_Disconnect(); 
+                }
+                appManager.popApp();
+                return; // 【关键修复】：彻底解决闪现主菜单的Bug
+            }
+        } else if (state == NET_CONNECT_FAILED || state == NET_SYNC_FAILED) {
+            if (m_state != 3) {
+                m_state = 3;
+                m_timer = millis();
+                HAL_Buzzer_Play_Tone(500, 100);
+            }
+            if (millis() - m_timer > 2000) {
+                if (!m_was_connected) {
+                    Network_Disconnect();
+                }
+                appManager.popApp();
+                return; // 【关键修复】
+            }
+        } else {
+            if (state == NET_CONNECTING) m_state = 0;
+            else if (state == NET_CONNECTED || state == NET_SYNCING_NTP) m_state = 1;
+        }
+
+        // 调用居中渲染器
+        SystemLang_t lang = appManager.getLanguage();
+        if (m_state == 0) {
+            drawCenteredText(
+                (lang == LANG_ZH) ? "连接神经网" : "CONNECTING", 
+                (lang == LANG_ZH) ? "请稍候" : "PLEASE WAIT",
+                true // 开启尾部省略号动画
+            );
+        } else if (m_state == 1) {
+            drawCenteredText(
+                (lang == LANG_ZH) ? "获取网络时间" : "SYNCING NTP", 
+                (lang == LANG_ZH) ? "NTP 同步中" : "PLEASE WAIT",
+                true 
+            );
+        } else if (m_state == 2) {
+            drawCenteredText(
+                (lang == LANG_ZH) ? "同步成功!" : "SYNC SUCCESS!", 
+                (lang == LANG_ZH) ? "系统时间已更新" : "TIME UPDATED",
+                false
+            );
+        } else if (m_state == 3) {
+            drawCenteredText(
+                (lang == LANG_ZH) ? "同步失败" : "SYNC FAILED", 
+                (lang == LANG_ZH) ? "请检查网络" : "CHECK WIFI",
+                false
+            );
         }
     }
 
-    void onDestroy() override {}
-    void onKnob(int delta) override {}
-    void onKeyShort() override { SYS_SOUND_NAV(); appManager.popApp(); } 
-    void onKeyLong() override { appManager.popApp(); }
+    void onDestroy() override { }
+    void onKnob(int delta) override { }
+    
+    void onKeyShort() override { 
+        SYS_SOUND_NAV(); 
+        // 强行退出时也别忘了断开临时连的网
+        if (!m_was_connected && m_state != 2 && m_state != 3) Network_Disconnect();
+        appManager.popApp(); 
+    } 
+    void onKeyLong() override { 
+        if (!m_was_connected && m_state != 2 && m_state != 3) Network_Disconnect();
+        appManager.popApp(); 
+    }
 };
 
 AppNetworkSync instanceNetworkSync;
-AppBase *appNetworkSync = &instanceNetworkSync;
+AppBase* appNetworkSync = &instanceNetworkSync;
