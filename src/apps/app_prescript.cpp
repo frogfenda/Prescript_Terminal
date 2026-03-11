@@ -50,11 +50,8 @@ private:
         return line_idx;
     }
 
-    // ========================================================
-    // 【中文满血释放】：网格解封到 45！右侧只留 4 像素安全区
-    // ========================================================
     void Format_Chinese_To_Grid(const char *raw_str, char *formatted_buf) {
-        int max_v = 45;  // <-- 从 42 提升到 45
+        int max_v = 45;  
         int current_w = 0; int buf_idx = 0;
         for(int i = 0; raw_str[i] != '\0'; ) {
             if (raw_str[i] == '\n') {
@@ -116,7 +113,7 @@ private:
         int start_y = 6;  
 
         if (lang == LANG_ZH) {
-            int max_v = 45; // <-- 乱码帧同步释放到 45
+            int max_v = 45; 
             for (int row = 0; row < 4; row++) {
                 char row_buf[256]; int buf_idx = 0, current_w = 0;
                 while (current_w < max_v - 1) {
@@ -173,7 +170,7 @@ private:
         if (current_lang == LANG_ZH) {
             Format_Chinese_To_Grid(raw_prescript, formatted_buf);
             actual_lines = Split_To_Lines(formatted_buf, lines);
-            int max_v = 45; // <-- 解码动画同步释放到 45
+            int max_v = 45; 
 
             if (sysConfig.decode_anim_style == 1) {
                 // ==========================================
@@ -208,6 +205,73 @@ private:
                     }
                     HAL_Screen_Update();
                     if (frame < total_chars) { SYS_SOUND_GLITCH(); delay(30); }
+                }
+            } else if (sysConfig.decode_anim_style == 2) {
+                // ==========================================
+                // 动画三：中文逐字乱码扫描 (空格免解)
+                // ==========================================
+                int total_chars = 0;
+                for(int r=0; r<actual_lines; r++) {
+                    int i=0; while(lines[r][i] != '\0') { total_chars++; i+=get_utf8_char_len(lines[r][i]); }
+                }
+
+                for(int target=0; target <= total_chars; target++) {
+                    // 预先侦测当前目标是不是空格
+                    bool is_space = false;
+                    if (target < total_chars) {
+                        int c_count = 0;
+                        for(int r=0; r<actual_lines; r++) {
+                            int i=0; while(lines[r][i] != '\0') {
+                                if (c_count == target) {
+                                    if (lines[r][i] == ' ') is_space = true;
+                                    break;
+                                }
+                                c_count++; i+=get_utf8_char_len(lines[r][i]);
+                            }
+                            if (c_count == target && is_space) break;
+                        }
+                    }
+
+                    // 如果是空格，直接跳过乱码闪烁帧，实现秒切！
+                    int frames = (is_space || target == total_chars) ? 1 : 4; 
+
+                    for(int f=0; f<frames; f++) {
+                        HAL_Sprite_Clear();
+                        int current_char = 0;
+                        for(int r=0; r<actual_lines; r++) {
+                            char print_buf[256] = {0}; int buf_idx = 0; int i = 0;
+                            while(lines[r][i] != '\0') {
+                                int clen = get_utf8_char_len(lines[r][i]);
+                                if (current_char < target) {
+                                    // 已经解码锁定的文字
+                                    for(int b=0; b<clen; b++) print_buf[buf_idx++] = lines[r][i+b];
+                                } else if (current_char == target && target < total_chars) {
+                                    // 正在解码的文字：生成狂暴跳动的乱码
+                                    if (is_space) {
+                                        print_buf[buf_idx++] = ' ';
+                                    } else {
+                                        if (clen > 1) { // 汉字位置生成中文乱码块
+                                            int p = random(CACHE_SIZE);
+                                            print_buf[buf_idx++] = cached_glitch_pool[p][0];
+                                            print_buf[buf_idx++] = cached_glitch_pool[p][1];
+                                            print_buf[buf_idx++] = cached_glitch_pool[p][2];
+                                        } else {        // 英文位置生成符号乱码
+                                            print_buf[buf_idx++] = 33 + random(94);
+                                        }
+                                    }
+                                }
+                                // 大于 target 的文字直接隐形隐藏
+                                current_char++; i+=clen;
+                            }
+                            if (buf_idx > 0) {
+                                print_buf[buf_idx] = '\0';
+                                HAL_Screen_ShowChineseLine(10, start_y + r*16, print_buf);
+                            }
+                        }
+                        HAL_Screen_Update();
+                        // 非空格且未结束时，播放解码杂音并停顿
+                        if (target < total_chars && !is_space) { SYS_SOUND_GLITCH(); delay(20); }
+                    }
                 }
             } else {
                 // ==========================================
@@ -245,7 +309,7 @@ private:
 
             if (sysConfig.decode_anim_style == 1) {
                 // ==========================================
-                // 动画二：英文战术打字机 (黑块推进)
+                // 动画二：英文战术打字机
                 // ==========================================
                 int total_chars = 0;
                 for(int r=0; r<actual_lines; r++) {
@@ -275,6 +339,56 @@ private:
                     }
                     HAL_Screen_Update();
                     if (frame < total_chars) { SYS_SOUND_GLITCH(); delay(30); }
+                }
+            } else if (sysConfig.decode_anim_style == 2) {
+                // ==========================================
+                // 动画三：英文逐字乱码扫描 (空格免解)
+                // ==========================================
+                int total_chars = 0;
+                for(int r=0; r<actual_lines; r++) {
+                    int i=0; while(lines[r][i] != '\0') { total_chars++; i++; }
+                }
+
+                for(int target=0; target <= total_chars; target++) {
+                    bool is_space = false;
+                    if (target < total_chars) {
+                        int c_count = 0;
+                        for(int r=0; r<actual_lines; r++) {
+                            int i=0; while(lines[r][i] != '\0') {
+                                if (c_count == target) {
+                                    if (lines[r][i] == ' ') is_space = true;
+                                    break;
+                                }
+                                c_count++; i++;
+                            }
+                            if (c_count == target && is_space) break;
+                        }
+                    }
+
+                    int frames = (is_space || target == total_chars) ? 1 : 4;
+
+                    for(int f=0; f<frames; f++) {
+                        HAL_Sprite_Clear();
+                        int current_char = 0;
+                        for(int r=0; r<actual_lines; r++) {
+                            char print_buf[256] = {0}; int buf_idx = 0; int i = 0;
+                            while(lines[r][i] != '\0') {
+                                if (current_char < target) {
+                                    print_buf[buf_idx++] = lines[r][i];
+                                } else if (current_char == target && target < total_chars) {
+                                    if (is_space) print_buf[buf_idx++] = ' ';
+                                    else print_buf[buf_idx++] = 33 + random(94);
+                                }
+                                current_char++; i++;
+                            }
+                            if (buf_idx > 0) {
+                                print_buf[buf_idx] = '\0';
+                                HAL_Screen_ShowTextLine(4, start_y + r*16, print_buf);
+                            }
+                        }
+                        HAL_Screen_Update();
+                        if (target < total_chars && !is_space) { SYS_SOUND_GLITCH(); delay(20); }
+                    }
                 }
             } else {
                 // ==========================================
