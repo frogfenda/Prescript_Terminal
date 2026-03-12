@@ -1,51 +1,40 @@
 // 文件：src/apps/app_prescript.cpp
 #include "app_base.h"
 #include "app_manager.h"
-#include "prescript_data.h"
+#include "sys_fs.h"         // <--- 引入全新的硬盘系统
 #include "sys_auto_push.h"
 #include "sys_config.h"
 
 class AppPrescript : public AppBase {
 private:
-    // ========================================================
-    // 🎨 视效与排版参数配置中心 (解耦区)
-    // ========================================================
+    static const int MAX_DATA_LINES     = 20;   
+    static const int UI_CH_START_Y      = 6;    
+    static const int UI_CH_ROW_HEIGHT   = 16;   
+    static const int UI_CH_MAX_LINES    = 4;    
+    static const int UI_CH_MARGIN_X     = 6;   
+    static const int UI_CH_MAX_COLS     = 45;   
     
-    // 【系统内存极限】
-    static const int MAX_DATA_LINES     = 20;   // 允许缓存的超长文本上限 (供滚动阅读)
-
-    // 【中文排版参数】(4行完美居中)
-    static const int UI_CH_START_Y      = 6;    // 起始 Y 坐标
-    static const int UI_CH_ROW_HEIGHT   = 16;   // 行高
-    static const int UI_CH_MAX_LINES    = 4;    // 单页最大可见行数
-    static const int UI_CH_MARGIN_X     = 6;   // 左侧边缘缩进
-    static const int UI_CH_MAX_COLS     = 45;   // 每行最大网格数
+    static const int UI_EN_START_Y      = 6;    
+    static const int UI_EN_ROW_HEIGHT   = 14;   
+    static const int UI_EN_MAX_LINES    = 5;    
+    static const int UI_EN_MARGIN_X     = 4;    
+    static const int UI_EN_MAX_COLS     = 46;   
     
-    // 【英文排版参数】(5行紧凑型完美居中)
-    static const int UI_EN_START_Y      = 6;    // 起始 Y 坐标
-    static const int UI_EN_ROW_HEIGHT   = 14;   // 压缩行高，恰好容纳5行
-    static const int UI_EN_MAX_LINES    = 5;    // 单页最大可见行数
-    static const int UI_EN_MARGIN_X     = 4;    // 左侧边缘缩进
-    static const int UI_EN_MAX_COLS     = 46;   // 每行最大字符数
-    
-    // 【动画调速与时间参数】
-    static const int ANIM_CHAOS_DELAY   = 15;   // 待机狂暴乱码帧刷新间隔 (ms)
-    static const int ANIM1_FRAMES       = 22;   // 动画1(矩阵)总帧数
-    static const int ANIM1_DELAY        = 40;   // 动画1停顿时间 (ms)
-    static const int ANIM2_SPEED_DELAY  = 30;   // 动画2(打字机)游标推进时间 (ms)
-    static const int ANIM3_GLITCH_COUNT = 4;    // 动画3(逐字)单字锁定前闪烁次数
-    static const int ANIM3_GLITCH_DELAY = 20;   // 动画3闪烁停顿时间 (ms)
-    static const int ANIM4_BASE_FRAMES  = 6;    // 动画4(波浪)基础全屏乱码帧数
-    static const int ANIM4_DELAY        = 20;   // 动画4波浪推进的帧间隔 (ms)
-    static const int AUDIO_DONE_DELAY   = 100;  // 解码完成后确认音效的缓冲 (ms)
-    // ========================================================
+    static const int ANIM_CHAOS_DELAY   = 15;   
+    static const int ANIM1_FRAMES       = 22;   
+    static const int ANIM1_DELAY        = 40;   
+    static const int ANIM2_SPEED_DELAY  = 30;   
+    static const int ANIM3_GLITCH_COUNT = 4;    
+    static const int ANIM3_GLITCH_DELAY = 20;   
+    static const int ANIM4_BASE_FRAMES  = 6;    
+    static const int ANIM4_DELAY        = 20;   
+    static const int AUDIO_DONE_DELAY   = 100;  
 
     const char *GLOBAL_CHINESE_DICT = "数据错误系统异常致命警告内存溢出未知指令核心损坏参数丢失连接中断身份拒绝权限不足矩阵终端序列重载覆写剥离重构解析编译代码节点网关漏洞端口渗透代理溯源封锁拦截劫持";
 
     static const int CACHE_SIZE = 300;
     char cached_glitch_pool[CACHE_SIZE][4]; 
     
-    // 滚动引擎的巨大画布
     char m_lines[MAX_DATA_LINES][256]; 
     int m_actual_lines = 0;            
     int m_scroll_offset = 0;           
@@ -110,9 +99,7 @@ private:
 
     void Format_English_To_Grid(const char *raw_str, char *formatted_buf) {
         int max_w = UI_EN_MAX_COLS; 
-        int current_w = 0; 
-        int buf_idx = 0;
-        int i = 0;
+        int current_w = 0; int buf_idx = 0; int i = 0;
 
         while (raw_str[i] != '\0') {
             if (raw_str[i] == '\n') {
@@ -148,7 +135,6 @@ private:
 
     void drawChaosFrame(SystemLang_t lang) {
         HAL_Sprite_Clear();
-
         if (lang == LANG_ZH) {
             for (int row = 0; row < UI_CH_MAX_LINES; row++) {
                 char row_buf[256]; int buf_idx = 0, current_w = 0;
@@ -159,10 +145,7 @@ private:
                         row_buf[buf_idx++] = cached_glitch_pool[pick][1]; 
                         row_buf[buf_idx++] = cached_glitch_pool[pick][2];
                         current_w += 2; 
-                    } else {
-                        row_buf[buf_idx++] = 33 + random(94); 
-                        current_w += 1; 
-                    }
+                    } else { row_buf[buf_idx++] = 33 + random(94); current_w += 1; }
                 }
                 row_buf[buf_idx] = '\0'; 
                 HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + row * UI_CH_ROW_HEIGHT, row_buf); 
@@ -198,7 +181,6 @@ private:
             }
         }
         
-        // 绘制屏幕最右侧的滚动条
         if (m_actual_lines > max_vis) {
             int max_offset = m_actual_lines - max_vis;
             int track_h = max_vis * row_h; 
@@ -215,6 +197,7 @@ private:
         extern int __internal_prescript_mode; 
         extern char __internal_custom_prescript[512];
         const char *rule;
+        static String fs_rule_str; // 用静态变量接住 String，保证 c_str() 指针不被销毁
         
         if (__internal_prescript_mode == 3 || __internal_prescript_mode == 4) {
             rule = __internal_custom_prescript;
@@ -223,7 +206,19 @@ private:
                 int pick = random(sysConfig.custom_prescript_count);
                 rule = sysConfig.custom_prescripts[pick].c_str();
             } else {
-                rule = Get_Prescript(current_lang, random(Get_Prescript_Count(current_lang)));
+                // ==========================================
+                // 【核心变更】：完美融合的双语独立抽取！
+                // ==========================================
+                if (current_lang == LANG_ZH) {
+                    int sz = sys_prescripts_zh.size();
+                    if (sz > 0) fs_rule_str = sys_prescripts_zh[random(sz)];
+                    else fs_rule_str = "错误：中文指令库 prescripts_zh.txt 为空。";
+                } else {
+                    int sz = sys_prescripts_en.size();
+                    if (sz > 0) fs_rule_str = sys_prescripts_en[random(sz)];
+                    else fs_rule_str = "ERR: prescripts_en.txt EMPTY.";
+                }
+                rule = fs_rule_str.c_str();
             }
         }
         
@@ -234,26 +229,19 @@ private:
         if (current_lang == LANG_ZH) {
             Format_Chinese_To_Grid(raw_prescript, formatted_buf);
             m_actual_lines = Split_To_Lines(formatted_buf, m_lines);
-            
-            // 【保护】：动画只渲染当前屏幕可见的第一页
             int draw_lines = (m_actual_lines > UI_CH_MAX_LINES) ? UI_CH_MAX_LINES : m_actual_lines;
 
             if (sysConfig.decode_anim_style == 1) {
                 int total_chars = 0;
-                for(int r=0; r<draw_lines; r++) {
-                    int i=0; while(m_lines[r][i] != '\0') { total_chars++; i+=get_utf8_char_len(m_lines[r][i]); }
-                }
-
+                for(int r=0; r<draw_lines; r++) { int i=0; while(m_lines[r][i] != '\0') { total_chars++; i+=get_utf8_char_len(m_lines[r][i]); } }
                 for(int frame=0; frame <= total_chars; frame++) {
-                    HAL_Sprite_Clear();
-                    int current_char = 0;
+                    HAL_Sprite_Clear(); int current_char = 0;
                     for(int r=0; r<draw_lines; r++) {
                         char print_buf[256] = {0}; int buf_idx = 0; int i = 0;
                         while(m_lines[r][i] != '\0') {
                             int clen = get_utf8_char_len(m_lines[r][i]);
-                            if (current_char < frame) {
-                                for(int b=0; b<clen; b++) print_buf[buf_idx++] = m_lines[r][i+b];
-                            } else if (current_char == frame) {
+                            if (current_char < frame) { for(int b=0; b<clen; b++) print_buf[buf_idx++] = m_lines[r][i+b]; } 
+                            else if (current_char == frame) {
                                 print_buf[buf_idx] = '\0';
                                 HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf);
                                 int cursor_x = UI_CH_MARGIN_X + HAL_Get_Text_Width(print_buf);
@@ -266,36 +254,26 @@ private:
                             HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf);
                         }
                     }
-                    HAL_Screen_Update();
-                    if (frame < total_chars) { SYS_SOUND_GLITCH(); delay(ANIM2_SPEED_DELAY); }
+                    HAL_Screen_Update(); if (frame < total_chars) { SYS_SOUND_GLITCH(); delay(ANIM2_SPEED_DELAY); }
                 }
             } else if (sysConfig.decode_anim_style == 2) {
                 int total_chars = 0;
-                for(int r=0; r<draw_lines; r++) {
-                    int i=0; while(m_lines[r][i] != '\0') { total_chars++; i+=get_utf8_char_len(m_lines[r][i]); }
-                }
-
+                for(int r=0; r<draw_lines; r++) { int i=0; while(m_lines[r][i] != '\0') { total_chars++; i+=get_utf8_char_len(m_lines[r][i]); } }
                 for(int target=0; target <= total_chars; target++) {
                     bool is_space = false;
                     if (target < total_chars) {
                         int c_count = 0;
                         for(int r=0; r<draw_lines; r++) {
                             int i=0; while(m_lines[r][i] != '\0') {
-                                if (c_count == target) {
-                                    if (m_lines[r][i] == ' ') is_space = true;
-                                    break;
-                                }
+                                if (c_count == target) { if (m_lines[r][i] == ' ') is_space = true; break; }
                                 c_count++; i+=get_utf8_char_len(m_lines[r][i]);
                             }
                             if (c_count == target && is_space) break;
                         }
                     }
-
                     int frames = (is_space || target == total_chars) ? 1 : ANIM3_GLITCH_COUNT; 
-
                     for(int f=0; f<frames; f++) {
-                        HAL_Sprite_Clear();
-                        int current_char = 0;
+                        HAL_Sprite_Clear(); int current_char = 0;
                         for(int r=0; r<draw_lines; r++) {
                             char print_buf[256] = {0}; int buf_idx = 0; int i = 0;
                             while(m_lines[r][i] != '\0') {
@@ -303,22 +281,14 @@ private:
                                 if (current_char < target) {
                                     for(int b=0; b<clen; b++) print_buf[buf_idx++] = m_lines[r][i+b];
                                 } else if (current_char == target && target < total_chars) {
-                                    if (is_space) {
-                                        print_buf[buf_idx++] = ' ';
-                                    } else {
+                                    if (is_space) { print_buf[buf_idx++] = ' '; } 
+                                    else {
                                         if (clen > 1) { 
                                             if (random(100) < 40) {
                                                 int p = random(CACHE_SIZE);
-                                                print_buf[buf_idx++] = cached_glitch_pool[p][0];
-                                                print_buf[buf_idx++] = cached_glitch_pool[p][1];
-                                                print_buf[buf_idx++] = cached_glitch_pool[p][2];
-                                            } else {
-                                                print_buf[buf_idx++] = 33 + random(94);
-                                                print_buf[buf_idx++] = 33 + random(94); 
-                                            }
-                                        } else {        
-                                            print_buf[buf_idx++] = 33 + random(94);
-                                        }
+                                                print_buf[buf_idx++] = cached_glitch_pool[p][0]; print_buf[buf_idx++] = cached_glitch_pool[p][1]; print_buf[buf_idx++] = cached_glitch_pool[p][2];
+                                            } else { print_buf[buf_idx++] = 33 + random(94); print_buf[buf_idx++] = 33 + random(94); }
+                                        } else { print_buf[buf_idx++] = 33 + random(94); }
                                     }
                                 }
                                 current_char++; i+=clen;
@@ -328,61 +298,41 @@ private:
                                 HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf);
                             }
                         }
-                        HAL_Screen_Update();
-                        if (target < total_chars && !is_space) { SYS_SOUND_GLITCH(); delay(ANIM3_GLITCH_DELAY); }
+                        HAL_Screen_Update(); if (target < total_chars && !is_space) { SYS_SOUND_GLITCH(); delay(ANIM3_GLITCH_DELAY); }
                     }
                 }
             } else if (sysConfig.decode_anim_style == 3) {
                 int total_chars = 0;
-                for(int r=0; r<draw_lines; r++) {
-                    int i=0; while(m_lines[r][i] != '\0') { total_chars++; i+=get_utf8_char_len(m_lines[r][i]); }
-                }
+                for(int r=0; r<draw_lines; r++) { int i=0; while(m_lines[r][i] != '\0') { total_chars++; i+=get_utf8_char_len(m_lines[r][i]); } }
                 int total_frames = total_chars + ANIM4_BASE_FRAMES;
-
                 for(int frame=0; frame <= total_frames; frame++) {
-                    HAL_Sprite_Clear();
-                    int current_char = 0;
+                    HAL_Sprite_Clear(); int current_char = 0;
                     for(int r=0; r<draw_lines; r++) {
                         char print_buf[256] = {0}; int buf_idx = 0; int i = 0;
                         while(m_lines[r][i] != '\0') {
                             int clen = get_utf8_char_len(m_lines[r][i]);
                             int resolve_frame = current_char + ANIM4_BASE_FRAMES; 
-                            
-                            if (frame >= resolve_frame) {
-                                for(int b=0; b<clen; b++) print_buf[buf_idx++] = m_lines[r][i+b];
-                            } else {
-                                if (m_lines[r][i] == ' ') {
-                                    print_buf[buf_idx++] = ' ';
-                                } else {
+                            if (frame >= resolve_frame) { for(int b=0; b<clen; b++) print_buf[buf_idx++] = m_lines[r][i+b]; } 
+                            else {
+                                if (m_lines[r][i] == ' ') { print_buf[buf_idx++] = ' '; } 
+                                else {
                                     if (clen > 1) { 
                                         if (random(100) < 40) {
                                             int p = random(CACHE_SIZE);
-                                            print_buf[buf_idx++] = cached_glitch_pool[p][0];
-                                            print_buf[buf_idx++] = cached_glitch_pool[p][1];
-                                            print_buf[buf_idx++] = cached_glitch_pool[p][2];
-                                        } else {
-                                            print_buf[buf_idx++] = 33 + random(94);
-                                            print_buf[buf_idx++] = 33 + random(94);
-                                        }
-                                    } else {
-                                        print_buf[buf_idx++] = 33 + random(94);
-                                    }
+                                            print_buf[buf_idx++] = cached_glitch_pool[p][0]; print_buf[buf_idx++] = cached_glitch_pool[p][1]; print_buf[buf_idx++] = cached_glitch_pool[p][2];
+                                        } else { print_buf[buf_idx++] = 33 + random(94); print_buf[buf_idx++] = 33 + random(94); }
+                                    } else { print_buf[buf_idx++] = 33 + random(94); }
                                 }
                             }
                             current_char++; i+=clen;
                         }
-                        if (buf_idx > 0) {
-                            print_buf[buf_idx] = '\0';
-                            HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf);
-                        }
+                        if (buf_idx > 0) { print_buf[buf_idx] = '\0'; HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf); }
                     }
-                    HAL_Screen_Update();
-                    if (frame < total_frames) { SYS_SOUND_GLITCH(); delay(ANIM4_DELAY); }
+                    HAL_Screen_Update(); if (frame < total_frames) { SYS_SOUND_GLITCH(); delay(ANIM4_DELAY); }
                 }
             } else {
                 uint8_t lucky[UI_CH_MAX_LINES][60]; 
                 for(int r=0; r<UI_CH_MAX_LINES; r++) for(int c=0; c<UI_CH_MAX_COLS; c++) lucky[r][c] = random(11) + 2;
-                
                 for(int frame=0; frame<ANIM1_FRAMES; frame++) {
                     uint8_t all_locked=1; HAL_Sprite_Clear(); 
                     for(int r=0; r<UI_CH_MAX_LINES; r++) {
@@ -390,23 +340,14 @@ private:
                         if(r < draw_lines) {
                             while(m_lines[r][byte_idx]!='\0' && current_w < UI_CH_MAX_COLS - 1) {
                                 int clen=get_utf8_char_len(m_lines[r][byte_idx]); int cw=(clen>1)?2:1;
-                                if(frame>=lucky[r][current_w]) { 
-                                    for(int b=0; b<clen; b++) row_buf[buf_idx++]=m_lines[r][byte_idx+b]; 
-                                } else { 
+                                if(frame>=lucky[r][current_w]) { for(int b=0; b<clen; b++) row_buf[buf_idx++]=m_lines[r][byte_idx+b]; } 
+                                else { 
                                     all_locked=0; 
                                     if(cw==2){ 
                                         if (random(100) < 40) {
-                                            int p=random(CACHE_SIZE); 
-                                            row_buf[buf_idx++]=cached_glitch_pool[p][0]; 
-                                            row_buf[buf_idx++]=cached_glitch_pool[p][1]; 
-                                            row_buf[buf_idx++]=cached_glitch_pool[p][2]; 
-                                        } else {
-                                            row_buf[buf_idx++]=33+random(94); 
-                                            row_buf[buf_idx++]=33+random(94); 
-                                        }
-                                    } else { 
-                                        row_buf[buf_idx++]=33+random(94); 
-                                    } 
+                                            int p=random(CACHE_SIZE); row_buf[buf_idx++]=cached_glitch_pool[p][0]; row_buf[buf_idx++]=cached_glitch_pool[p][1]; row_buf[buf_idx++]=cached_glitch_pool[p][2]; 
+                                        } else { row_buf[buf_idx++]=33+random(94); row_buf[buf_idx++]=33+random(94); }
+                                    } else { row_buf[buf_idx++]=33+random(94); } 
                                 }
                                 current_w+=cw; byte_idx+=clen;
                             }
@@ -415,15 +356,8 @@ private:
                             if(frame<lucky[r][current_w]) { 
                                 all_locked=0; 
                                 if(random(100)<40 && current_w <= UI_CH_MAX_COLS - 2){ 
-                                    int p=random(CACHE_SIZE); 
-                                    row_buf[buf_idx++]=cached_glitch_pool[p][0]; 
-                                    row_buf[buf_idx++]=cached_glitch_pool[p][1]; 
-                                    row_buf[buf_idx++]=cached_glitch_pool[p][2]; 
-                                    current_w+=2; 
-                                } else { 
-                                    row_buf[buf_idx++]=33+random(94); 
-                                    current_w+=1; 
-                                } 
+                                    int p=random(CACHE_SIZE); row_buf[buf_idx++]=cached_glitch_pool[p][0]; row_buf[buf_idx++]=cached_glitch_pool[p][1]; row_buf[buf_idx++]=cached_glitch_pool[p][2]; current_w+=2; 
+                                } else { row_buf[buf_idx++]=33+random(94); current_w+=1; } 
                             }
                             else { row_buf[buf_idx++]=' '; current_w+=1; }
                         }
@@ -434,27 +368,21 @@ private:
                 }
             }
         } else {
+            // === 英文解析保持不变 ===
             Format_English_To_Grid(raw_prescript, formatted_buf);
             m_actual_lines = Split_To_Lines(formatted_buf, m_lines);
-            
-            // 【保护】：英文上限变为 5 行
             int draw_lines = (m_actual_lines > UI_EN_MAX_LINES) ? UI_EN_MAX_LINES : m_actual_lines;
 
             if (sysConfig.decode_anim_style == 1) {
                 int total_chars = 0;
-                for(int r=0; r<draw_lines; r++) {
-                    int i=0; while(m_lines[r][i] != '\0') { total_chars++; i++; }
-                }
-
+                for(int r=0; r<draw_lines; r++) { int i=0; while(m_lines[r][i] != '\0') { total_chars++; i++; } }
                 for(int frame=0; frame <= total_chars; frame++) {
-                    HAL_Sprite_Clear();
-                    int current_char = 0;
+                    HAL_Sprite_Clear(); int current_char = 0;
                     for(int r=0; r<draw_lines; r++) {
                         char print_buf[256] = {0}; int buf_idx = 0; int i = 0;
                         while(m_lines[r][i] != '\0') {
-                            if (current_char < frame) {
-                                print_buf[buf_idx++] = m_lines[r][i];
-                            } else if (current_char == frame) {
+                            if (current_char < frame) { print_buf[buf_idx++] = m_lines[r][i]; } 
+                            else if (current_char == frame) {
                                 print_buf[buf_idx] = '\0';
                                 HAL_Screen_ShowTextLine(UI_EN_MARGIN_X, UI_EN_START_Y + r * UI_EN_ROW_HEIGHT, print_buf);
                                 int cursor_x = UI_EN_MARGIN_X + buf_idx * 6;
@@ -467,91 +395,61 @@ private:
                             HAL_Screen_ShowTextLine(UI_EN_MARGIN_X, UI_EN_START_Y + r * UI_EN_ROW_HEIGHT, print_buf);
                         }
                     }
-                    HAL_Screen_Update();
-                    if (frame < total_chars) { SYS_SOUND_GLITCH(); delay(ANIM2_SPEED_DELAY); }
+                    HAL_Screen_Update(); if (frame < total_chars) { SYS_SOUND_GLITCH(); delay(ANIM2_SPEED_DELAY); }
                 }
             } else if (sysConfig.decode_anim_style == 2) {
                 int total_chars = 0;
-                for(int r=0; r<draw_lines; r++) {
-                    int i=0; while(m_lines[r][i] != '\0') { total_chars++; i++; }
-                }
-
+                for(int r=0; r<draw_lines; r++) { int i=0; while(m_lines[r][i] != '\0') { total_chars++; i++; } }
                 for(int target=0; target <= total_chars; target++) {
                     bool is_space = false;
                     if (target < total_chars) {
                         int c_count = 0;
                         for(int r=0; r<draw_lines; r++) {
                             int i=0; while(m_lines[r][i] != '\0') {
-                                if (c_count == target) {
-                                    if (m_lines[r][i] == ' ') is_space = true;
-                                    break;
-                                }
+                                if (c_count == target) { if (m_lines[r][i] == ' ') is_space = true; break; }
                                 c_count++; i++;
                             }
                             if (c_count == target && is_space) break;
                         }
                     }
-
                     int frames = (is_space || target == total_chars) ? 1 : ANIM3_GLITCH_COUNT;
-
                     for(int f=0; f<frames; f++) {
-                        HAL_Sprite_Clear();
-                        int current_char = 0;
+                        HAL_Sprite_Clear(); int current_char = 0;
                         for(int r=0; r<draw_lines; r++) {
                             char print_buf[256] = {0}; int buf_idx = 0; int i = 0;
                             while(m_lines[r][i] != '\0') {
-                                if (current_char < target) {
-                                    print_buf[buf_idx++] = m_lines[r][i];
-                                } else if (current_char == target && target < total_chars) {
-                                    if (is_space) print_buf[buf_idx++] = ' ';
-                                    else print_buf[buf_idx++] = 33 + random(94);
+                                if (current_char < target) { print_buf[buf_idx++] = m_lines[r][i]; } 
+                                else if (current_char == target && target < total_chars) {
+                                    if (is_space) print_buf[buf_idx++] = ' '; else print_buf[buf_idx++] = 33 + random(94);
                                 }
                                 current_char++; i++;
                             }
-                            if (buf_idx > 0) {
-                                print_buf[buf_idx] = '\0';
-                                HAL_Screen_ShowTextLine(UI_EN_MARGIN_X, UI_EN_START_Y + r * UI_EN_ROW_HEIGHT, print_buf);
-                            }
+                            if (buf_idx > 0) { print_buf[buf_idx] = '\0'; HAL_Screen_ShowTextLine(UI_EN_MARGIN_X, UI_EN_START_Y + r * UI_EN_ROW_HEIGHT, print_buf); }
                         }
-                        HAL_Screen_Update();
-                        if (target < total_chars && !is_space) { SYS_SOUND_GLITCH(); delay(ANIM3_GLITCH_DELAY); }
+                        HAL_Screen_Update(); if (target < total_chars && !is_space) { SYS_SOUND_GLITCH(); delay(ANIM3_GLITCH_DELAY); }
                     }
                 }
             } else if (sysConfig.decode_anim_style == 3) {
                 int total_chars = 0;
-                for(int r=0; r<draw_lines; r++) {
-                    int i=0; while(m_lines[r][i] != '\0') { total_chars++; i++; }
-                }
+                for(int r=0; r<draw_lines; r++) { int i=0; while(m_lines[r][i] != '\0') { total_chars++; i++; } }
                 int total_frames = total_chars + ANIM4_BASE_FRAMES;
-
                 for(int frame=0; frame <= total_frames; frame++) {
-                    HAL_Sprite_Clear();
-                    int current_char = 0;
+                    HAL_Sprite_Clear(); int current_char = 0;
                     for(int r=0; r<draw_lines; r++) {
                         char print_buf[256] = {0}; int buf_idx = 0; int i = 0;
                         while(m_lines[r][i] != '\0') {
                             int resolve_frame = current_char + ANIM4_BASE_FRAMES;
-                            
-                            if (frame >= resolve_frame) {
-                                print_buf[buf_idx++] = m_lines[r][i];
-                            } else {
-                                if (m_lines[r][i] == ' ') print_buf[buf_idx++] = ' ';
-                                else print_buf[buf_idx++] = 33 + random(94);
-                            }
+                            if (frame >= resolve_frame) { print_buf[buf_idx++] = m_lines[r][i]; } 
+                            else { if (m_lines[r][i] == ' ') print_buf[buf_idx++] = ' '; else print_buf[buf_idx++] = 33 + random(94); }
                             current_char++; i++;
                         }
-                        if (buf_idx > 0) {
-                            print_buf[buf_idx] = '\0';
-                            HAL_Screen_ShowTextLine(UI_EN_MARGIN_X, UI_EN_START_Y + r * UI_EN_ROW_HEIGHT, print_buf);
-                        }
+                        if (buf_idx > 0) { print_buf[buf_idx] = '\0'; HAL_Screen_ShowTextLine(UI_EN_MARGIN_X, UI_EN_START_Y + r * UI_EN_ROW_HEIGHT, print_buf); }
                     }
-                    HAL_Screen_Update();
-                    if (frame < total_frames) { SYS_SOUND_GLITCH(); delay(ANIM4_DELAY); }
+                    HAL_Screen_Update(); if (frame < total_frames) { SYS_SOUND_GLITCH(); delay(ANIM4_DELAY); }
                 }
             } else {
                 uint8_t lucky[UI_EN_MAX_LINES][60];
                 for(int r=0; r<UI_EN_MAX_LINES; r++) for(int c=0; c<UI_EN_MAX_COLS; c++) lucky[r][c] = random(11) + 2;
-                
                 for(int frame=0; frame<ANIM1_FRAMES; frame++) {
                     uint8_t all_locked=1; HAL_Sprite_Clear(); 
                     for(int r=0; r<UI_EN_MAX_LINES; r++) {
@@ -577,7 +475,6 @@ private:
             }
         }
         
-        // 动画播完后，重绘静态帧并附带滚动条
         m_scroll_offset = 0;
         drawDoneFrame();
 
@@ -590,7 +487,7 @@ private:
 public:
     void onCreate() override { 
         Init_Glitch_Pool(); 
-        m_scroll_offset = 0; // 初始化页面时重置滚轮
+        m_scroll_offset = 0; 
         extern int __internal_prescript_mode;
         if (__internal_prescript_mode != 2 && __internal_prescript_mode != 3) {
             m_state = S_WAIT_RELEASE; 
@@ -618,7 +515,6 @@ public:
         __internal_prescript_mode = 0; 
     }
     
-    // 【旋钮接入】：控制滚轮查阅长文本
     void onKnob(int delta) override {
         if (m_state == S_DONE) {
             int max_vis = (appManager.getLanguage() == LANG_ZH) ? UI_CH_MAX_LINES : UI_EN_MAX_LINES;
