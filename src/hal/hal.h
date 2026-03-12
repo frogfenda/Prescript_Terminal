@@ -1,4 +1,4 @@
-// 文件：src/hal.h
+// 文件：src/hal/hal.h
 #ifndef __HAL_H
 #define __HAL_H
 
@@ -9,14 +9,15 @@
 #define PIN_KNOB_B 5
 #define PIN_BTN    6   
 #define PIN_BUZZER 7
+
 // ==========================================
-// 系统级 UI 布局尺寸定义 (消除 Magic Number)
+// 系统级 UI 布局尺寸定义
 // ==========================================
-#define UI_HEADER_HEIGHT   38  // 顶部状态栏高度
-#define UI_MARGIN_LEFT     20  // 统一左边距
-#define UI_MARGIN_RIGHT    20  // 统一右边距
-#define UI_TEXT_Y_TOP      16  // 顶部文字基准线
-#define UI_TIME_SAFE_PAD   28  // 右侧时间防换行避让区
+#define UI_HEADER_HEIGHT   38  
+#define UI_MARGIN_LEFT     20  
+#define UI_MARGIN_RIGHT    20  
+#define UI_TEXT_Y_TOP      16  
+#define UI_TIME_SAFE_PAD   28  
 
 // ==========================================
 // 语义化系统音效宏定义
@@ -26,6 +27,7 @@
 #define SYS_SOUND_NAV()     HAL_Buzzer_Play_Tone(2200, 40)
 #define SYS_SOUND_LONG()    HAL_Buzzer_Play_Tone(800, 150)
 #define SYS_SOUND_GLITCH()  HAL_Buzzer_Random_Glitch()
+
 void HAL_Init(void);
 bool HAL_Is_Key_Pressed(void);
 int  HAL_Get_Knob_Delta(void); 
@@ -36,27 +38,24 @@ void HAL_Buzzer_Random_Glitch(void);
 void HAL_Screen_Clear(void);
 void HAL_Screen_DrawHeader(void);
 void HAL_Screen_DrawStandbyImage(void);
-void HAL_Screen_ShowTextLine(uint8_t x, uint8_t y, const char* str);
-void HAL_Screen_ShowChineseLine(uint8_t x, uint8_t y, const char* str);
+
+// 【核心修复】：全部打破 uint8_t 封印，改为支持负数和大坐标的 int32_t！
+void HAL_Screen_ShowTextLine(int32_t x, int32_t y, const char* str);
+void HAL_Screen_ShowChineseLine(int32_t x, int32_t y, const char* str);
+void HAL_Screen_ShowChineseLine_Faded(int32_t x, int32_t y, const char* str, float distance);
+void HAL_Screen_ShowChineseLine_Faded_Color(int32_t x, int32_t y, const char* str, float distance, uint16_t base_color);
+
 void HAL_Screen_Scroll_Up(uint8_t scroll_pixels);
 void HAL_Screen_Update(void);
 
-// 【新增 API】：计算中文字符串在屏幕上的绝对像素宽度
 int HAL_Get_Text_Width(const char* str);
-// 文件：src/hal/hal.h (找到淡出渲染的声明并修改)
-
-void HAL_Screen_ShowChineseLine(uint8_t x, uint8_t y, const char* str);
-void HAL_Screen_ShowChineseLine_Faded(uint8_t x, uint8_t y, const char* str, float distance);
-
-// 【全新万能引擎】：支持传入任意 RGB565 颜色的景深渐变渲染！
-void HAL_Screen_ShowChineseLine_Faded_Color(uint8_t x, uint8_t y, const char* str, float distance, uint16_t base_color);
 
 void HAL_Draw_Line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color);
 void HAL_Draw_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color);
 void HAL_Sprite_Clear(void); 
-// 【新增 API】：获取当前屏幕的物理分辨率
+
 uint16_t HAL_Get_Screen_Width(void);
 uint16_t HAL_Get_Screen_Height(void);
 #endif

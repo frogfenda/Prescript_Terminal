@@ -45,8 +45,6 @@ void HAL_Init() {
     u8f.setFontMode(1);          
     u8f.setFontDirection(0);     
     u8f.setBackgroundColor(TFT_BLACK);   
-    
-    // 【修改1：缩小中文字库】改为 12x12 的文泉驿微型点阵字库
     u8f.setFont(u8g2_font_wqy12_t_gb2312);
 }
 
@@ -67,7 +65,6 @@ void HAL_Screen_Clear() { tft.fillScreen(TFT_BLACK); textSprite.fillSprite(TFT_B
 
 void HAL_Screen_DrawHeader() {
     textSprite.setTextColor(TFT_RED, TFT_BLACK); 
-    // 【修改2：解除英文放大】改为 1 倍原生大小
     textSprite.setTextSize(1); 
     textSprite.setCursor(10, 8); 
     textSprite.print("[ PRESCRIPT ]");
@@ -78,28 +75,27 @@ void HAL_Screen_DrawStandbyImage() {
     tft.pushImage(18, 82, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), my_image_array); 
 }
 
-void HAL_Screen_ShowTextLine(uint8_t x, uint8_t y, const char* str) {
+// 【核心修复】：全部改为 int32_t，彻底消灭 256 像素回环诅咒！
+void HAL_Screen_ShowTextLine(int32_t x, int32_t y, const char* str) {
     textSprite.setTextColor(TFT_CYAN, TFT_BLACK); 
-    // 【修改3：解除英文放大】改为 1 倍原生大小
     textSprite.setTextSize(1); 
     textSprite.setCursor(x, y); 
     textSprite.print(str);
 }
 
-void HAL_Screen_ShowChineseLine(uint8_t x, uint8_t y, const char* str) {
+void HAL_Screen_ShowChineseLine(int32_t x, int32_t y, const char* str) {
     u8f.setForegroundColor(TFT_CYAN);
-    // 【修改4：修正基线】字变矮了，把偏移量从 16 缩减为 12
     u8f.setCursor(x, y + 12); 
     u8f.print(str);
 }
 
 int HAL_Get_Text_Width(const char* str) { return u8f.getUTF8Width(str); }
 
-void HAL_Screen_ShowChineseLine_Faded(uint8_t x, uint8_t y, const char* str, float distance) {
+void HAL_Screen_ShowChineseLine_Faded(int32_t x, int32_t y, const char* str, float distance) {
     HAL_Screen_ShowChineseLine_Faded_Color(x, y, str, distance, TFT_CYAN);
 }
 
-void HAL_Screen_ShowChineseLine_Faded_Color(uint8_t x, uint8_t y, const char* str, float distance, uint16_t base_color) {
+void HAL_Screen_ShowChineseLine_Faded_Color(int32_t x, int32_t y, const char* str, float distance, uint16_t base_color) {
     float intensity = 1.0f - (distance * 0.40f); 
     if (intensity < 0.15f) intensity = 0.15f; 
 
@@ -114,7 +110,6 @@ void HAL_Screen_ShowChineseLine_Faded_Color(uint8_t x, uint8_t y, const char* st
     uint16_t faded_color = tft.color565(final_r, final_g, final_b);
 
     u8f.setForegroundColor(faded_color);
-    // 【修改4：修正基线】字变矮了，把偏移量从 16 缩减为 12
     u8f.setCursor(x, y + 12); 
     u8f.print(str);
 }
