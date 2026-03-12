@@ -9,11 +9,13 @@ private:
     uint32_t m_timer;
     bool m_was_connected;
 
-    // 动画控制
     uint32_t anim_time;
     int anim_dots;
 
-    // 【新增】：全局动态居中渲染器
+    // 【降温核心】：记录上一次渲染的状态，用于拦截无效的疯狂重绘
+    int last_drawn_state;
+    int last_drawn_dots;
+
     void drawCenteredText(const char* text1, const char* text2, bool show_dots = false) {
         HAL_Sprite_Clear();
         SystemLang_t lang = appManager.getLanguage();
@@ -25,12 +27,8 @@ private:
             for(int i = 0; i < anim_dots; i++) strcat(buf1, ".");
         }
         
-        // 为了让两行文字垂直居中：
-        // 假设行高 16，两行总高 32。屏幕总高 76。 上下各留白 22 像素
         int y1 = 20; 
         int y2 = 40;
-        
-        // 动态计算文字宽度以实现绝对居中
         int x1 = (sw - HAL_Get_Text_Width(buf1)) / 2;
         int x2 = (sw - HAL_Get_Text_Width(text2)) / 2;
 
@@ -49,20 +47,19 @@ public:
     void onCreate() override {
         anim_dots = 0;
         anim_time = millis();
+        last_drawn_state = -1; // 初始化为-1，确保第一次必定渲染
+        last_drawn_dots = -1;
 
         NetworkState s = Network_GetState();
         m_was_connected = (s == NET_CONNECTED || s == NET_SYNCING_NTP || s == NET_SYNC_SUCCESS);
         
-        if (m_was_connected) {
-            Network_ForceNTP();
-        } else {
-            Network_Connect();
-        }
+        if (m_was_connected) Network_ForceNTP();
+        else Network_Connect();
+        
         m_state = 0;
     }
 
     void onLoop() override {
-        // 控制小点点的跳动频率 (每0.5秒跳一下)
         uint32_t now = millis();
         if (now - anim_time > 500) {
             anim_time = now;
@@ -77,13 +74,10 @@ public:
                 m_timer = millis();
                 HAL_Buzzer_Play_Tone(2000, 80); delay(60); HAL_Buzzer_Play_Tone(2500, 150);
             }
-            // 【修改】：成功后停留 0.7s (700ms)
             if (millis() - m_timer > 700) { 
-                if (!m_was_connected) {
-                    Network_Disconnect(); 
-                }
+                if (!m_was_connected) Network_Disconnect(); 
                 appManager.popApp();
-                return; // 【关键修复】：彻底解决闪现主菜单的Bug
+                return; 
             }
         } else if (state == NET_CONNECT_FAILED || state == NET_SYNC_FAILED) {
             if (m_state != 3) {
@@ -92,52 +86,33 @@ public:
                 HAL_Buzzer_Play_Tone(500, 100);
             }
             if (millis() - m_timer > 2000) {
-                if (!m_was_connected) {
-                    Network_Disconnect();
-                }
+                if (!m_was_connected) Network_Disconnect();
                 appManager.popApp();
-                return; // 【关键修复】
+                return; 
             }
         } else {
             if (state == NET_CONNECTING) m_state = 0;
             else if (state == NET_CONNECTED || state == NET_SYNCING_NTP) m_state = 1;
         }
 
-        // 调用居中渲染器
-        SystemLang_t lang = appManager.getLanguage();
-        if (m_state == 0) {
-            drawCenteredText(
-                (lang == LANG_ZH) ? "连接神经网" : "CONNECTING", 
-                (lang == LANG_ZH) ? "请稍候" : "PLEASE WAIT",
-                true // 开启尾部省略号动画
-            );
-        } else if (m_state == 1) {
-            drawCenteredText(
-                (lang == LANG_ZH) ? "获取网络时间" : "SYNCING NTP", 
-                (lang == LANG_ZH) ? "NTP 同步中" : "PLEASE WAIT",
-                true 
-            );
-        } else if (m_state == 2) {
-            drawCenteredText(
-                (lang == LANG_ZH) ? "同步成功!" : "SYNC SUCCESS!", 
-                (lang == LANG_ZH) ? "系统时间已更新" : "TIME UPDATED",
-                false
-            );
-        } else if (m_state == 3) {
-            drawCenteredText(
-                (lang == LANG_ZH) ? "同步失败" : "SYNC FAILED", 
-                (lang == LANG_ZH) ? "请检查网络" : "CHECK WIFI",
-                false
-            );
+        // 【降温核心】：只有当状态发生改变，或者跳动的点阵发生改变时，才允许推给屏幕！
+        // 这一刀直接把屏幕刷新率从 1000 FPS 砍到了 2 FPS，彻底解放 SPI 性能！
+        if (m_state != last_drawn_state || anim_dots != last_drawn_dots) {
+            last_drawn_state = m_state;
+            last_drawn_dots = anim_dots;
+
+            SystemLang_t lang = appManager.getLanguage();
+            if (m_state == 0) drawCenteredText((lang == LANG_ZH) ? "连接神经网" : "CONNECTING", (lang == LANG_ZH) ? "请稍候" : "PLEASE WAIT", true);
+            else if (m_state == 1) drawCenteredText((lang == LANG_ZH) ? "获取网络时间" : "SYNCING NTP", (lang == LANG_ZH) ? "NTP 同步中" : "PLEASE WAIT", true);
+            else if (m_state == 2) drawCenteredText((lang == LANG_ZH) ? "同步成功!" : "SYNC SUCCESS!", (lang == LANG_ZH) ? "系统时间已更新" : "TIME UPDATED", false);
+            else if (m_state == 3) drawCenteredText((lang == LANG_ZH) ? "同步失败" : "SYNC FAILED", (lang == LANG_ZH) ? "请检查网络" : "CHECK WIFI", false);
         }
     }
 
     void onDestroy() override { }
     void onKnob(int delta) override { }
-    
     void onKeyShort() override { 
         SYS_SOUND_NAV(); 
-        // 强行退出时也别忘了断开临时连的网
         if (!m_was_connected && m_state != 2 && m_state != 3) Network_Disconnect();
         appManager.popApp(); 
     } 
