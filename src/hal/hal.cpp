@@ -1,6 +1,6 @@
 // 文件：src/hal/hal.cpp
 #include "hal.h"
-#include "my_image.h" 
+#include <LittleFS.h>           // <--- 引入文件系统！绝不再用 my_image.h！
 #include <U8g2_for_TFT_eSPI.h> 
 
 TFT_eSPI tft = TFT_eSPI(); 
@@ -70,12 +70,33 @@ void HAL_Screen_DrawHeader() {
     textSprite.print("[ PRESCRIPT ]");
 }
 
+// ========================================================
+// 【终极进化】：从硬盘安全读取，并画入精灵图缓存，避免任何闪烁和覆盖问题！
+// ========================================================
 void HAL_Screen_DrawStandbyImage() {
-    tft.setSwapBytes(true); 
-    tft.pushImage(18, 82, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), my_image_array); 
+    File file = LittleFS.open("/assets/standby.bin", "r");
+    if (!file) {
+        textSprite.fillRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_RED);
+        return; 
+    }
+
+    uint16_t sw = HAL_Get_Screen_Width();
+    uint16_t sh = HAL_Get_Screen_Height();
+    uint16_t row_buf[sw]; 
+    
+    // 图片画入精灵缓存，需配置缓存色彩反转
+    textSprite.setSwapBytes(true); 
+    
+    // 安全地逐行从硬盘读取并推入内存画布
+    for(int y = 0; y < sh; y++) {
+        int bytes_read = file.read((uint8_t*)row_buf, sw * 2);
+        if (bytes_read > 0) {
+            textSprite.pushImage(0, y, sw, 1, row_buf); 
+        }
+    }
+    file.close();
 }
 
-// 【核心修复】：全部改为 int32_t，彻底消灭 256 像素回环诅咒！
 void HAL_Screen_ShowTextLine(int32_t x, int32_t y, const char* str) {
     textSprite.setTextColor(TFT_CYAN, TFT_BLACK); 
     textSprite.setTextSize(1); 
