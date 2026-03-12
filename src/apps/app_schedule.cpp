@@ -87,53 +87,58 @@ void Schedule_UpdateBackground() {
 class AppScheduleEdit : public AppBase {
     int mo, d, h, m, t_idx, p_idx, phase;
     
-    // 【全新UI】：左边标题，右边内容，完美居中
+    DialAnimator dialAnim;        // 实例化刻度盘引擎
+    TacticalLinkEngine linkAnim;  // 实例化战术链路引擎
+    
     void drawUI() {
         HAL_Sprite_Clear();
         int sw = HAL_Get_Screen_Width();
         bool zh = appManager.getLanguage() == LANG_ZH;
-        int center_y = 30;
         
         if (phase == 6) {
-            // 危险验证左侧
             const char* title = zh ? "危险操作" : "DANGER";
-            HAL_Screen_ShowChineseLine(10, center_y, title);
+            HAL_Screen_ShowChineseLine(10, 26, title);
             
-            // 右侧
             char buf[64]; sprintf(buf, zh ? "抹除 [%s]?" : "DEL [%s]?", sysConfig.schedules[g_schedule_edit_idx].title.c_str());
             int txt_w = HAL_Get_Text_Width(buf);
-            HAL_Screen_ShowChineseLine(sw - txt_w - 10, center_y, buf);
+            HAL_Screen_ShowChineseLine(sw - txt_w - 10, 26, buf);
             
             const char* tip = zh ? "长按确认抹除 / 单击返回编辑" : "LONG: DELETE / CLICK: BACK";
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 60, tip, 0.6f);
+            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 56, tip, 0.6f);
         } else {
-            // 动态菜单标题在左侧
-            const char* left_title = "";
-            if (phase == 0) left_title = zh ? "设定月份" : "SET MON";
-            else if (phase == 1) left_title = zh ? "设定日期" : "SET DAY";
-            else if (phase == 2) left_title = zh ? "设定小时" : "SET HR";
-            else if (phase == 3) left_title = zh ? "设定分钟" : "SET MIN";
-            else if (phase == 4) left_title = zh ? "选择类型" : "SCH TYPE";
-            else if (phase == 5) left_title = zh ? "执行动作" : "ACTION";
+            // 1. 顶部战术链路区
+            const char* names_zh[] = {"设定月份", "设定日期", "设定小时", "设定分钟", "选择类型", "执行动作"};
+            const char* names_en[] = {"SET MON", "SET DAY", "SET HR", "SET MIN", "SCH TYPE", "ACTION"};
+            const char** names = zh ? names_zh : names_en;
             
-            HAL_Screen_ShowChineseLine(10, center_y, left_title);
+            // 节点较多，间距设为 95
+            linkAnim.draw(2, names, 6, phase, 95);
 
-            // 右侧的动画参数
-            char pref[32], val[32], suff[32];
-            if (phase < 4) {
-                if (phase==0) { strcpy(pref,"[ "); sprintf(val,"%02d",mo); sprintf(suff, zh ? " ]月%02d日" : " ]/%02d", d); }
-                if (phase==1) { sprintf(pref, zh ? "%02d月[ " : "%02d/[ ", mo); sprintf(val,"%02d",d); strcpy(suff, zh ? " ]日" : " ]"); }
-                if (phase==2) { strcpy(pref,"[ "); sprintf(val,"%02d",h); sprintf(suff," ] : %02d",m); }
-                if (phase==3) { sprintf(pref,"%02d : [ ",h); sprintf(val,"%02d",m); strcpy(suff," ]"); }
-            } else if (phase == 4) {
-                strcpy(pref, "< "); strcpy(val, Get_Title_Preset(t_idx)); strcpy(suff, " >");
-            } else if (phase == 5) {
-                strcpy(pref, "< "); strcpy(val, (p_idx == 0) ? (zh ? "随机指令" : "RANDOM") : (zh ? "固定提醒" : "FIXED")); strcpy(suff, " >");
+            // 2. 中间机甲分隔线
+            int line_y = 18;
+            HAL_Draw_Line(0, line_y, sw/2 - 30, line_y, 1);
+            HAL_Draw_Line(sw/2 - 30, line_y, sw/2 - 25, line_y + 3, 1);
+            HAL_Draw_Line(sw/2 - 25, line_y + 3, sw/2 + 25, line_y + 3, 1);
+            HAL_Draw_Line(sw/2 + 25, line_y + 3, sw/2 + 30, line_y, 1);
+            HAL_Draw_Line(sw/2 + 30, line_y, sw, line_y, 1);
+
+            // 3. 底部动态机械刻度盘
+            if (phase == 0) dialAnim.drawNumberDial(28, mo, 1, 12, "");
+            else if (phase == 1) dialAnim.drawNumberDial(28, d, 1, 31, "");
+            else if (phase == 2) dialAnim.drawNumberDial(28, h, 0, 23, "");
+            else if (phase == 3) dialAnim.drawNumberDial(28, m, 0, 59, "");
+            else if (phase == 4) {
+                const char* t_zh[] = {"常规待办", "高维会议", "系统维护", "突发任务"};
+                const char* t_en[] = {"ROUTINE", "MEETING", "MAINTAIN", "EMERGENCY"};
+                dialAnim.drawStringDial(28, t_idx, zh ? t_zh : t_en, 4);
             }
-            int tw = HAL_Get_Text_Width(pref) + HAL_Get_Text_Width(val) + HAL_Get_Text_Width(suff);
-            drawSegmentedAnimatedText(sw - tw - 10, center_y, pref, val, suff, 0.0f);
+            else if (phase == 5) {
+                const char* p_zh[] = {"随机指令", "固定提醒"};
+                const char* p_en[] = {"RANDOM", "FIXED MSG"};
+                dialAnim.drawStringDial(28, p_idx, zh ? p_zh : p_en, 2);
+            }
 
-            // 底部提示
+            // 4. 底部状态与操作指引
             const char* tip = zh ? "长按返回 / 单击下一步" : "LONG: BACK / CLICK: NEXT";
             if (phase == 0) {
                 if (g_schedule_edit_idx >= 0) {
@@ -142,7 +147,7 @@ class AppScheduleEdit : public AppBase {
                 } else tip = zh ? "长按取消新建 / 单击下一步" : "LONG: CANCEL / CLICK: NEXT";
             } else if (phase == 5) tip = zh ? "长按返回 / 单击保存" : "LONG: BACK / CLICK: SAVE";
             
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 60, tip, 0.6f);
+            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 56, tip, 0.6f);
         }
         HAL_Screen_Update();
     }
@@ -159,11 +164,21 @@ public:
             mo = t_info.tm_mon + 1; d = t_info.tm_mday; h = t_info.tm_hour; m = t_info.tm_min;
             t_idx = 0; p_idx = 0;
         }
-        phase = 0; drawUI();
+        phase = 0; 
+        linkAnim.jumpTo(phase);
+        drawUI();
     }
+    
     void onResume() override { drawUI(); }
-    void onLoop() override { if(updateEditAnimation()) drawUI(); }
+    
+    void onLoop() override { 
+        bool d_anim = dialAnim.update();
+        bool l_anim = linkAnim.update(phase);
+        if(d_anim || l_anim) drawUI();
+    }
+    
     void onDestroy() override {}
+    
     void onKnob(int delta) override {
         if (phase == 6) return;
         if(phase==0) { mo += delta; if(mo<1) mo=12; if(mo>12) mo=1; }
@@ -172,11 +187,15 @@ public:
         if(phase==3) { m += delta; if(m<0) m=59; if(m>59) m=0; }
         if(phase==4) { t_idx += delta; if(t_idx<0) t_idx=3; if(t_idx>3) t_idx=0; }
         if(phase==5) { p_idx += delta; if(p_idx<0) p_idx=1; if(p_idx>1) p_idx=0; }
-        triggerEditAnimation(delta); SYS_SOUND_GLITCH(); drawUI();
+        
+        dialAnim.trigger(delta); 
+        SYS_SOUND_GLITCH(); 
+        drawUI();
     }
+    
     void onKeyShort() override {
         SYS_SOUND_CONFIRM();
-        if (phase == 6) { phase = 0; drawUI(); } 
+        if (phase == 6) { phase = 0; linkAnim.jumpTo(phase); drawUI(); } 
         else if (phase < 5) { phase++; drawUI(); } 
         else {
             time_t now; time(&now); struct tm t_info; localtime_r(&now, &t_info);
@@ -204,6 +223,7 @@ public:
             Sort_Schedules(); sysConfig.save(); appManager.popApp();
         }
     }
+    
     void onKeyLong() override { 
         if (phase == 6) {
             SYS_SOUND_GLITCH();

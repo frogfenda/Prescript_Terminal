@@ -26,25 +26,21 @@ private:
     uint32_t pause_start_time;
     PomodoroPreset current_preset;
 
-    // 【全新UI】：番茄钟执行界面无框、左右排版极简设计
     void drawUI() {
         HAL_Sprite_Clear();
         int sw = HAL_Get_Screen_Width();
         int center_y = 30;
         
-        // 左侧：预设名称
         HAL_Screen_ShowChineseLine(10, center_y, current_preset.name.c_str());
         
         uint32_t elapsed = is_paused ? (pause_start_time - timer_start) : (millis() - timer_start);
         uint32_t remain = (current_duration > elapsed) ? (current_duration - elapsed) : 0;
         
-        // 右侧：倒计时数字 (彻底去掉了之前的矩形边框！)
         char time_buf[16];
         sprintf(time_buf, "%02d:%02d", remain / 60000, (remain / 1000) % 60);
         int tw = HAL_Get_Text_Width(time_buf);
         HAL_Screen_ShowTextLine(sw - tw - 10, center_y, time_buf);
         
-        // 底部居中：状态提示
         const char* state_str;
         if (appManager.getLanguage() == LANG_ZH) {
             if (is_paused) state_str = "已暂停 (单击继续 / 长按终止)";
@@ -53,7 +49,7 @@ private:
             if (is_paused) state_str = "PAUSED (CLICK:RESUME/LONG:STOP)";
             else state_str = (phase == 0) ? "WORKING..." : "RESTING...";
         }
-        HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(state_str))/2, 60, state_str, 0.4f);
+        HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(state_str))/2, 56, state_str, 0.4f);
         
         HAL_Screen_Update();
     }
@@ -143,28 +139,36 @@ private:
     int t_rest;
     PomodoroPreset* p_preset;
 
-    // 【全新UI】：左标题，右参数，极简居中
+    DialAnimator dialAnim;        // 实例化刻度盘引擎
+    TacticalLinkEngine linkAnim;  // 实例化战术链路引擎
+
     void drawUI() {
         HAL_Sprite_Clear();
         int sw = HAL_Get_Screen_Width();
         bool zh = appManager.getLanguage() == LANG_ZH;
-        int center_y = 30;
 
-        // 左侧菜单标题
-        const char* left_title = (phase == 0) ? (zh ? "专注时长" : "WORK TIME") : (zh ? "休息时长" : "REST TIME");
-        HAL_Screen_ShowChineseLine(10, center_y, left_title);
+        // 1. 顶部战术链路区
+        const char* names_zh[] = {"专注时长", "休息时长"};
+        const char* names_en[] = {"WORK MIN", "REST MIN"};
+        const char** names = zh ? names_zh : names_en;
+        
+        linkAnim.draw(2, names, 2, phase, 120);
 
-        // 右侧参数值
-        char val_buf[16];
-        sprintf(val_buf, "%d", (phase == 0) ? t_work : t_rest);
-        const char* suff = zh ? " 分钟 <" : " MIN <";
-        
-        int text_w = HAL_Get_Text_Width(val_buf) + HAL_Get_Text_Width(suff);
-        drawSegmentedAnimatedText(sw - text_w - 10, center_y, "", val_buf, suff, 0.0f);
-        
-        // 底部操作指引
+        // 2. 中间机甲分隔线
+        int line_y = 18;
+        HAL_Draw_Line(0, line_y, sw/2 - 30, line_y, 1);
+        HAL_Draw_Line(sw/2 - 30, line_y, sw/2 - 25, line_y + 3, 1);
+        HAL_Draw_Line(sw/2 - 25, line_y + 3, sw/2 + 25, line_y + 3, 1);
+        HAL_Draw_Line(sw/2 + 25, line_y + 3, sw/2 + 30, line_y, 1);
+        HAL_Draw_Line(sw/2 + 30, line_y, sw, line_y, 1);
+
+        // 3. 底部动态机械刻度盘
+        if (phase == 0) dialAnim.drawNumberDial(28, t_work, 1, 120, "");
+        else dialAnim.drawNumberDial(28, t_rest, 1, 60, "");
+
+        // 4. 底部状态与操作指引
         const char* tip = zh ? "长按取消 / 单击确认" : "LONG: CANCEL / CLICK: OK";
-        HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 60, tip, 0.6f);
+        HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 56, tip, 0.6f);
         
         HAL_Screen_Update();
     }
@@ -175,10 +179,17 @@ public:
         t_work = p_preset->work_min;
         t_rest = p_preset->rest_min;
         phase = 0;
+        linkAnim.jumpTo(phase);
         drawUI();
     }
     void onResume() override { drawUI(); }
-    void onLoop() override { if (updateEditAnimation()) drawUI(); }
+    
+    void onLoop() override { 
+        bool d_anim = dialAnim.update();
+        bool l_anim = linkAnim.update(phase);
+        if(d_anim || l_anim) drawUI();
+    }
+    
     void onDestroy() override {}
     
     void onKnob(int delta) override {
@@ -191,7 +202,8 @@ public:
             if (t_rest < 1) t_rest = 60;
             if (t_rest > 60) t_rest = 1;
         }
-        triggerEditAnimation(delta);
+        
+        dialAnim.trigger(delta);
         SYS_SOUND_GLITCH();
         drawUI();
     }
@@ -211,7 +223,12 @@ public:
     
     void onKeyLong() override {
         SYS_SOUND_NAV();
-        appManager.popApp();
+        if (phase == 1) {
+            phase = 0;
+            drawUI();
+        } else {
+            appManager.popApp();
+        }
     }
 };
 AppPomodoroEdit instancePomodoroEdit; AppBase* appPomodoroEdit = &instancePomodoroEdit;
