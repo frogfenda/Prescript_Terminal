@@ -5,19 +5,13 @@
 #include "sys_config.h"
 #include <time.h>
 
-int g_schedule_edit_idx = -1; // -1:新建, >=0:修改或恢复
+int g_schedule_edit_idx = -1; 
 extern AppBase* appScheduleEdit;
 extern AppBase* appScheduleExpired;
 
-// 文件：src/apps/app_schedule.cpp (在文件顶部添加)
-
-
-
-// 【新增】：根据标题遍历并抹除未过期的日程
 void Schedule_DeleteMobile(const char* title) {
     bool deleted = false;
     for (int i = 0; i < sysConfig.schedule_count; i++) {
-        // 只删除标题匹配的日程（不管过没过期直接清理）
         if (sysConfig.schedules[i].title == title) {
             for (int j = i; j < sysConfig.schedule_count - 1; j++) {
                 sysConfig.schedules[j] = sysConfig.schedules[j+1];
@@ -30,7 +24,6 @@ void Schedule_DeleteMobile(const char* title) {
     if (deleted) sysConfig.save();
 }
 
-// 【多语言适配】：提取动态预设语句
 const char* Get_Title_Preset(int idx) {
     const char* zh_t[] = {"常规待办", "高维会议", "系统维护", "突发任务"};
     const char* en_t[] = {"ROUTINE", "MEETING", "MAINTENANCE", "EMERGENCY"};
@@ -40,23 +33,6 @@ const char* Get_Text_Preset(int p_idx) {
     const char* zh_p[] = {"", "日程时间已到，请立即执行。"};
     const char* en_p[] = {"", "SCHEDULE TIME REACHED. EXECUTE NOW."};
     return (appManager.getLanguage() == LANG_ZH) ? zh_p[p_idx] : en_p[p_idx];
-}
-
-void Sort_Schedules(); 
-
-void Schedule_AddMobile(uint32_t target_time, const char* title, const char* text) {
-    if (sysConfig.schedule_count >= 15) return;
-    int idx = sysConfig.schedule_count;
-    sysConfig.schedules[idx].target_time = target_time;
-    sysConfig.schedules[idx].title = title;
-    sysConfig.schedules[idx].prescript = text;
-    sysConfig.schedules[idx].is_expired = false;
-    sysConfig.schedules[idx].is_restored = false;
-    sysConfig.schedule_count++;
-    
-    // 【核心修复】：蓝牙强行注入的数据必须进行时间线排序！
-    Sort_Schedules(); 
-    sysConfig.save();
 }
 
 void Sort_Schedules() {
@@ -71,13 +47,25 @@ void Sort_Schedules() {
     }
 }
 
+void Schedule_AddMobile(uint32_t target_time, const char* title, const char* text) {
+    if (sysConfig.schedule_count >= 15) return;
+    int idx = sysConfig.schedule_count;
+    sysConfig.schedules[idx].target_time = target_time;
+    sysConfig.schedules[idx].title = title;
+    sysConfig.schedules[idx].prescript = text;
+    sysConfig.schedules[idx].is_expired = false;
+    sysConfig.schedules[idx].is_restored = false;
+    sysConfig.schedule_count++;
+    Sort_Schedules(); 
+    sysConfig.save();
+}
+
 void Schedule_UpdateBackground() {
     static uint32_t last_check = 0;
     if (millis() - last_check < 1000) return;
     last_check = millis();
     time_t now; time(&now);
     if (now < 1000000000) return; 
-    
 
     bool need_save = false;
     for (int i = 0; i < sysConfig.schedule_count; i++) {
@@ -98,30 +86,40 @@ void Schedule_UpdateBackground() {
 
 class AppScheduleEdit : public AppBase {
     int mo, d, h, m, t_idx, p_idx, phase;
+    
+    // 【全新UI】：左边标题，右边内容，完美居中
     void drawUI() {
         HAL_Sprite_Clear();
-        int sw = HAL_Get_Screen_Width(); int sh = HAL_Get_Screen_Height();
+        int sw = HAL_Get_Screen_Width();
         bool zh = appManager.getLanguage() == LANG_ZH;
+        int center_y = 30;
         
         if (phase == 6) {
-            HAL_Screen_ShowChineseLine(UI_MARGIN_LEFT, UI_TEXT_Y_TOP, zh ? "危险操作验证" : "DANGER ZONE");
-            HAL_Draw_Line(0, UI_HEADER_HEIGHT, sw, UI_HEADER_HEIGHT, 1);
-            char buf[64]; sprintf(buf, zh ? "抹除日程 [%s] ?" : "DELETE [%s] ?", sysConfig.schedules[g_schedule_edit_idx].title.c_str());
-            HAL_Screen_ShowChineseLine((sw - HAL_Get_Text_Width(buf))/2, UI_HEADER_HEIGHT + 30, buf);
+            // 危险验证左侧
+            const char* title = zh ? "危险操作" : "DANGER";
+            HAL_Screen_ShowChineseLine(10, center_y, title);
+            
+            // 右侧
+            char buf[64]; sprintf(buf, zh ? "抹除 [%s]?" : "DEL [%s]?", sysConfig.schedules[g_schedule_edit_idx].title.c_str());
+            int txt_w = HAL_Get_Text_Width(buf);
+            HAL_Screen_ShowChineseLine(sw - txt_w - 10, center_y, buf);
+            
             const char* tip = zh ? "长按确认抹除 / 单击返回编辑" : "LONG: DELETE / CLICK: BACK";
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, sh - 20, tip, 0.6f);
+            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 60, tip, 0.6f);
         } else {
-            const char* ph_names_zh[] = {"月", "日", "时", "分", "标题类型", "执行动作"};
-            const char* ph_names_en[] = {"MON", "DAY", "HR", "MIN", "TYPE", "ACTION"};
-            char title_buf[64];
-            const char* mode_title = (g_schedule_edit_idx >= 0 && !sysConfig.schedules[g_schedule_edit_idx].is_expired) ? (zh ? "修改日程" : "EDIT SCH") : (zh ? "新建/恢复" : "NEW/RESTORE");
-            sprintf(title_buf, "%s [%s]", mode_title, zh ? ph_names_zh[phase] : ph_names_en[phase]);
-            HAL_Screen_ShowChineseLine(UI_MARGIN_LEFT, UI_TEXT_Y_TOP, title_buf);
-            HAL_Draw_Line(0, UI_HEADER_HEIGHT, sw, UI_HEADER_HEIGHT, 1);
+            // 动态菜单标题在左侧
+            const char* left_title = "";
+            if (phase == 0) left_title = zh ? "设定月份" : "SET MON";
+            else if (phase == 1) left_title = zh ? "设定日期" : "SET DAY";
+            else if (phase == 2) left_title = zh ? "设定小时" : "SET HR";
+            else if (phase == 3) left_title = zh ? "设定分钟" : "SET MIN";
+            else if (phase == 4) left_title = zh ? "选择类型" : "SCH TYPE";
+            else if (phase == 5) left_title = zh ? "执行动作" : "ACTION";
+            
+            HAL_Screen_ShowChineseLine(10, center_y, left_title);
 
-            int center_y = UI_HEADER_HEIGHT + (sh - UI_HEADER_HEIGHT) / 2;
+            // 右侧的动画参数
             char pref[32], val[32], suff[32];
-
             if (phase < 4) {
                 if (phase==0) { strcpy(pref,"[ "); sprintf(val,"%02d",mo); sprintf(suff, zh ? " ]月%02d日" : " ]/%02d", d); }
                 if (phase==1) { sprintf(pref, zh ? "%02d月[ " : "%02d/[ ", mo); sprintf(val,"%02d",d); strcpy(suff, zh ? " ]日" : " ]"); }
@@ -130,11 +128,12 @@ class AppScheduleEdit : public AppBase {
             } else if (phase == 4) {
                 strcpy(pref, "< "); strcpy(val, Get_Title_Preset(t_idx)); strcpy(suff, " >");
             } else if (phase == 5) {
-                strcpy(pref, "< "); strcpy(val, (p_idx == 0) ? (zh ? "随机都市指令" : "RANDOM PRESCRIPT") : (zh ? "固定提醒语" : "FIXED ALERT")); strcpy(suff, " >");
+                strcpy(pref, "< "); strcpy(val, (p_idx == 0) ? (zh ? "随机指令" : "RANDOM") : (zh ? "固定提醒" : "FIXED")); strcpy(suff, " >");
             }
             int tw = HAL_Get_Text_Width(pref) + HAL_Get_Text_Width(val) + HAL_Get_Text_Width(suff);
-            drawSegmentedAnimatedText((sw - tw)/2, center_y - 8, pref, val, suff, 0.0f);
+            drawSegmentedAnimatedText(sw - tw - 10, center_y, pref, val, suff, 0.0f);
 
+            // 底部提示
             const char* tip = zh ? "长按返回 / 单击下一步" : "LONG: BACK / CLICK: NEXT";
             if (phase == 0) {
                 if (g_schedule_edit_idx >= 0) {
@@ -143,7 +142,7 @@ class AppScheduleEdit : public AppBase {
                 } else tip = zh ? "长按取消新建 / 单击下一步" : "LONG: CANCEL / CLICK: NEXT";
             } else if (phase == 5) tip = zh ? "长按返回 / 单击保存" : "LONG: BACK / CLICK: SAVE";
             
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, sh - 20, tip, 0.6f);
+            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 60, tip, 0.6f);
         }
         HAL_Screen_Update();
     }
@@ -234,22 +233,13 @@ protected:
         sprintf(buf, "%02d/%02d %02d:%02d %s %s%s", t_info.tm_mon+1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min, s.title.c_str(), zh ? "(过期)" : "(EXP)", mark);
         return buf;
     }
-void onItemClicked(int index) override { 
-        // 【修改】：单击具体的过期日程，进入恢复设置
+    void onItemClicked(int index) override { 
         if (index < expired_count) {
             g_schedule_edit_idx = expired_indices[index]; 
             appManager.pushApp(appScheduleEdit); 
-        } 
-        // 单击返回按钮
-        else {
-            appManager.popApp(); 
-        }
+        } else appManager.popApp(); 
     }
-
-    void onLongPressed() override {
-        // 【修改】：列表界面未进入设置时，长按直接退出收容所
-        appManager.popApp();
-    }
+    void onLongPressed() override { appManager.popApp(); }
 public:
     void onResume() override { 
         expired_count = 0;
@@ -287,25 +277,17 @@ protected:
     void onItemClicked(int index) override {
         if (index == 0) {
             appManager.pushApp(appScheduleExpired);
-        }
-        // 【修改】：单击具体的日程，直接进入修改设置
-        else if (index > 0 && index <= active_count) {
+        } else if (index > 0 && index <= active_count) {
             g_schedule_edit_idx = active_indices[index - 1]; 
             appManager.pushApp(appScheduleEdit);
-        }
-        else if (index == active_count + 1) { 
+        } else if (index == active_count + 1) { 
             g_schedule_edit_idx = -1; 
             appManager.pushApp(appScheduleEdit); 
-        }
-        else if (index == active_count + 2) {
+        } else if (index == active_count + 2) {
             appManager.popApp();
         }
     }
-
-    void onLongPressed() override {
-        // 【修改】：列表界面未进入设置时，长按直接退出日程表
-        appManager.popApp();
-    }
+    void onLongPressed() override { appManager.popApp(); }
 public:
     void onResume() override { 
         active_count = 0;
