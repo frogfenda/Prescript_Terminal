@@ -519,7 +519,7 @@
             }
 
             // 截取前 50 条渲染，防止海量数据卡死浏览器
-            dataList.slice(0, 50).forEach(item => {
+            dataList.forEach(item => {
                 let idText = "AUTHOR: " + (item.author ? item.author : "UNKNOWN");
                 let contentText = item.content ? item.content : "";
 

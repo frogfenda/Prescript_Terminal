@@ -1,25 +1,73 @@
-"To... the one who has just opened their eyes, eat yesterday's leftover soup while standing at the kitchen counter. Do not heat it.",
-    "To... the person wearing a red tie today, at precisely 3:33 PM, pour a glass of water onto the soil of the nearest potted plant. Say nothing.",
-    "To... the third customer to enter the bakery on Elm Street, purchase seven loaves of bread. Consume the first slice of the seventh loaf before exiting. Dispose of the remainder in the blue dumpster in the alley.",
-    "To... the one reading this note, find the oldest book on your shelf. Tear out page 22 and fold it into a paper boat. Set it afloat in the nearest public fountain before sunset.",
-    "To... the first person you make eye contact with after receiving this, ask them for the time. Regardless of their answer, respond with: 'The time is always correct for the needle.'",
-    "To... the bearer, do not speak for the next hour. Communicate only through gestures. If you fail, cut a lock of your own hair.",
-    "To... the resident of apartment 4B, tonight, place a single lit candle on your windowsill facing north. Let it burn out completely.",
-    "To... the one with ink-stained fingers, write the word 'OBEDIENCE' one hundred times on a sheet of paper. Burn the paper upon completion. Inhale the smoke.",
-    "To... the commuter on the 8:15 train, offer your seat to the tallest individual in the carriage. Remain standing for the duration of your journey.",
-    "To... the one who feels doubt, walk to the nearest crossroads. Spin three times counterclockwise. Proceed in the direction you are facing for exactly 100 paces.",
-    "To... the listener, the next song you hear, memorize its final lyric. Whisper it to the first stray animal you encounter.",
-    "To... the cook, prepare a meal using only ingredients that are blue or purple. You must finish it entirely alone.",
-    "To... the dreamer, stay awake until the clock's hour and minute hands overlap. At that moment, prick your finger and mark this note with a drop of blood.",
-    "To... the witness, find a mirror in a public restroom. Look into your own eyes for two full minutes without blinking. If you blink, break the mirror.",
-    "To... the holder of a copper coin, flip it at a bus stop. If it lands heads, board the next bus. If tails, walk in the opposite direction of its route for 30 minutes.",
-    "To... the one with a silent phone, call the last number in your call history. Do not speak. Listen for 30 seconds, then hang up regardless.",
-    "To... the wearer of black shoes, at noon, stand on the highest elevation in your current district. Face east and remain perfectly still for 180 seconds.",
-    "To... the one who receives this via terminal, disconnect from the network for the next 24 hours. If you reconnect prematurely, format your primary drive.",
-    "To... the first-born, find a photograph of your younger self. Hold it over a flame until the edges curl. Keep the ashes in your pocket for the rest of the day.",
-    "To... the one seeking warmth, extinguish all artificial heat sources in your dwelling for the next night. Use only a single blanket.",
-    "To... the one who speaks too much, thread a needle with red thread. Sew your lips shut metaphorically by piercing the collar of your garment seven times while silent.",
-    "To... the observer, find a window with a view of a street. Count the number of people wearing hats. If the number is even, smile. If odd, frown. Maintain the expression for one hour.",
-    "To... the keeper of secrets, write your greatest fear on a slip of paper. Fold it, place it under a rock in a nearby park. Never return to that rock.",
-    "To... the one ascending stairs, skip every third step. If you miss your count, return to the bottom and begin again.",
-    "To... the person near flowing water, drop a valuable possession into the current. Do not retrieve it."
+To... the one who has just opened their eyes, eat yesterday's leftover soup while standing at the kitchen counter. Do not heat it.
+To... the person wearing a red tie today, at precisely 3:33 PM, pour a glass of water onto the soil of the nearest potted plant. Say nothing.
+To... the third customer to enter the bakery on Elm Street, purchase seven loaves of bread. Consume the first slice of the seventh loaf before exiting. Dispose of the remainder in the blue dumpster in the alley.
+To... the one reading this note, find the oldest book on your shelf. Tear out page 22 and fold it into a paper boat. Set it afloat in the nearest public fountain before sunset.
+To... the first person you make eye contact with after receiving this, ask them for the time. Regardless of their answer, respond with: "The time is always correct for the needle."
+To... the bearer, do not speak for the next hour. Communicate only through gestures. If you fail, cut a lock of your own hair.
+To... the resident of apartment 4B, tonight, place a single lit candle on your windowsill facing north. Let it burn out completely.
+To... the one with ink-stained fingers, write the word "OBEDIENCE" one hundred times on a sheet of paper. Burn the paper upon completion. Inhale the smoke.
+To... the commuter on the 8:15 train, offer your seat to the tallest individual in the carriage. Remain standing for the duration of your journey.
+To... the one who feels doubt, walk to the nearest crossroads. Spin three times counterclockwise. Proceed in the direction you are facing for exactly 100 paces.
+To... the listener, the next song you hear, memorize its final lyric. Whisper it to the first stray animal you encounter.
+To... the cook, prepare a meal using only ingredients that are blue or purple. You must finish it entirely alone.
+To... the dreamer, stay awake until the clock's hour and minute hands overlap. At that moment, prick your finger and mark this note with a drop of blood.
+To... the witness, find a mirror in a public restroom. Look into your own eyes for two full minutes without blinking. If you blink, break the mirror.
+To... the holder of a copper coin, flip it at a bus stop. If it lands heads, board the next bus. If tails, walk in the opposite direction of its route for 30 minutes.
+To... the one with a silent phone, call the last number in your call history. Do not speak. Listen for 30 seconds, then hang up regardless.
+To... the wearer of black shoes, at noon, stand on the highest elevation in your current district. Face east and remain perfectly still for 180 seconds.
+To... the one who receives this via terminal, disconnect from the network for the next 24 hours. If you reconnect prematurely, format your primary drive.
+To... the first-born, find a photograph of your younger self. Hold it over a flame until the edges curl. Keep the ashes in your pocket for the rest of the day.
+To... the one seeking warmth, extinguish all artificial heat sources in your dwelling for the next night. Use only a single blanket.
+To... the one who speaks too much, thread a needle with red thread. Sew your lips shut metaphorically by piercing the collar of your garment seven times while silent.
+To... the observer, find a window with a view of a street. Count the number of people wearing hats. If the number is even, smile. If odd, frown. Maintain the expression for one hour.
+To... the keeper of secrets, write your greatest fear on a slip of paper. Fold it, place it under a rock in a nearby park. Never return to that rock.
+To... the one ascending stairs, skip every third step. If you miss your count, return to the bottom and begin again.
+To... the person near flowing water, drop a valuable possession into the current. Do not retrieve it.
+To... the one descending stairs, take every step with your left foot until you reach the bottom. If you pause midway, return to the start and begin again.
+To... the one who tastes sweetness on the tongue, refuse all food for the next three hours. Drink only room-temperature water.
+To... the one who hears bells tolling, count the number of chimes. If odd, clap your hands seven times; if even, remain silent for seven minutes.
+To... the one whose shadow is stretched long by a streetlamp, turn your back to the light source and measure the length of your shadow. Remember this number in paces, and tell no one today.
+To... the one with loose change in their pocket, toss all coins into the air. Only pick up those that land facing heads-up. Use them to buy a gift for a stranger on the street.
+To... the first person you speak with today, say to them at the end of the conversation: "May the thread not break." Do not explain.
+To... the one wearing a wristwatch, turn the hour hand back by one increment. Live by this incorrect time for the rest of the day.
+To... the one passing a graveyard, find the oldest headstone. Stand quietly before it and take sixty full breaths.
+To... the one whose keychain jingles, remove the oldest key and submerge it in a nearby body of water.
+To... the one with untied shoelaces, do not tie them. With one hand, knot the two laces into a single, tight snarl. Leave it thus until sunset.
+To... the one who sees themselves in a mirror, write your name with your non-dominant hand. Fold the paper and slip it into the gap between the mirror and its frame.
+To... the one whose phone battery is below twenty percent, turn off all communication functions. Before the power dies, write a last will in your notes app, then delete it.
+To... the one who smells flowers, find the source, pluck a single petal, and place it under your tongue until all its color fades.
+To... the one with cold fingertips, immerse your hands in the hottest water you can bear for ten seconds. Do not dry them; let the air do it.
+To... the one reading a book, stop at your current page. Remember the first full sentence on that page. Use it as the opening line for all your conversations today.
+To... the one who hears their full name called, no matter who calls, do not turn or answer. Walk directly to the nearest door and open and close it three times.
+To... the one with a stain on their clothing, do not wash it. Neatly cut the stained piece of fabric away with scissors. Carry it with you for three days.
+To... the one waiting at a crosswalk, when the light turns green, be the last to cross. Follow precisely in the footsteps of the person directly ahead of you.
+To... the one holding an empty container, use it to collect morning dew or rainwater. At noon, pour it onto the roots of an indoor plant.
+To... the one struck by a wave of unmotivated sadness, find an empty corner, sit down, and smile. Maintain the smile until the feeling passes, or for fifteen minutes, whichever is longer.
+To... the one who broke something today, gather all the fragments. Reassemble the item with tape, no matter how ugly. Display it prominently for three days.
+To... the one who receives an unexpected gift, you may not use, consume, or keep it. You must regift it to someone you envy.
+To... the one who told a white lie, before the day ends, tell the same person three more truths about yourself that are far worse.
+To... the one who avoids others' gazes, today you must meet and hold the eyes of ten strangers for at least three seconds each. For each failure, scratch a line on the inside of your arm with your nail.
+To... the one repeating a meaningless action, cease immediately. Record the number of repetitions, and carve this number onto the back of a wooden piece of furniture.
+To... the one who dreamed of falling, find a high place. Stand at the edge, close your eyes, and count to ten. Then open them and take three steps back.
+To... the one for whom food tastes like ash, your next meal shall be plain, unseasoned rice only. Chew each mouthful thoroughly until it conjures the memory-taste of any other food.
+To... the one who hears a voice of dissent within, speak aloud the first sentence it tells you today, and record it. Play the recording for yourself at midnight.
+To... the one who caught a finger in a door, do not cry out. Use that injured finger to write the character for "door" repeatedly on paper until the ink runs out or the pain subsides.
+To... the one sorting through old belongings, select the three most sentimental items. Place them side-by-side on the floor and step on them.
+To... the one who has been counting, remember the last number you counted. For the rest of the day, you may only speak sentences containing that exact number of syllables.
+To... the one with an old scar somewhere on your body, trace its entire length with your finger. Then, with a red pen, draw an identical line on a different part of your skin.
+To... the one who believes in coincidence, for the next three coincidental events you notice today, you must construct a logical, interconnected chain of causality for them. Write it down and burn it.
+To... the one who fears silence, go to the quietest place you can find. Sit. Set a timer for ten minutes. Until it rings, you must not make a sound, including swallowing or clearing your throat.
+To... the one who habitually nods in agreement, for all conversations today, begin each response by shaking your head "no." Pause for three seconds. Then give your actual answer.
+To... the one humming a tune in your heart, find the sheet music or lyrics for that song. Transcribe it onto your bedroom wall using a charred piece of wood.
+To... the one who relies on lists, destroy all your to-do lists. Today, operate only on memory and intuition.
+To... the one petting an animal, mimic one of its actions for five continuous minutes. Whether it is eating, resting, or staring into nothing.
+To... the one with a fixed commute, today take a route you have never traveled before. If you are late, you may not apologize or explain.
+To... the one who saves screenshots, open your photo gallery. Delete the most recent one hundred screenshots. Do not look back. Do not restore from trash.
+To... the one who has been putting off a reply, now, immediately, send a message to the person you have delayed the longest. The content must only be: "I heard." Do not respond further.
+To... the one who feels lonely in a crowd, walk into the densest part of a crowd and shout a nonsense syllable, e.g., "Klo!" Then observe the reactions without interacting.
+To... the one irritated by disrupted plans, abandon your original plans for the day completely. Roll a die. The number rolled is the number of new, random tasks you must complete today.
+To... the one who judges others, write down your most recent criticisms of three people. Then, apply each criticism to your own name and read them aloud.
+To... the one who wishes to be remembered, use your non-dominant hand to carve your initials into a stone. Throw the stone into a river.
+To... the one who hides nervousness, voluntarily admit to an acquaintance or colleague: "I am nervous right now." Do not explain why.
+To... the one dependent on navigation, turn off all digital maps. Using the sun, stars, or street signs, travel to a place you only know by general direction.
+To... the one who collects ticket stubs, find the one you cherish most. Eat it.
