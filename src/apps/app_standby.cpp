@@ -1,4 +1,4 @@
-// 文件：src/app_standby.cpp
+// 文件：src/apps/app_standby.cpp
 #include "app_base.h"
 #include "app_manager.h"
 
@@ -6,7 +6,8 @@ class AppStandby : public AppBase {
 public:
     void onCreate() override {
         HAL_Screen_Clear();
-        HAL_Screen_DrawStandbyImage();
+        HAL_Screen_DrawStandbyImage(); // 1. 将图片吸入后台显存
+        HAL_Screen_Update();           // 2. 【缺失的灵魂一步】将后台画布推送到物理屏幕上！
     }
     void onLoop() override {
         // 待机时无动画，不需要做事

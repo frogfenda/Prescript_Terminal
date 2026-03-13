@@ -65,6 +65,7 @@ extern AppBase* appPomodoro;
 extern AppBase* appAlarm; 
 extern AppBase* appSchedule;
 extern AppBase* appAnimSetting;
+extern AppBase* appPrescriptList;
 
 void Prescript_Launch_PushNormal(); 
 void Prescript_Launch_PushDirect(); 

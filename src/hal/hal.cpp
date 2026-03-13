@@ -74,25 +74,35 @@ void HAL_Screen_DrawHeader() {
 // 【终极进化】：从硬盘安全读取，并画入精灵图缓存，避免任何闪烁和覆盖问题！
 // ========================================================
 void HAL_Screen_DrawStandbyImage() {
+    // 1. 先把整个背景刷成纯黑，以防万一
+    textSprite.fillSprite(TFT_BLACK);
+
+    // 2. 尝试打开硬盘中的图像文件
     File file = LittleFS.open("/assets/standby.bin", "r");
     if (!file) {
-        textSprite.fillRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_RED);
+        // 如果文件不存在，画一个红框并提示，绝对不会黑屏！
+        textSprite.drawRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_RED);
+        textSprite.setTextColor(TFT_RED, TFT_BLACK);
+        textSprite.drawString("ERR: NO standby.bin", 10, 10);
         return; 
     }
 
-    uint16_t sw = HAL_Get_Screen_Width();
-    uint16_t sh = HAL_Get_Screen_Height();
-    uint16_t row_buf[sw]; 
+    // 3. 【降维打击】：直接获取 Sprite 底层的显存物理指针
+    uint16_t* sprite_ptr = (uint16_t*)textSprite.getPointer();
     
-    // 图片画入精灵缓存，需配置缓存色彩反转
-    textSprite.setSwapBytes(true); 
-    
-    // 安全地逐行从硬盘读取并推入内存画布
-    for(int y = 0; y < sh; y++) {
-        int bytes_read = file.read((uint8_t*)row_buf, sw * 2);
-        if (bytes_read > 0) {
-            textSprite.pushImage(0, y, sw, 1, row_buf); 
+    if (sprite_ptr != nullptr) {
+        // 暴力流式灌入：一次性将 43168 字节吸入显存！
+        size_t bytes_to_read = HAL_Get_Screen_Width() * HAL_Get_Screen_Height() * 2;
+        file.read((uint8_t*)sprite_ptr, bytes_to_read);
+        
+        // 【色彩反转补丁】：
+        // 如果你烧录后发现画面出现了，但是颜色诡异（比如人脸变成蓝色阿凡达），
+        // 说明转换图片时高低字节反了。请【取消下面这段代码的注释】即可完美修复：
+        /*
+        for (int i = 0; i < (HAL_Get_Screen_Width() * HAL_Get_Screen_Height()); i++) {
+            sprite_ptr[i] = (sprite_ptr[i] >> 8) | (sprite_ptr[i] << 8);
         }
+        */
     }
     file.close();
 }
