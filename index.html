@@ -244,6 +244,15 @@
         <button class="btn" onclick="updatePom()" data-i18n="btn_pom_add">覆盖该槽位并重载</button>
     </div>
 
+    <div class="panel">
+        <div class="panel-title"><span data-i18n="title_wifi">>> WLAN CONFIG (网络密钥注入)</span></div>
+        <input type="text" class="input-box" id="wifi_ssid" style="width: 100%; margin-bottom: 10px;"
+            placeholder="输入 WiFi 名称 (SSID)" data-i18n-ph="ph_wifi_ssid">
+        <input type="text" class="input-box" id="wifi_pass" style="width: 100%; margin-bottom: 10px;"
+            placeholder="输入 WiFi 密码 (选填)" data-i18n-ph="ph_wifi_pass">
+        <button class="btn" onclick="setWifi()" data-i18n="btn_wifi_set">下发密钥</button>
+    </div>
+
     <script>
         // ==========================================
         // 多语言字典与动态引擎 (i18n Engine)
@@ -270,6 +279,14 @@
                 lbl_slot: "槽位:", lbl_name: "名称:", lbl_work: "专注(分):", lbl_rest: "休息(分):",
                 btn_pom_add: "覆盖该槽位并重载",
                 opt_s0: "槽位 0", opt_s1: "槽位 1", opt_s2: "槽位 2",
+
+                // 新增 WiFi 词条 (中文)
+                title_wifi: ">> WLAN CONFIG (网络密钥注入)",
+                ph_wifi_ssid: "输入 WiFi 名称 (SSID)",
+                ph_wifi_pass: "输入 WiFi 密码 (选填)",
+                btn_wifi_set: "下发密钥",
+                msg_wifi_empty: "WiFi 名称不能为空！",
+                msg_wifi_sent: "网络密钥已通过 BLE 链路下发！",
 
                 // 默认输入框文本保护映射
                 v_txt: "有内鬼,终止交易！",
@@ -310,6 +327,14 @@
                 btn_pom_add: "OVERWRITE SLOT",
                 opt_s0: "Slot 0", opt_s1: "Slot 1", opt_s2: "Slot 2",
 
+                // 新增 WiFi 词条 (英文)
+                title_wifi: ">> WLAN CONFIG INJECTION",
+                ph_wifi_ssid: "Enter Target SSID",
+                ph_wifi_pass: "Enter Password",
+                btn_wifi_set: "INJECT CREDS",
+                msg_wifi_empty: "SSID cannot be empty!",
+                msg_wifi_sent: "WLAN Credentials Injected via BLE!",
+
                 // 英文对应的默认输入文本
                 v_txt: "Do not go home until you finish reading the value of e",
                 v_alm_n: "Morning Wake",
@@ -341,12 +366,12 @@
                 el.innerText = i18n[currentLang][el.getAttribute('data-i18n')];
             });
 
-            // 2. 替换输入框 Placeholder
+            // 2. 替换输入框 Placeholder (包含了新加的 WiFi 框)
             document.querySelectorAll('[data-i18n-ph]').forEach(el => {
                 el.placeholder = i18n[currentLang][el.getAttribute('data-i18n-ph')];
             });
 
-            // 3. 智能替换输入框 Value (仅当用户没有自己修改时才翻译！)
+            // 3. 智能替换输入框 Value
             const otherLang = currentLang === 'zh' ? 'en' : 'zh';
             const checkAndSwap = (id, key) => {
                 let el = document.getElementById(id);
@@ -370,7 +395,7 @@
                     sBox.innerHTML = `SYS_STATUS: OFFLINE<br><span style="font-size: 12px; color: #888;">${i18n[currentLang].status_click}</span>`;
                 }
             }
-            renderUI(); // 刷新列表中的空状态提示语
+            renderUI();
         }
 
 
@@ -419,6 +444,8 @@
             } catch (error) { alert("Error: " + error.message); }
         }
 
+        let syncTimeout;
+
         function handleRX(event) {
             let val = new TextDecoder().decode(event.target.value);
             if (val === "SYNC:CLEAR") {
@@ -430,6 +457,14 @@
             } else if (val.startsWith("SYNC:PRE:")) {
                 try { terminalPrescripts.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
             }
+
+            // 【新增】：每次收到包都重置计时器。300ms 没新包就说明同步完成了！
+            clearTimeout(syncTimeout);
+            syncTimeout = setTimeout(() => {
+                document.getElementById('statusBox').innerHTML = currentLang === 'zh' ?
+                    "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[ 数据库同步完毕 ]</span>" :
+                    "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[ SYNC COMPLETE ]</span>";
+            }, 300);
         }
 
         function renderUI() {
@@ -514,6 +549,25 @@
             let w = document.getElementById('pom_work').value;
             let r = document.getElementById('pom_rest').value;
             sendRaw(`POM:${slot}:${n}:${w}:${r}`);
+        }
+
+        // ==========================================
+        // 【新增】：下发 WiFi 密钥的逻辑
+        // ==========================================
+        function setWifi() {
+            let ssid = document.getElementById('wifi_ssid').value.trim();
+            let pass = document.getElementById('wifi_pass').value.trim();
+
+            if (!ssid) return alert(i18n[currentLang].msg_wifi_empty);
+
+            // 组装协议格式：WIFI:账号:密码
+            sendRaw(`WIFI:${ssid}:${pass}`);
+
+            // 发送完毕后自动清空密码框（防偷窥），保留 SSID
+            document.getElementById('wifi_pass').value = "";
+
+            // 弹出双语成功提示
+            alert(i18n[currentLang].msg_wifi_sent);
         }
     </script>
 </body>

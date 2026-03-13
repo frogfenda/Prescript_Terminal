@@ -23,17 +23,11 @@ static void BLE_Router_Process(String msg) {
         SysBLE_Notify("SYNC:CLEAR"); 
         delay(50);
         
-        for (int i = 0; i < sysConfig.alarm_count; i++) {
-            // 【核心修复】：JSON 引号护盾，防止数据崩溃
-            String safeName = sysConfig.alarms[i].name.c_str(); safeName.replace("\"", "\\\"");
-            String safeTxt = sysConfig.alarms[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
-            
-            String out = "SYNC:ALM:{\"h\":" + String(sysConfig.alarms[i].hour) + 
-                         ",\"m\":" + String(sysConfig.alarms[i].min) + 
-                         ",\"n\":\"" + safeName + 
-                         "\",\"t\":\"" + safeTxt + "\"}";
+   for (int i = 0; i < sysConfig.custom_prescript_count; i++) {
+            String safeTxt = sysConfig.custom_prescripts[i]; safeTxt.replace("\"", "\\\"");
+            String out = "SYNC:PRE:{\"t\":\"" + safeTxt + "\"}";
             SysBLE_Notify(out.c_str());
-            delay(50); 
+            delay(50);
         }
         
         for (int i = 0; i < sysConfig.schedule_count; i++) {
@@ -56,6 +50,18 @@ static void BLE_Router_Process(String msg) {
             String out = "SYNC:PRE:{\"t\":\"" + safeTxt + "\"}";
             SysBLE_Notify(out.c_str());
             delay(50);
+        }
+        for (int intensity = 255; intensity >= 0; intensity -= 20) {
+            // 将 0~255 的亮度降维映射到 RGB565 的青色通道 (R=0, G=0~63, B=0~31)
+            uint16_t g = (intensity * 63) / 255;
+            uint16_t b = (intensity * 31) / 255;
+            uint16_t neon_cyan = (g << 5) | b; 
+            
+            // 画两层边框增加厚度
+            HAL_Draw_Rect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), neon_cyan);
+            HAL_Draw_Rect(1, 1, HAL_Get_Screen_Width() - 2, HAL_Get_Screen_Height() - 2, neon_cyan);
+            HAL_Screen_Update();
+            delay(15); // 控制消散速度
         }
         return; 
     }
@@ -129,6 +135,39 @@ static void BLE_Router_Process(String msg) {
         }
         if (deleted) sysConfig.save();
     }
+    // 在 app_manager.cpp 解析指令的地方加入这段：
+        else if (msg.startsWith("WIFI:")) {
+            // 格式约定: WIFI:ssid:password
+            int firstColon = msg.indexOf(':');
+            int secondColon = msg.indexOf(':', firstColon + 1);
+            
+            if (firstColon != -1) {
+                String ssid = msg.substring(firstColon + 1, (secondColon != -1) ? secondColon : msg.length());
+                String pass = (secondColon != -1) ? msg.substring(secondColon + 1) : "";
+                
+                // 清理可能带入的隐藏换行符 \r 或 \n
+                ssid.trim();
+                pass.trim();
+                
+                if (ssid.length() > 0) {
+                    // 1. 覆写内存配置
+                    sysConfig.wifi_ssid = ssid;
+                    sysConfig.wifi_pass = pass;
+                    
+                    // 2. 瞬间烧录进底层 LittleFS 硬盘
+                    sysConfig.save();
+                    
+                    // 3. 播放清脆的成功提示音
+                    HAL_Buzzer_Play_Tone(2000, 50);
+                    delay(50);
+                    HAL_Buzzer_Play_Tone(2500, 80);
+                    
+                    Serial.println("[BLE ROUTER] ⚠️ 拦截到网络密钥更新指令！");
+                    Serial.println("新 SSID: " + sysConfig.wifi_ssid);
+                    Serial.println("新 PASS: " + sysConfig.wifi_pass);
+                }
+            }
+        }
 }
 
 AppManager::AppManager() {
