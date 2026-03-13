@@ -2,7 +2,7 @@
 #ifndef __SYS_CONFIG_H
 #define __SYS_CONFIG_H
 #include <Arduino.h>
-#define MAX_CUSTOM_PRESCRIPTS 20
+
 struct PomodoroPreset {
     String name;
     uint32_t work_min;
@@ -33,11 +33,11 @@ public:
     String wifi_pass;
     uint8_t language;       
     uint32_t sleep_time_ms; 
-
+    uint32_t true_sleep_time_ms; // 【新增】：在待机画面停留多久后【真正休眠】
     bool auto_push_enable;
     uint32_t auto_push_min_min; 
     uint32_t auto_push_max_min; 
-
+    
     uint8_t pomodoro_current_idx; 
     PomodoroPreset pomodoro_presets[5]; 
 
@@ -47,8 +47,7 @@ public:
     // 【新增】：日程表硬盘数据
     uint8_t schedule_count; 
     ScheduleItem schedules[15]; // 最多 15 个日程
-    String custom_prescripts[MAX_CUSTOM_PRESCRIPTS];
-    int custom_prescript_count;
+
 
     void load();
     void save();

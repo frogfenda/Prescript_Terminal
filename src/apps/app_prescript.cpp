@@ -202,24 +202,22 @@ private:
         if (__internal_prescript_mode == 3 || __internal_prescript_mode == 4) {
             rule = __internal_custom_prescript;
         } else {
-            if (sysConfig.custom_prescript_count > 0 && random(100) < 30) {
-                int pick = random(sysConfig.custom_prescript_count);
-                rule = sysConfig.custom_prescripts[pick].c_str();
+           if (__internal_prescript_mode == 3 || __internal_prescript_mode == 4) {
+            // 这是系统推送或者闹钟强行插入的单条指令
+            rule = __internal_custom_prescript;
+        } else {
+            // 正常抽取：直接从底层双语硬盘内存池中随机抽取！没有任何概率分流！
+            if (current_lang == LANG_ZH) {
+                int sz = sys_prescripts_zh.size();
+                if (sz > 0) fs_rule_str = sys_prescripts_zh[random(sz)];
+                else fs_rule_str = "错误：中文指令库 prescripts_zh.txt 为空。";
             } else {
-                // ==========================================
-                // 【核心变更】：完美融合的双语独立抽取！
-                // ==========================================
-                if (current_lang == LANG_ZH) {
-                    int sz = sys_prescripts_zh.size();
-                    if (sz > 0) fs_rule_str = sys_prescripts_zh[random(sz)];
-                    else fs_rule_str = "错误：中文指令库 prescripts_zh.txt 为空。";
-                } else {
-                    int sz = sys_prescripts_en.size();
-                    if (sz > 0) fs_rule_str = sys_prescripts_en[random(sz)];
-                    else fs_rule_str = "ERR: prescripts_en.txt EMPTY.";
-                }
-                rule = fs_rule_str.c_str();
+                int sz = sys_prescripts_en.size();
+                if (sz > 0) fs_rule_str = sys_prescripts_en[random(sz)];
+                else fs_rule_str = "ERR: prescripts_en.txt EMPTY.";
             }
+            rule = fs_rule_str.c_str();
+        }
         }
         
         static char raw_prescript[1024]; static char formatted_buf[2048]; 

@@ -4,6 +4,7 @@
 #include "sys_config.h" 
 #include <Arduino.h>
 #include "sys_ble.h"
+#include "sys_fs.h"
 volatile bool g_cross_core_trigger_push = false;
 volatile bool g_ble_has_msg = false;
 char g_ble_msg_buf[512] = {0};
@@ -20,22 +21,17 @@ extern void SysBLE_Notify(const char* data);
 
 static void BLE_Router_Process(String msg) {
     if (msg.startsWith("GET:SYNC")) {
+        // 【核心修改】：根据网页后缀决定提取哪个语言的数据库！
+        SystemLang_t sync_lang = msg.endsWith("EN") ? LANG_EN : LANG_ZH;
+
         SysBLE_Notify("SYNC:CLEAR"); 
         delay(50);
-        
-   for (int i = 0; i < sysConfig.custom_prescript_count; i++) {
-            String safeTxt = sysConfig.custom_prescripts[i]; safeTxt.replace("\"", "\\\"");
-            String out = "SYNC:PRE:{\"t\":\"" + safeTxt + "\"}";
-            SysBLE_Notify(out.c_str());
-            delay(50);
-        }
         
         for (int i = 0; i < sysConfig.schedule_count; i++) {
             if (sysConfig.schedules[i].is_expired) continue;
             struct tm t_info; time_t tt = sysConfig.schedules[i].target_time; localtime_r(&tt, &t_info);
             char dt[32]; sprintf(dt, "%04d-%02d-%02dT%02d:%02d", t_info.tm_year+1900, t_info.tm_mon+1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min);
             
-            // 【核心修复】：JSON 引号护盾
             String safeName = sysConfig.schedules[i].title.c_str(); safeName.replace("\"", "\\\"");
             String safeTxt = sysConfig.schedules[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
             
@@ -45,23 +41,17 @@ static void BLE_Router_Process(String msg) {
             SysBLE_Notify(out.c_str());
             delay(50);
         }
-        for (int i = 0; i < sysConfig.custom_prescript_count; i++) {
-            String safeTxt = sysConfig.custom_prescripts[i]; safeTxt.replace("\"", "\\\"");
-            String out = "SYNC:PRE:{\"t\":\"" + safeTxt + "\"}";
-            SysBLE_Notify(out.c_str());
-            delay(50);
-        }
+
+
+
         for (int intensity = 255; intensity >= 0; intensity -= 20) {
-            // 将 0~255 的亮度降维映射到 RGB565 的青色通道 (R=0, G=0~63, B=0~31)
             uint16_t g = (intensity * 63) / 255;
             uint16_t b = (intensity * 31) / 255;
             uint16_t neon_cyan = (g << 5) | b; 
-            
-            // 画两层边框增加厚度
             HAL_Draw_Rect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), neon_cyan);
             HAL_Draw_Rect(1, 1, HAL_Get_Screen_Width() - 2, HAL_Get_Screen_Height() - 2, neon_cyan);
             HAL_Screen_Update();
-            delay(15); // 控制消散速度
+            delay(15); 
         }
         return; 
     }
@@ -113,27 +103,29 @@ static void BLE_Router_Process(String msg) {
         Schedule_DeleteMobile(msg.substring(8).c_str());
     }
     else if (msg.startsWith("PRE:")) {
-        String text = msg.substring(4);
-        if (sysConfig.custom_prescript_count < MAX_CUSTOM_PRESCRIPTS) {
-            sysConfig.custom_prescripts[sysConfig.custom_prescript_count] = text;
-            sysConfig.custom_prescript_count++;
-            sysConfig.save();
-        }
+        // 格式约定: PRE:ZH:指令内容 或 PRE:EN:指令内容
+        SystemLang_t target_lang = msg.startsWith("PRE:ZH:") ? LANG_ZH : LANG_EN;
+        String text = msg.substring(7); // 跳过 "PRE:XX:"
+
+        // 【新逻辑】：调用我们之前写好的独立文件操作接口！直接物理写盘！
+        extern void DBArchive_AddRecord(SystemLang_t lang, const String& text);
+        DBArchive_AddRecord(target_lang, text);
     }
-    // 【新增】：删除自定义指令 (PRE_DEL:内容)
     else if (msg.startsWith("PRE_DEL:")) {
-        String target = msg.substring(8);
-        bool deleted = false;
-        for (int i = 0; i < sysConfig.custom_prescript_count; i++) {
-            if (sysConfig.custom_prescripts[i] == target) {
-                for (int j = i; j < sysConfig.custom_prescript_count - 1; j++) {
-                    sysConfig.custom_prescripts[j] = sysConfig.custom_prescripts[j+1];
-                }
-                sysConfig.custom_prescript_count--;
-                deleted = true; i--; 
+        // 格式约定: PRE_DEL:ZH:指令内容
+        SystemLang_t target_lang = msg.startsWith("PRE_DEL:ZH:") ? LANG_ZH : LANG_EN;
+        String text = msg.substring(11); // 跳过 "PRE_DEL:XX:"
+        
+        std::vector<String>* pool = (target_lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+        
+        // 遍历物理内存池，找到这个文本并将其彻底删除
+        for (size_t i = 0; i < pool->size(); i++) {
+            if ((*pool)[i] == text) {
+                extern bool DBArchive_DeleteRecord(SystemLang_t lang, int index);
+                DBArchive_DeleteRecord(target_lang, i);
+                break; // 删掉第一个匹配项即可
             }
         }
-        if (deleted) sysConfig.save();
     }
     // 在 app_manager.cpp 解析指令的地方加入这段：
         else if (msg.startsWith("WIFI:")) {

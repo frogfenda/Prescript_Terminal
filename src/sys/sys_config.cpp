@@ -11,7 +11,7 @@ void SysConfig::load() {
     // 1. 从 LittleFS 硬盘读取 JSON 文本
     String json = SysFS_Read_File(CONFIG_FILE);
     
-    // 2. 准备 JSON 解析引擎 (ArduinoJson 7 会自动管理内存)
+    // 2. 准备 JSON 解析引擎
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, json);
 
@@ -25,6 +25,7 @@ void SysConfig::load() {
         wifi_pass = "12345678";
         language = 1;             
         sleep_time_ms = 30000;    
+        true_sleep_time_ms = 3000; 
         decode_anim_style = 0;
 
         auto_push_enable = false;
@@ -43,7 +44,8 @@ void SysConfig::load() {
         
         alarm_count = 0;
         schedule_count = 0;
-        custom_prescript_count = 0;
+        
+        // [大扫除]：删除了旧版 custom_prescript_count = 0; 的初始化
 
         // 生成默认文件并保存
         save();
@@ -51,12 +53,13 @@ void SysConfig::load() {
     }
 
     // ==========================================
-    // 从 JSON 树中精准解析数据 (带默认值回退机制)
+    // 从 JSON 树中精准解析数据
     // ==========================================
     wifi_ssid = doc["wifi_ssid"] | "Your_WiFi_Name";
     wifi_pass = doc["wifi_pass"] | "12345678";
     language = doc["language"] | 1;
     sleep_time_ms = doc["sleep_time_ms"] | 30000;
+    true_sleep_time_ms = doc["true_sleep_time_ms"] | 3000;
     decode_anim_style = doc["decode_anim_style"] | 0;
 
     auto_push_enable = doc["auto_push_enable"] | false;
@@ -91,24 +94,21 @@ void SysConfig::load() {
         schedules[i].is_expired = sc_arr[i]["ex"] | false;
         schedules[i].is_restored = sc_arr[i]["rs"] | false;
     }
-
-    custom_prescript_count = doc["cp_count"] | 0;
-    JsonArray cp_arr = doc["custom_p"];
-    for (int i = 0; i < custom_prescript_count; i++) {
-        custom_prescripts[i] = cp_arr[i] | "";
-    }
+    
+    // [大扫除]：彻底删除了所有跟 cp_arr 解析相关的代码！
 }
 
 void SysConfig::save() {
     JsonDocument doc;
 
     // ==========================================
-    // 将内存数据打包成极其规整的 JSON 树
+    // 将内存数据打包成 JSON 树
     // ==========================================
     doc["wifi_ssid"] = wifi_ssid;
     doc["wifi_pass"] = wifi_pass;
     doc["language"] = language;
     doc["sleep_time_ms"] = sleep_time_ms;
+    doc["true_sleep_time_ms"] = true_sleep_time_ms;
     doc["decode_anim_style"] = decode_anim_style;
 
     doc["auto_push_enable"] = auto_push_enable;
@@ -147,11 +147,7 @@ void SysConfig::save() {
         obj["rs"] = schedules[i].is_restored;
     }
 
-    doc["cp_count"] = custom_prescript_count;
-    JsonArray cp_arr = doc["custom_p"].to<JsonArray>();
-    for (int i = 0; i < custom_prescript_count; i++) {
-        cp_arr.add(custom_prescripts[i]);
-    }
+    // [大扫除]：彻底删除了所有跟 custom_p 写入硬盘相关的代码！
 
     // ==========================================
     // 序列化并写入硬盘

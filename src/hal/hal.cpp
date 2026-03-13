@@ -2,6 +2,7 @@
 #include "hal.h"
 #include <LittleFS.h>           // <--- 引入文件系统！绝不再用 my_image.h！
 #include <U8g2_for_TFT_eSPI.h> 
+#include "esp_sleep.h"
 
 TFT_eSPI tft = TFT_eSPI(); 
 TFT_eSprite textSprite = TFT_eSprite(&tft); 
@@ -162,6 +163,26 @@ void HAL_Fill_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color) {
 }
 void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color) { 
     if(color == 1) color = TFT_CYAN; textSprite.fillTriangle(x0, y0, x1, y1, x2, y2, color); 
+}
+// ==========================================
+// 【系统休眠模块】
+// ==========================================
+void HAL_Sleep_Enter() {
+    // 1. 发送 0x10 命令给 ST7789 驱动芯片，让屏幕面板进入睡眠模式（可省 10~15mA）
+
+    delay(120); // 必须等待面板放电
+    
+    // 2. 核心：设定唯一的唤醒源 —— 旋钮按键（PIN_BTN），并在低电平 (0) 时触发
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BTN, 0);
+    
+    // 3. 彻底暂停 CPU 运行，进入浅度睡眠
+    esp_light_sleep_start();
+}
+
+void HAL_Sleep_Exit() {
+    // 发送 0x11 命令，唤醒 ST7789 屏幕面板
+    tft.writecommand(0x11); 
+    delay(120);
 }
 void HAL_Sprite_Clear() { textSprite.fillSprite(TFT_BLACK); }
 uint16_t HAL_Get_Screen_Width(void) { return 284; }
