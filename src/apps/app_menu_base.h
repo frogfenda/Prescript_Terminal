@@ -16,6 +16,7 @@ protected:
     virtual const char* getItemText(int index) = 0;  
     virtual void onItemClicked(int index) = 0;       
     virtual void onLongPressed() = 0;                
+    uint32_t menu_anim_last_tick = 0;
 
     virtual bool getItemEditParts(int index, const char** prefix, const char** anim_val, const char** suffix) {
         return false;
@@ -176,10 +177,15 @@ public:
         if (diff < -count / 2.0f) diff += count;
 
         if (abs(diff) > 0.01f) {
-            visual_selection += diff * 0.25f; 
-            while (visual_selection < 0) visual_selection += count;
-            while (visual_selection >= count) visual_selection -= count;
-            needs_redraw = true; 
+            uint32_t now = millis();
+            // 【核心修复】：将主菜单的滑动也锁定在 60FPS
+            if (now - menu_anim_last_tick >= 16) {
+                menu_anim_last_tick = now;
+                visual_selection += diff * 0.25f; 
+                while (visual_selection < 0) visual_selection += count;
+                while (visual_selection >= count) visual_selection -= count;
+                needs_redraw = true; 
+            }
         } else if (visual_selection != target && abs(diff) <= 0.01f) {
             visual_selection = target;
             needs_redraw = true;
@@ -189,7 +195,7 @@ public:
             drawMenuUI(visual_selection);
         }
     }
-
+    
     void onDestroy() override {}
     
     void onKnob(int delta) override {

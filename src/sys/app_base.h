@@ -105,6 +105,7 @@ protected:
 class DialAnimator {
 private:
     float offset = 0.0f; 
+    uint32_t last_tick = 0; // 【新增】帧率锁
 
     int getCharLen(unsigned char c) {
         if ((c & 0x80) == 0) return 1;
@@ -141,9 +142,14 @@ public:
 
     bool update() {
         if (abs(offset) > 0.001f) {
-            offset += (0.0f - offset) * 0.25f; 
-            if (abs(offset) < 0.02f) offset = 0.0f;
-            return true;
+            uint32_t now = millis();
+            // 【核心修复】：锁定在约 60FPS (16ms一帧)，防止疯狂重绘撕裂画面
+            if (now - last_tick >= 16) {
+                last_tick = now;
+                offset += (0.0f - offset) * 0.25f; 
+                if (abs(offset) < 0.02f) offset = 0.0f;
+                return true; // 只有够 16ms 且发生位移才允许重绘！
+            }
         }
         return false;
     }
@@ -242,7 +248,9 @@ public:
 class TacticalLinkEngine {
 private:
     float offset = 0.0f; 
+    uint32_t last_tick = 0; // 【新增】帧率锁
 
+    // ... (保留内部私有函数 getCharLen, getCharWidth, getWordWidth, drawClippedText) ...
     int getCharLen(unsigned char c) {
         if ((c & 0x80) == 0) return 1;
         if ((c & 0xE0) == 0xC0) return 2;
@@ -297,13 +305,18 @@ public:
     
     bool update(int current_phase) {
         if (abs(offset - current_phase) > 0.005f) {
-            offset += (current_phase - offset) * 0.15f; 
-            if (abs(offset - current_phase) < 0.01f) offset = current_phase;
-            return true;
+            uint32_t now = millis();
+            // 【核心修复】：60FPS 锁帧
+            if (now - last_tick >= 16) {
+                last_tick = now;
+                offset += (current_phase - offset) * 0.15f; 
+                if (abs(offset - current_phase) < 0.01f) offset = current_phase;
+                return true;
+            }
         }
         return false;
     }
-
+    
     void draw(int y, const char** names, int count, int current_phase, int spacing = 120) {
         int sw = HAL_Get_Screen_Width();
         int cx = sw / 2;

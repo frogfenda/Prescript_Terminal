@@ -4,6 +4,40 @@
 #include "sys_fs.h"
 #include "sys_config.h"
 
+// ========================================================
+// 【新增】：独立的数据操作接口（暴露给未来的蓝牙、网络模块调用）
+// ========================================================
+void DBArchive_SaveToFile(SystemLang_t lang) {
+    std::vector<String>* p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    const char* path = (lang == LANG_ZH) ? "/assets/prescripts_zh.txt" : "/assets/prescripts_en.txt";
+    File f = LittleFS.open(path, "w");
+    if (f) {
+        for (size_t i = 0; i < p->size(); i++) {
+            f.println((*p)[i]);
+        }
+        f.close();
+    }
+}
+
+// 接口 1：从外部添加一条新指令到硬盘
+void DBArchive_AddRecord(SystemLang_t lang, const String& text) {
+    std::vector<String>* p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    p->push_back(text);
+    DBArchive_SaveToFile(lang);
+}
+
+// 接口 2：从外部物理删除某一条指令
+bool DBArchive_DeleteRecord(SystemLang_t lang, int index) {
+    std::vector<String>* p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    if (index >= 0 && index < p->size()) {
+        p->erase(p->begin() + index);
+        DBArchive_SaveToFile(lang);
+        return true;
+    }
+    return false;
+}
+// ========================================================
+
 class AppPrescriptList : public AppBase {
 private:
     std::vector<String>* pool;
@@ -258,29 +292,24 @@ public:
         int max_vis = (appManager.getLanguage() == LANG_ZH) ? 3 : 4;
         int max_offset = (m_actual_lines > max_vis) ? (m_actual_lines - max_vis) : 0;
         
-        // ==========================================
-        // 【核心修改】：无限循环 (Infinite Scroll)
-        // ==========================================
         if (m_scroll_offset < 0) {
-            // 往上越界
             if (current_idx > 0) {
                 current_idx--;
             } else {
-                current_idx = pool->size() - 1; // 触发循环：跳到最后一条指令
+                current_idx = pool->size() - 1; 
             }
             FormatCurrent();
             max_offset = (m_actual_lines > max_vis) ? (m_actual_lines - max_vis) : 0;
-            m_scroll_offset = max_offset; // 定位在文章最底部
+            m_scroll_offset = max_offset; 
             
         } else if (m_scroll_offset > max_offset) {
-            // 往下越界
             if (current_idx < pool->size() - 1) {
                 current_idx++;
             } else {
-                current_idx = 0; // 触发循环：跳到第一条指令
+                current_idx = 0; 
             }
             FormatCurrent();
-            m_scroll_offset = 0; // 定位在文章最顶部
+            m_scroll_offset = 0; 
         }
         
         SYS_SOUND_NAV();
@@ -317,13 +346,8 @@ public:
                 SYS_SOUND_GLITCH();
                 delay(300); 
                 
-                pool->erase(pool->begin() + current_idx);
-                
-                File f = LittleFS.open(file_path, "w");
-                if (f) {
-                    for(size_t i=0; i<pool->size(); i++) f.println((*pool)[i]);
-                    f.close();
-                }
+                // 【调用全新的外部安全接口进行物理删除】
+                DBArchive_DeleteRecord(appManager.getLanguage(), current_idx);
                 
                 if (current_idx >= pool->size()) current_idx = pool->size() - 1;
                 if (current_idx < 0) current_idx = 0;
