@@ -157,14 +157,18 @@
             font-weight: bold;
         }
 
-        CSS
+
 
         /* ========================================== */
         /* 云端档案列表 Flex 排版与一键按钮样式 */
         /* ========================================== */
         .cloud-item {
-            display: flex;
-            /* 改为 Flex 布局，左右分栏 */
+            display: flex !important;
+            /* 【核心修复】：强制声明为弹性盒子 */
+            flex-direction: row !important;
+            /* 【核心修复】：强制要求内容从左到右水平横向排列！ */
+            align-items: stretch;
+            /* 让左右两边一样高 */
             border-left: 2px solid #088;
             margin-bottom: 6px;
             background: rgba(0, 30, 30, 0.3);
@@ -179,9 +183,13 @@
         .cloud-action-btn {
             display: flex;
             align-items: center;
+            /* 【关键】：让内部的对勾/叉叉绝对垂直居中 */
             justify-content: center;
-            width: 40px;
-            font-size: 18px;
+            /* 让符号水平居中 */
+            width: 45px;
+            flex-shrink: 0;
+            /* 防止左侧按钮被过长的文字挤压变窄 */
+            font-size: 20px;
             font-weight: bold;
             border-right: 1px dashed #005555;
             cursor: pointer;
@@ -192,7 +200,6 @@
             color: #0f0;
         }
 
-        /* 绿色对勾 */
         .cloud-action-btn.add:hover {
             background: rgba(0, 255, 0, 0.2);
         }
@@ -201,14 +208,17 @@
             color: #f03;
         }
 
-        /* 红色叉叉 */
         .cloud-action-btn.del:hover {
             background: rgba(255, 0, 51, 0.2);
         }
 
         .cloud-content-wrapper {
             flex: 1;
-            padding: 8px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            /* 【附赠优化】：让右侧的文字也始终保持垂直居中 */
             cursor: pointer;
         }
 
@@ -216,7 +226,7 @@
         /* 【新增】：云端档案库的小窗口样式 */
         /* ========================================== */
         #cloud_archive_window {
-            height: 140px;
+            height: 300px;
             overflow-y: auto;
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid #005555;
@@ -324,27 +334,19 @@
     <div class="panel">
         <div class="panel-title">
             <span data-i18n="panel_pre">>> PRESCRIPT LIBRARY (自定义指令池)</span>
-            <span onclick="sendRaw('GET:SYNC')" style="cursor:pointer; color:var(--main-color)"
-                data-i18n="btn_refresh">[ 刷新 ]</span>
         </div>
-        <div id="pre_list_container"></div>
 
-        <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
-
-            <div
-                style="font-size: 12px; color: #888; margin-bottom: 5px; display: flex; justify-content: space-between;">
-                <span data-i18n="lbl_cloud">>> 云端记录档案 (点击提取):</span>
-                <span onclick="loadCloudArchive()" style="cursor:pointer; color:#088;">[ RELOAD ]</span>
-            </div>
-            <div id="cloud_archive_window">
-                <div style="color:#555; text-align:center; padding-top: 40px;">[ INITIALIZING... ]</div>
-            </div>
-
-            <input type="text" class="input-box" id="pre_text"
-                style="width: 100%; margin-bottom: 10px; border-color: #088;" placeholder="输入新的指令文本..."
-                data-i18n-ph="ph_pre">
-            <button class="btn" onclick="addPre()" data-i18n="btn_pre_add">+ 注入自定义池</button>
+        <div style="font-size: 12px; color: #888; margin-bottom: 5px; display: flex; justify-content: space-between;">
+            <span data-i18n="lbl_cloud">>> 云端记录档案 (点击提取):</span>
+            <span onclick="loadCloudArchive()" style="cursor:pointer; color:#088;">[ RELOAD ]</span>
         </div>
+        <div id="cloud_archive_window">
+            <div style="color:#555; text-align:center; padding-top: 40px;">[ INITIALIZING... ]</div>
+        </div>
+
+        <input type="text" class="input-box" id="pre_text" style="width: 100%; margin-bottom: 10px; border-color: #088;"
+            placeholder="输入新的指令文本..." data-i18n-ph="ph_pre">
+        <button class="btn" onclick="addPre()" data-i18n="btn_pre_add">+ 注入自定义池</button>
     </div>
 
     <div class="panel">
@@ -657,14 +659,7 @@
             });
             document.getElementById('sch_list_container').innerHTML = schHtml;
 
-            let preHtml = terminalPrescripts.length === 0 ? `<div style='color:#555; text-align:center; font-size:12px;'>${i18n[currentLang].msg_no_pre}</div>` : "";
-            terminalPrescripts.forEach(p => {
-                preHtml += `<div class="list-item">
-                    <div class="item-info"><span style="color:#0ff;">${p.t}</span></div>
-                    <button class="btn-danger" onclick="executeDelete('PRE_DEL:${currentLang.toUpperCase()}:${p.t}')">✖</button>
-                </div>`;
-            });
-            document.getElementById('pre_list_container').innerHTML = preHtml;
+
         }
 
         async function sendRaw(cmdStr) {
