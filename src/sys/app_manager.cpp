@@ -20,13 +20,14 @@ AppManager appManager;
 extern void SysBLE_Notify(const char* data);
 
 static void BLE_Router_Process(String msg) {
-    if (msg.startsWith("GET:SYNC")) {
-        // 【核心修改】：根据网页后缀决定提取哪个语言的数据库！
+ if (msg.startsWith("GET:SYNC")) {
+        // 根据网页后缀决定提取哪个语言的数据库
         SystemLang_t sync_lang = msg.endsWith("EN") ? LANG_EN : LANG_ZH;
 
         SysBLE_Notify("SYNC:CLEAR"); 
         delay(50);
         
+        // 1. 同步长期日程 (SCH)
         for (int i = 0; i < sysConfig.schedule_count; i++) {
             if (sysConfig.schedules[i].is_expired) continue;
             struct tm t_info; time_t tt = sysConfig.schedules[i].target_time; localtime_r(&tt, &t_info);
@@ -42,8 +43,22 @@ static void BLE_Router_Process(String msg) {
             delay(50);
         }
 
+        // ==========================================
+        // 【核心修复】：恢复闹钟矩阵 (ALM) 的同步发送！
+        // ==========================================
+        for (int i = 0; i < sysConfig.alarm_count; i++) {
+            String safeName = sysConfig.alarms[i].name.c_str(); safeName.replace("\"", "\\\"");
+            String safeTxt = sysConfig.alarms[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
+            
+            String out = "SYNC:ALM:{\"h\":" + String(sysConfig.alarms[i].hour) + 
+                         ",\"m\":" + String(sysConfig.alarms[i].min) + 
+                         ",\"n\":\"" + safeName + 
+                         "\",\"t\":\"" + safeTxt + "\"}";
+            SysBLE_Notify(out.c_str());
+            delay(50);
+        }
 
-
+        // 闪屏动画反馈
         for (int intensity = 255; intensity >= 0; intensity -= 20) {
             uint16_t g = (intensity * 63) / 255;
             uint16_t b = (intensity * 31) / 255;
