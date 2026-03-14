@@ -16,12 +16,12 @@ protected:
         if (appManager.getLanguage() == LANG_ZH)
         {
             // 【修改 2】：在专注协议下面插入“指令档案”
-            const char *items[] = {"接受指令", "定时指令", "但丁", "专注协议", "指令档案", "指令推送配置", "系统高级设置", "进入待机模式", "硬币决定器"};
+            const char *items[] = {"接受指令", "定时指令", "但丁", "硬币决定器", "专注协议", "指令档案", "指令推送配置", "系统高级设置", "进入待机模式"};
             return items[index];
         }
         else
         {
-            const char *items[] = {"RECEIVE PRESCRIPT", "SCHEDULES", "WAKEUP ALARM", "POMODORO TIMER", "PRESCRIPT DB", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE", "QUANTUM COIN"};
+            const char *items[] = {"RECEIVE PRESCRIPT", "SCHEDULES", "WAKEUP ALARM", "QUANTUM COIN", "POMODORO TIMER", "PRESCRIPT DB", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE"};
             return items[index];
         }
     }
