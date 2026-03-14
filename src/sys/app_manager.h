@@ -56,6 +56,7 @@ extern AppBase* appSleepSetting;
 extern AppBase* appNetworkSync;
 extern AppBase* appSystemSettings;
 extern AppBase* appWifiConnect;
+extern AppBase* appCoinFlip;
 
 // 文件：src/sys/app_manager.h (仅替换文件最底部部分)
 

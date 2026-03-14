@@ -200,6 +200,7 @@ void AppManager::launchApp(AppBase* newApp) {
     if (currentApp) currentApp->onDestroy();
     currentApp = newApp;
     currentApp->onCreate();
+    currentApp->onResume(); // 【核心补丁】：强制触发界面的首次渲染，杜绝一切黑屏！
 }
 
 void AppManager::pushApp(AppBase* newApp) {
@@ -210,6 +211,7 @@ void AppManager::pushApp(AppBase* newApp) {
         }
         currentApp = newApp;
         currentApp->onCreate();
+        currentApp->onResume(); // 【核心补丁】：同上，保证推进栈的页面立刻显示！
     }
 }
 
