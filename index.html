@@ -336,9 +336,17 @@
             <span data-i18n="panel_pre">>> PRESCRIPT LIBRARY (自定义指令池)</span>
         </div>
 
-        <div style="font-size: 12px; color: #888; margin-bottom: 5px; display: flex; justify-content: space-between;">
-            <span data-i18n="lbl_cloud">>> 云端记录档案 (点击提取):</span>
-            <span onclick="loadCloudArchive()" style="cursor:pointer; color:#088;">[ RELOAD ]</span>
+        <div
+            style="font-size: 12px; color: #888; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: flex-end;">
+            <span data-i18n="lbl_cloud">>> 云端记录档案:</span>
+            <div style="text-align: right;">
+                <a href="https://index.dimension-404.cloud/submit" target="_blank"
+                    style="color: #666; text-decoration: none; font-size: 10px; display: block; margin-bottom: 4px;"
+                    data-i18n="lbl_submit">提交指令请前往: index.dimension-404.cloud/submit</a>
+                <span onclick="injectRandomTen()" style="cursor:pointer; color:#0f0; margin-right: 10px;"
+                    data-i18n="btn_random10">[ 随机注入 10 条 ]</span>
+                <span onclick="loadCloudArchive()" style="cursor:pointer; color:#088;">[ RELOAD ]</span>
+            </div>
         </div>
         <div id="cloud_archive_window">
             <div style="color:#555; text-align:center; padding-top: 40px;">[ INITIALIZING... ]</div>
@@ -422,9 +430,12 @@
                 msg_no_alm: "( 终端目前无闹钟 )",
                 msg_no_sch: "( 终端目前无未过期的日程 )",
                 msg_no_pre: "( 终端目前无自定义指令 )",
+                lbl_submit: "提交指令请前往: index.dimension-404.cloud/submit",
+                btn_random10: "[ 随机注入 10 条 ]",
                 status_connecting: "SYS_STATUS: CONNECTING...<br><span style='font-size: 12px; color: #ff0;'>[等待配对]</span>",
                 status_online: "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[同步完毕]</span>",
                 status_offline: "SYS_STATUS: OFFLINE<br><span style='font-size: 12px; color: #f03;'>[连接断开]</span>"
+
             },
             en: {
                 title: "Terminal Uplink",
@@ -443,6 +454,8 @@
                 btn_pre_add: "+ INJECT TO POOL",
                 lbl_cloud: ">> CLOUD ARCHIVE (CLICK TO EXTRACT):",
                 panel_pom: ">> POMODORO PRESETS",
+                lbl_submit: "Submit Prescripts at: index.dimension-404.cloud/submit",
+                btn_random10: "[ INJECT RANDOM 10 ]",
                 lbl_slot: "Slot:", lbl_name: "Name:", lbl_work: "Work(m):", lbl_rest: "Rest(m):",
                 btn_pom_add: "OVERWRITE SLOT",
                 opt_s0: "Slot 0", opt_s1: "Slot 1", opt_s2: "Slot 2",
@@ -496,16 +509,16 @@
             container.innerHTML = `<div style="color:#088; text-align:center; padding-top: 40px;">[ FETCHING CLOUD API... ]</div>`;
             try {
                 let res = await fetch('https://index.dimension-404.cloud/api/all');
-                let data = await res.json();
-                renderCloudItems(data);
+                globalCloudData = await res.json(); // 【修改】：将数据存入全局变量
+                renderCloudItems(globalCloudData);
             } catch (e) {
                 console.warn("[CLOUD UPLINK] API 访问失败，启用离线缓存数据进行演示。");
-                let mockData = [
+                globalCloudData = [                 // 【修改】：离线数据也存入全局变量
                     { content: "致...在https://index.dimension-404.cloud/submit发布指令", author: "Anonymous" },
                     { content: "致…前往L公司，寻找金枝...", author: "Dante" },
                     { content: "在夜晚降临前，清理掉街道上所有的监控探头。", author: "System" }
                 ];
-                renderCloudItems(mockData);
+                renderCloudItems(globalCloudData);
             }
         }
 
@@ -549,6 +562,7 @@
                         setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
 
                         uploadedSessionItems.delete(contentText);
+                        saveUploadState(); // 【新增】：同步到浏览器硬盘
                         actionBtn.className = 'cloud-action-btn add';
                         actionBtn.innerText = '✓';
                     } else {
@@ -557,6 +571,7 @@
                         setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
 
                         uploadedSessionItems.add(contentText);
+                        saveUploadState(); // 【新增】：同步到浏览器硬盘
                         actionBtn.className = 'cloud-action-btn del';
                         actionBtn.innerText = '✖';
                     }
@@ -577,9 +592,18 @@
         let bleCharacteristic = null;
         let syncTimeout;
         const SERVICE_UUID = "0000dead-0000-1000-8000-00805f9b34fb";
+        let globalCloudData = []; // 【新增】：用来在内存中缓存云端数据，供随机抽取使用
         const CHAR_UUID = "0000beef-0000-1000-8000-00805f9b34fb";
         let terminalAlarms = []; let terminalSchedules = []; let terminalPrescripts = [];
-        let uploadedSessionItems = new Set(); // 【新增】：记录本次网页会话中已经点击上传的云端指令
+        // ==========================================
+        // 利用浏览器本地存储 (LocalStorage) 赋予网页永久记忆
+        // ==========================================
+        let uploadedSessionItems = new Set(JSON.parse(localStorage.getItem('terminal_uploaded_items') || '[]'));
+
+        function saveUploadState() {
+            localStorage.setItem('terminal_uploaded_items', JSON.stringify([...uploadedSessionItems]));
+        }
+
         window.onload = () => {
             let now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset() + 60);
             document.getElementById('sch_time').value = now.toISOString().slice(0, 16);
@@ -706,6 +730,44 @@
             sendRaw(`WIFI:${ssid}:${pass}`);
             document.getElementById('wifi_pass').value = "";
             alert(i18n[currentLang].msg_wifi_sent);
+        }
+        // ==========================================
+        // 【核心新增】：一键随机注入 10 条云端指令
+        // ==========================================
+        async function injectRandomTen() {
+            if (!bleCharacteristic) return alert(i18n[currentLang].msg_conn_err);
+            if (!globalCloudData || globalCloudData.length === 0) return;
+
+            // 1. 过滤掉本次会话已经上传过的指令，避免重复
+            let availableItems = globalCloudData.filter(item => item.content && !uploadedSessionItems.has(item.content));
+            if (availableItems.length === 0) {
+                return alert(currentLang === 'zh' ? "云端没有可用的新指令了！" : "No new prescripts available in cloud!");
+            }
+
+            // 2. 将数组打乱 (Shuffle) 并截取前 10 条
+            let shuffled = availableItems.sort(() => 0.5 - Math.random());
+            let picked = shuffled.slice(0, 10);
+            let langTag = currentLang.toUpperCase();
+
+            // 3. 视觉反馈：让小窗口半透明，表示正在后台疯狂注入
+            document.getElementById('cloud_archive_window').style.opacity = '0.5';
+
+            // 4. 使用异步循环，每发送一条等待 100ms，保护蓝牙射频带宽
+            for (let i = 0; i < picked.length; i++) {
+                let text = picked[i].content;
+                uploadedSessionItems.add(text); // 标记为已上传
+                await sendRaw(`PRE:${langTag}:${text}`);
+                await new Promise(r => setTimeout(r, 100)); // 延迟防拥堵
+            }
+            saveUploadState(); // 【新增】：10条全部发完后，统一保存一次记忆
+
+            // 5. 注入完毕，恢复 UI，刷新列表将那 10 个直接变成红色的 ✖
+            document.getElementById('cloud_archive_window').style.opacity = '1';
+            renderCloudItems(globalCloudData);
+
+            // 6. 通知终端更新状态
+            setTimeout(() => sendRaw('GET:SYNC:' + langTag), 500);
+            alert(currentLang === 'zh' ? `已成功从云端随机注入 ${picked.length} 条指令！` : `Successfully injected ${picked.length} random prescripts!`);
         }
     </script>
 </body>
