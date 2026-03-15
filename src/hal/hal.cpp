@@ -167,6 +167,22 @@ void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x
 void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color) {
     textSprite.drawPixel(x, y, color); 
 }
+void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h) {
+    // 终极魔法：利用 textSprite 内置的局部裁剪推送。
+    // 它既保留了完美的硬件偏移映射（不会隐身），又只传输 8KB 数据（消灭撕裂）！
+    // 参数：目标屏幕x,y, 源画布x,y, 宽,高
+    textSprite.pushSprite(x, y, x, y, w, h);
+}
+void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* data) {
+    // 1. 开启高低字节翻转，修复块传输时的“反色/花屏”问题
+    textSprite.setSwapBytes(true); 
+    
+    // 2. 将硬币数据块极速拍到画布上
+    textSprite.pushImage(x, y, w, h, data);
+    
+    // 3. 画完立刻关闭翻转，防止影响到系统里其他正常文字的颜色！
+    textSprite.setSwapBytes(false); 
+}
 // ==========================================
 // 【系统休眠模块】
 // ==========================================

@@ -58,7 +58,8 @@ void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color);
 void HAL_Sprite_Clear(void); 
 void HAL_Sleep_Enter();
 void HAL_Sleep_Exit();
-
+void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h);
+void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* data);
 uint16_t HAL_Get_Screen_Width(void);
 uint16_t HAL_Get_Screen_Height(void);
 #endif

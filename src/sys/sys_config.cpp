@@ -25,7 +25,7 @@ void SysConfig::load() {
         wifi_pass = "12345678";
         language = 1;             
         sleep_time_ms = 30000;    
-        true_sleep_time_ms = 3000; 
+        true_sleep_time_ms = 0xFFFFFFFF; 
         decode_anim_style = 0;
 
         auto_push_enable = false;
@@ -59,7 +59,7 @@ void SysConfig::load() {
     wifi_pass = doc["wifi_pass"] | "12345678";
     language = doc["language"] | 1;
     sleep_time_ms = doc["sleep_time_ms"] | 30000;
-    true_sleep_time_ms = doc["true_sleep_time_ms"] | 3000;
+    true_sleep_time_ms = doc["true_sleep_time_ms"] | 0xFFFFFFFF;
     decode_anim_style = doc["decode_anim_style"] | 0;
 
     auto_push_enable = doc["auto_push_enable"] | false;
