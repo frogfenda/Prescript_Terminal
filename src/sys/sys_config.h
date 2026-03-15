@@ -27,6 +27,14 @@ struct ScheduleItem {
     bool is_restored;     // 是否是恢复的日程
 };
 
+struct CoinSaveData {
+    int mode;        // 运行模式：0自动, 1手动
+    int sanity;      // 理智波动：-45 到 45
+};
+
+// 声明全局实例化对象
+
+
 class SysConfig {
 public:
     String wifi_ssid;
@@ -37,7 +45,7 @@ public:
     bool auto_push_enable;
     uint32_t auto_push_min_min; 
     uint32_t auto_push_max_min; 
-    
+    CoinSaveData coin_data;
     uint8_t pomodoro_current_idx; 
     PomodoroPreset pomodoro_presets[5]; 
 
