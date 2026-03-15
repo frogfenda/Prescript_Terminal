@@ -82,12 +82,18 @@ void SysConfig::load()
     {
         coin_data.mode = coin_node["mode"] | 0;
         coin_data.sanity = coin_node["sanity"] | 0;
+        coin_data.coin_count = coin_node["coin_count"] | 1; // 默认 1 枚
     }
     else
     {
         coin_data.mode = 0;
         coin_data.sanity = 0;
+        coin_data.coin_count = 1;
     }
+    // 绝对防呆，防止越界
+    if (coin_data.coin_count < 1 || coin_data.coin_count > 4)
+        coin_data.coin_count = 1;
+
     alarm_count = doc["alarm_count"] | 0;
     JsonArray al_arr = doc["alarms"];
     for (int i = 0; i < alarm_count; i++)
@@ -169,6 +175,7 @@ void SysConfig::save()
     JsonObject coin_node = doc["coin_app"].to<JsonObject>();
     coin_node["mode"] = coin_data.mode;
     coin_node["sanity"] = coin_data.sanity;
+    coin_node["coin_count"] = coin_data.coin_count; // 保存数量
     // [大扫除]：彻底删除了所有跟 custom_p 写入硬盘相关的代码！
 
     // ==========================================

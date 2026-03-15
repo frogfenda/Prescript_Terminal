@@ -30,8 +30,8 @@ struct ScheduleItem {
 struct CoinSaveData {
     int mode;        // 运行模式：0自动, 1手动
     int sanity;      // 理智波动：-45 到 45
+    int coin_count;  // 【新增】：硬币数量 (1 到 4)
 };
-
 // 声明全局实例化对象
 
 
