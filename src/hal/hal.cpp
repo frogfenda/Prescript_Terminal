@@ -168,10 +168,8 @@ void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color) {
     textSprite.drawPixel(x, y, color); 
 }
 void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h) {
-    // 终极魔法：利用 textSprite 内置的局部裁剪推送。
-    // 它既保留了完美的硬件偏移映射（不会隐身），又只传输 8KB 数据（消灭撕裂）！
-    // 参数：目标屏幕x,y, 源画布x,y, 宽,高
-    textSprite.pushSprite(x, y, x, y, w, h);
+    // 【核心修复】：补偿物理屏幕的 (18, 82) 硬件偏移！
+    textSprite.pushSprite(x + 18, y + 82, x, y, w, h);
 }
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* data) {
     // 1. 开启高低字节翻转，修复块传输时的“反色/花屏”问题
