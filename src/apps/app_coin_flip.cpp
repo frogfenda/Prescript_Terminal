@@ -86,21 +86,37 @@ private:
             x_map[x] = origX;
         }
 
-        for (int y = 0; y < COIN_SIZE; y++) {
+       for (int y = 0; y < COIN_SIZE; y++) {
             int y_offset = y * COIN_SIZE;
             for (int x = 0; x < drawW; x++) {
                 uint16_t color = img[y_offset + x_map[x]];
                 if (color != 0x0000) {
                     if (is_flashing && !is_back && !is_spinning) {
-                        color = 0xFFFF; // 正面锁定瞬间：爆闪纯白！
+                        // 【优化】：高能过曝衰减算法
+                        // 利用剩余的 flash_frames 计算当前的闪光强度 (256 为满强度)
+                        uint32_t intensity = (coins[idx].flash_frames * 256) / CoinAnimParams::FLASH_DURATION;
+                        
+                        // 提取原图的 RGB565 分量
+                        uint16_t r = (color >> 11) & 0x1F;
+                        uint16_t g = (color >> 5)  & 0x3F;
+                        uint16_t b =  color        & 0x1F;
+
+                        // 将原图色彩向纯白 (31, 63, 31) 进行线性差值逼近
+                        // 强度越高，颜色越接近纯白；随着帧数递减，颜色极其丝滑地回归原图
+                        r = r + (((31 - r) * intensity) >> 8);
+                        g = g + (((63 - g) * intensity) >> 8);
+                        b = b + (((31 - b) * intensity) >> 8);
+
+                        color = (r << 11) | (g << 5) | b;
+                        
                     } else if (is_dimmed && !is_spinning) {
-                        // 失败反面：压暗至 30% 亮度，凸显“沉默/失效”的感觉
-                        uint16_t r = ((color >> 11) & 0x1F) * 30 / 100;
-                        uint16_t g = ((color >> 5) & 0x3F) * 30 / 100;
-                        uint16_t b = (color & 0x1F) * 30 / 100;
+                        // 失败反面：压暗至 30% 亮度
+                        uint16_t r = ((color >> 11) & 0x1F) * 80 / 100;
+                        uint16_t g = ((color >> 5) & 0x3F) * 80 / 100;
+                        uint16_t b = (color & 0x1F) * 80 / 100;
                         color = (r << 11) | (g << 5) | b;
                     } 
-                    // 旋转时保持原图亮度，让翻滚的高光更加耀眼清晰
+                    
                     coin_buffer[y_offset + startX + x] = color;
                 }
             }
