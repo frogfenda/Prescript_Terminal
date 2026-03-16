@@ -1,9 +1,15 @@
 // 文件：src/apps/app_prescript.cpp
 #include "app_base.h"
 #include "app_manager.h"
-#include "sys_fs.h" // <--- 引入全新的硬盘系统
+#include "sys_fs.h"
 #include "sys_auto_push.h"
 #include "sys_config.h"
+#include <LittleFS.h>
+#include "hal/hal.h"
+
+// 引入底层我们刚刚写的硬件循环锁
+extern volatile bool g_audio_loop;
+extern volatile const uint8_t *async_audio_data;
 
 class AppPrescript : public AppBase
 {
@@ -39,13 +45,7 @@ private:
     char m_lines[MAX_DATA_LINES][256];
     int m_actual_lines = 0;
     int m_scroll_offset = 0;
-    // 【新增 1】：PSRAM 内存指针
-    uint8_t *wav_procedure_data = nullptr;
-    uint32_t wav_procedure_len = 0;
 
-    uint8_t *wav_final_data = nullptr;
-    uint32_t wav_final_len = 0;
-    // 【新增 2】：专属的解码过程发声器（如果有 WAV 就播 WAV，没有就降级回电子音）
     enum State
     {
         S_INIT,
@@ -55,13 +55,22 @@ private:
         S_DONE
     };
     State m_state;
+
+    uint8_t *wav_procedure_data = nullptr;
+    uint32_t wav_procedure_len = 0;
+
+    uint8_t *wav_final_data = nullptr;
+    uint32_t wav_final_len = 0;
+
+    // ==========================================
+    // 【终极降级发声逻辑】
+    // ==========================================
     void playProcedureSound()
     {
-        if (wav_procedure_data)
-        {
-            HAL_Play_Real_Sound(wav_procedure_data, wav_procedure_len);
-        }
-        else
+        // 如果有真实的 WAV，就不需要在这里每帧触发了！
+        // 因为底层的 DMA 硬件已经在全自动无缝循环了，这里什么都不做，绝不打扰！
+        // 只有当硬盘里没找到 WAV 时，我们才在这里降级播放电子杂音。
+        if (!wav_procedure_data)
         {
             SYS_SOUND_GLITCH();
         }
@@ -154,7 +163,6 @@ private:
         int current_w = 0;
         int buf_idx = 0;
         int i = 0;
-
         while (raw_str[i] != '\0')
         {
             if (raw_str[i] == '\n')
@@ -169,7 +177,6 @@ private:
                 i++;
                 continue;
             }
-
             int scan_i = i;
             int w_len = 0;
             while (raw_str[scan_i] != '\0' && raw_str[scan_i] != ' ' && raw_str[scan_i] != '\n')
@@ -177,14 +184,12 @@ private:
                 w_len += (get_utf8_char_len(raw_str[scan_i]) > 1) ? 2 : 1;
                 scan_i += get_utf8_char_len(raw_str[scan_i]);
             }
-
             if (current_w > 0 && current_w + w_len > max_w)
             {
                 formatted_buf[buf_idx++] = '\n';
                 current_w = 0;
                 continue;
             }
-
             while (i < scan_i)
             {
                 int clen = get_utf8_char_len(raw_str[i]);
@@ -259,14 +264,11 @@ private:
     {
         HAL_Sprite_Clear();
         SystemLang_t current_lang = appManager.getLanguage();
-
         int max_vis = (current_lang == LANG_ZH) ? UI_CH_MAX_LINES : UI_EN_MAX_LINES;
         int start_y = (current_lang == LANG_ZH) ? UI_CH_START_Y : UI_EN_START_Y;
         int row_h = (current_lang == LANG_ZH) ? UI_CH_ROW_HEIGHT : UI_EN_ROW_HEIGHT;
         int margin_x = (current_lang == LANG_ZH) ? UI_CH_MARGIN_X : UI_EN_MARGIN_X;
-
         int draw_count = (m_actual_lines - m_scroll_offset > max_vis) ? max_vis : (m_actual_lines - m_scroll_offset);
-
         for (int i = 0; i < draw_count; i++)
         {
             int r = m_scroll_offset + i;
@@ -279,7 +281,6 @@ private:
                 HAL_Screen_ShowTextLine(margin_x, start_y + i * row_h, m_lines[r]);
             }
         }
-
         if (m_actual_lines > max_vis)
         {
             int max_offset = m_actual_lines - max_vis;
@@ -299,7 +300,7 @@ private:
         extern int __internal_prescript_mode;
         extern char __internal_custom_prescript[512];
         const char *rule;
-        static String fs_rule_str; // 用静态变量接住 String，保证 c_str() 指针不被销毁
+        static String fs_rule_str;
 
         if (__internal_prescript_mode == 3 || __internal_prescript_mode == 4)
         {
@@ -307,38 +308,38 @@ private:
         }
         else
         {
-            if (__internal_prescript_mode == 3 || __internal_prescript_mode == 4)
+            if (current_lang == LANG_ZH)
             {
-                // 这是系统推送或者闹钟强行插入的单条指令
-                rule = __internal_custom_prescript;
+                int sz = sys_prescripts_zh.size();
+                if (sz > 0)
+                    fs_rule_str = sys_prescripts_zh[random(sz)];
+                else
+                    fs_rule_str = "错误：中文指令库为空。";
             }
             else
             {
-                // 正常抽取：直接从底层双语硬盘内存池中随机抽取！没有任何概率分流！
-                if (current_lang == LANG_ZH)
-                {
-                    int sz = sys_prescripts_zh.size();
-                    if (sz > 0)
-                        fs_rule_str = sys_prescripts_zh[random(sz)];
-                    else
-                        fs_rule_str = "错误：中文指令库 prescripts_zh.txt 为空。";
-                }
+                int sz = sys_prescripts_en.size();
+                if (sz > 0)
+                    fs_rule_str = sys_prescripts_en[random(sz)];
                 else
-                {
-                    int sz = sys_prescripts_en.size();
-                    if (sz > 0)
-                        fs_rule_str = sys_prescripts_en[random(sz)];
-                    else
-                        fs_rule_str = "ERR: prescripts_en.txt EMPTY.";
-                }
-                rule = fs_rule_str.c_str();
+                    fs_rule_str = "ERR: prescripts_en.txt EMPTY.";
             }
+            rule = fs_rule_str.c_str();
         }
 
         static char raw_prescript[1024];
         static char formatted_buf[2048];
         snprintf(raw_prescript, sizeof(raw_prescript), "_%s_", rule);
         raw_prescript[sizeof(raw_prescript) - 1] = '\0';
+
+        // ==========================================
+        // 【核心点燃】：在长达数秒的动画循环开始前，命令副核无限循环 procedure 音效！
+        // ==========================================
+        if (wav_procedure_data)
+        {
+            g_audio_loop = true;
+            HAL_Play_Real_Sound(wav_procedure_data, wav_procedure_len);
+        }
 
         if (current_lang == LANG_ZH)
         {
@@ -670,7 +671,7 @@ private:
         }
         else
         {
-            // === 英文解析保持不变 ===
+            // === 英文解码部分 ===
             Format_English_To_Grid(raw_prescript, formatted_buf);
             m_actual_lines = Split_To_Lines(formatted_buf, m_lines);
             int draw_lines = (m_actual_lines > UI_EN_MAX_LINES) ? UI_EN_MAX_LINES : m_actual_lines;
@@ -869,36 +870,24 @@ private:
                     for (int r = 0; r < UI_EN_MAX_LINES; r++)
                     {
                         char row_buf[512];
-                        int buf_idx = 0, current_w = 0, byte_idx = 0;
+                        int buf_idx = 0, current_w = 0;
                         if (r < draw_lines)
                         {
-                            while (m_lines[r][byte_idx] != '\0' && current_w < UI_EN_MAX_COLS)
+                            while (m_lines[r][current_w] != '\0' && current_w < UI_EN_MAX_COLS - 1)
                             {
-                                int clen = get_utf8_char_len(m_lines[r][byte_idx]);
-                                int cw = (clen > 1) ? 2 : 1;
                                 if (frame >= lucky[r][current_w])
                                 {
-                                    for (int b = 0; b < clen; b++)
-                                        row_buf[buf_idx++] = m_lines[r][byte_idx + b];
+                                    row_buf[buf_idx++] = m_lines[r][current_w];
                                 }
                                 else
                                 {
                                     all_locked = 0;
-                                    if (cw == 2)
-                                    {
-                                        int p = random(CACHE_SIZE);
-                                        row_buf[buf_idx++] = cached_glitch_pool[p][0];
-                                        row_buf[buf_idx++] = cached_glitch_pool[p][1];
-                                        row_buf[buf_idx++] = cached_glitch_pool[p][2];
-                                    }
-                                    else
-                                        row_buf[buf_idx++] = 33 + random(94);
+                                    row_buf[buf_idx++] = 33 + random(94);
                                 }
-                                current_w += cw;
-                                byte_idx += clen;
+                                current_w++;
                             }
                         }
-                        while (current_w < UI_EN_MAX_COLS)
+                        while (current_w < UI_EN_MAX_COLS - 1)
                         {
                             if (frame < lucky[r][current_w])
                             {
@@ -929,14 +918,19 @@ private:
         m_scroll_offset = 0;
         drawDoneFrame();
 
-        // 【新增 5】：替换解码成功的提示音
+        // ==========================================
+        // 【终极打断】：强行解除硬件无限循环，并切歌！
+        // ==========================================
+        g_audio_loop = false;
+
         if (wav_final_data)
         {
-            // 这瞬间会利用刚刚写的打断机制，强行截断 procedure 的余音
             HAL_Play_Real_Sound(wav_final_data, wav_final_len);
         }
         else
         {
+            // 如果连 final 都没有，我们要强制清除还在循环播放的旧音频指针
+            async_audio_data = nullptr;
             delay(AUDIO_DONE_DELAY);
             HAL_Buzzer_Play_Tone(1500, 60);
             delay(30);
@@ -953,11 +947,8 @@ public:
     {
         Init_Glitch_Pool();
         m_scroll_offset = 0;
-        Init_Glitch_Pool();
-        m_scroll_offset = 0;
 
-        // 【新增 3】：开机时将真实的科幻音效瞬间吸入 PSRAM 高速内存
-        File f_proc = LittleFS.open("/assets/procedure.wav", "r");
+        File f_proc = LittleFS.open("/assets/coins/procedure.wav", "r");
         if (f_proc)
         {
             wav_procedure_len = f_proc.size() - 44;
@@ -970,7 +961,7 @@ public:
             f_proc.close();
         }
 
-        File f_fin = LittleFS.open("/assets/final.wav", "r");
+        File f_fin = LittleFS.open("/assets/coins/final.wav", "r");
         if (f_fin)
         {
             wav_final_len = f_fin.size() - 44;
@@ -983,7 +974,6 @@ public:
             f_fin.close();
         }
 
-        extern int __internal_prescript_mode;
         extern int __internal_prescript_mode;
         if (__internal_prescript_mode != 2 && __internal_prescript_mode != 3)
         {
@@ -1016,6 +1006,13 @@ public:
 
     void onDestroy() override
     {
+        // 【防崩溃锁】：离开应用时，如果副核还在读这两个内存，强行斩断并等待！
+        if (async_audio_data == wav_procedure_data || async_audio_data == wav_final_data)
+        {
+            async_audio_data = nullptr;
+            delay(5);
+        }
+
         if (wav_procedure_data)
         {
             free(wav_procedure_data);
@@ -1026,6 +1023,7 @@ public:
             free(wav_final_data);
             wav_final_data = nullptr;
         }
+
         extern int __internal_prescript_mode;
         __internal_prescript_mode = 0;
     }
@@ -1039,12 +1037,10 @@ public:
             {
                 int max_offset = m_actual_lines - max_vis;
                 int new_offset = m_scroll_offset + delta;
-
                 if (new_offset < 0)
                     new_offset = 0;
                 if (new_offset > max_offset)
                     new_offset = max_offset;
-
                 if (new_offset != m_scroll_offset)
                 {
                     m_scroll_offset = new_offset;

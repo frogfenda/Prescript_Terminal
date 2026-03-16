@@ -9,12 +9,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// ==========================================
-// 【音频守护线程全局变量】
-// ==========================================
-static const uint8_t* async_audio_data = nullptr;
-static uint32_t async_audio_len = 0;
-static TaskHandle_t audioTaskHandle = NULL;
+
 
 
 
@@ -34,69 +29,71 @@ IRAM_ATTR void ISR_Knob_Turn() {
     raw_knob_counter += enc_states[(old_AB & 0x0f)];
 }
 
+
+
 // ==========================================
-// 【后台异步播放线程 (带软件实时数字调音台)】
+// 【音频守护线程全局变量】(带双核防撕裂锁)
 // ==========================================
+volatile const uint8_t* async_audio_data = nullptr;
+volatile uint32_t async_audio_len = 0;
+volatile bool g_audio_loop = false; // 底层无缝循环标志
+static TaskHandle_t audioTaskHandle = NULL;
+
+// 【后台异步播放线程 (支持 0 延迟硬件级循环)】
 void audio_bg_task(void *pvParameters) {
     size_t bytes_written;
     while (1) {
-        // 如果收到了播放任务
         if (async_audio_data != nullptr && async_audio_len > 0) {
-            
             uint8_t vol = sysConfig.volume;
-            
             if (vol == 0) {
-                // 【静音模式】：直接丢弃播放任务，不推流
+                async_audio_data = nullptr;
+                continue;
             } 
-            else if (vol == 100) {
-                // 【满音量模式】：不需要算力，直接将内存数据原封不动全速推给 DMA
-                i2s_write(I2S_NUM_0, async_audio_data, async_audio_len, &bytes_written, portMAX_DELAY);
-            } 
-            else {
-                // 【调音模式】：启动 CPU 实时解码运算
-                int16_t* pcm = (int16_t*)async_audio_data;
-                uint32_t total_samples = async_audio_len / 2; // 16-bit 深度，每2个字节是一个采样点
-                
-                // 开辟小块缓冲池，防止爆内存
-                const int CHUNK_SAMPLES = 256;
-                int16_t buf[CHUNK_SAMPLES]; 
-                uint32_t ptr = 0;
-                
-                // 应用平方级衰减（符合人耳听觉的真实物理对数曲线）
-                float vol_ratio = (float)vol / 100.0f;
-                float multiplier = vol_ratio * vol_ratio;
-                
-               while (ptr < total_samples) {
-                    // 【核心魔法：强制打断机制】
-                    // 如果外部切了歌（比如突然收到 final.wav 的指令），立刻跳出循环斩断当前波形！
-                    if (async_audio_data != (const uint8_t*)pcm) {
-                        break; 
-                    }
+            
+            // 【修复编译报错】：使用强制类型转换脱掉 volatile 外衣，
+            // 生成一个本地副本来进行高速切块推流，完美避开主核的并发修改！
+            const uint8_t* current_data = (const uint8_t*)async_audio_data; 
+            uint32_t current_len = async_audio_len;
+            bool is_looping = g_audio_loop;
+            
+            int16_t* pcm = (int16_t*)current_data;
+            uint32_t total_samples = current_len / 2; 
+            
+            const int CHUNK_SAMPLES = 256;
+            int16_t buf[CHUNK_SAMPLES]; 
+            uint32_t ptr = 0;
+            
+            float vol_ratio = (float)vol / 100.0f;
+            float multiplier = vol_ratio * vol_ratio;
+            
+            while (ptr < total_samples) {
+                // 终极抢占检测
+                if (async_audio_data != (volatile const uint8_t*)current_data) break; 
 
-                    int chunk = (total_samples - ptr < CHUNK_SAMPLES) ? (total_samples - ptr) : CHUNK_SAMPLES;
-                    for (int i = 0; i < chunk; i++) {
-                        buf[i] = (int16_t)(pcm[ptr + i] * multiplier);
-                    }
-                    i2s_write(I2S_NUM_0, buf, chunk * sizeof(int16_t), &bytes_written, portMAX_DELAY);
-                    ptr += chunk;
+                int chunk = (total_samples - ptr < CHUNK_SAMPLES) ? (total_samples - ptr) : CHUNK_SAMPLES;
+                for (int i = 0; i < chunk; i++) {
+                    buf[i] = (int16_t)(pcm[ptr + i] * multiplier);
                 }
                 
-                // 只有当指针没被别人抢走时，才意味着正常播完了，可以清空任务
-                if (async_audio_data == (const uint8_t*)pcm) {
-                    async_audio_data = nullptr;
-                    async_audio_len = 0;
+                i2s_write(I2S_NUM_0, buf, chunk * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+                ptr += chunk;
+                
+                // 核心魔法：底层硬件级无缝循环
+                if (ptr >= total_samples && is_looping && async_audio_data == (volatile const uint8_t*)current_data) {
+                    ptr = 0; 
                 }
             }
             
-            // 播完后清空任务，等待下一次硬币抛掷
-            async_audio_data = nullptr;
-            async_audio_len = 0;
+            // 只有正常播完（且不循环），才清空任务
+            if (async_audio_data == (volatile const uint8_t*)current_data) {
+                async_audio_data = nullptr;
+            }
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(5)); // 休眠等待任务
         }
-        
-        // 闲置时休眠 10 毫秒，绝不抢占 UI 渲染算力
-        vTaskDelay(pdMS_TO_TICKS(10)); 
     }
 }
+
 
 
 void HAL_Init() {
@@ -278,19 +275,16 @@ void HAL_Buzzer_Random_Glitch() {
         i2s_write(I2S_NUM_0, buf, buf_idx * sizeof(int16_t), &bytes_written, portMAX_DELAY);
     }
 }
-// ==========================================
-// 【真实 WAV 音效播放接口 (双核异步 0 延迟版)】
-// ==========================================
 void HAL_Play_Real_Sound(const uint8_t* audio_data, uint32_t data_length) {
     if (audio_data == nullptr || data_length == 0) return;
     
-    // 我们不再这里调用耗时的 i2s_write。
-    // 只做一件事：把要播放的内存地址交给守护线程，然后立刻 Return (耗时不到 1 微秒)！
-    async_audio_len = 0; // 先清零防止冲突
-    async_audio_data = audio_data;
+    // 【解决竞争条件】：必须先挂起当前音频，防止后台线程读到旧长度和新指针！
+    async_audio_data = nullptr; 
+    delay(2); // 给副核 2 毫秒时间跳出当前循环，让出 DMA 管道
+    
     async_audio_len = data_length;
+    async_audio_data = audio_data; // 重新触发播放
 }
-
 void HAL_Screen_Clear() { tft.fillScreen(TFT_BLACK); textSprite.fillSprite(TFT_BLACK); }
 
 void HAL_Screen_DrawHeader() {
