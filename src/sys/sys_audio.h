@@ -22,9 +22,9 @@ extern SysAudio sysAudio;
 #define SYS_SOUND_LONG()    sysAudio.playTone(1000, 60)
 #define SYS_SOUND_GLITCH()  sysAudio.playGlitch()
 #define SYS_SOUND_SUCCESS_4BEEPS() do { \
-    sysAudio.playTone(4800, 60); delay(60); \
-    sysAudio.playTone(4800, 60); delay(60); \
-    sysAudio.playTone(4800, 60); delay(60); \
-    sysAudio.playTone(6000, 250); \
+    sysAudio.playTone(7000, 70); delay(60); \
+    sysAudio.playTone(7000, 70);delay(60); \
+    sysAudio.playTone(7000, 70); delay(60); \
+    sysAudio.playTone(7000, 250); \
 } while(0)
 
