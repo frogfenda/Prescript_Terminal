@@ -55,6 +55,7 @@ public:
     // 【新增】：日程表硬盘数据
     uint8_t schedule_count; 
     ScheduleItem schedules[15]; // 最多 15 个日程
+    uint8_t volume; // 【新增】：系统全局音量 (0~10)
 
 
     void load();

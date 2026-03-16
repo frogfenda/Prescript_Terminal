@@ -4,7 +4,7 @@
 #include <U8g2_for_TFT_eSPI.h> 
 #include "esp_sleep.h"
 #include <driver/i2s.h> // 【核心新增】：ESP32 I2S 底层驱动
-
+#include "../sys/sys_config.h" // 【新增】：引入全局配置
 #include <driver/i2s.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -16,23 +16,7 @@ static const uint8_t* async_audio_data = nullptr;
 static uint32_t async_audio_len = 0;
 static TaskHandle_t audioTaskHandle = NULL;
 
-// 【后台异步播放线程】
-void audio_bg_task(void *pvParameters) {
-    size_t bytes_written;
-    while (1) {
-        // 如果收到了播放任务
-        if (async_audio_data != nullptr && async_audio_len > 0) {
-            // 在独立核心中阻塞推流，绝对不会卡住主渲染循环！
-            i2s_write(I2S_NUM_0, async_audio_data, async_audio_len, &bytes_written, portMAX_DELAY);
-            
-            // 播完后清空任务，等待下一次召唤
-            async_audio_data = nullptr;
-            async_audio_len = 0;
-        }
-        // 闲置时休眠，让出 CPU 算力
-        vTaskDelay(pdMS_TO_TICKS(10)); 
-    }
-}
+
 
 TFT_eSPI tft = TFT_eSPI(); 
 TFT_eSprite textSprite = TFT_eSprite(&tft); 
@@ -49,6 +33,71 @@ IRAM_ATTR void ISR_Knob_Turn() {
     old_AB |= ((A << 1) | B);       
     raw_knob_counter += enc_states[(old_AB & 0x0f)];
 }
+
+// ==========================================
+// 【后台异步播放线程 (带软件实时数字调音台)】
+// ==========================================
+void audio_bg_task(void *pvParameters) {
+    size_t bytes_written;
+    while (1) {
+        // 如果收到了播放任务
+        if (async_audio_data != nullptr && async_audio_len > 0) {
+            
+            uint8_t vol = sysConfig.volume;
+            
+            if (vol == 0) {
+                // 【静音模式】：直接丢弃播放任务，不推流
+            } 
+            else if (vol == 100) {
+                // 【满音量模式】：不需要算力，直接将内存数据原封不动全速推给 DMA
+                i2s_write(I2S_NUM_0, async_audio_data, async_audio_len, &bytes_written, portMAX_DELAY);
+            } 
+            else {
+                // 【调音模式】：启动 CPU 实时解码运算
+                int16_t* pcm = (int16_t*)async_audio_data;
+                uint32_t total_samples = async_audio_len / 2; // 16-bit 深度，每2个字节是一个采样点
+                
+                // 开辟小块缓冲池，防止爆内存
+                const int CHUNK_SAMPLES = 256;
+                int16_t buf[CHUNK_SAMPLES]; 
+                uint32_t ptr = 0;
+                
+                // 应用平方级衰减（符合人耳听觉的真实物理对数曲线）
+                float vol_ratio = (float)vol / 100.0f;
+                float multiplier = vol_ratio * vol_ratio;
+                
+               while (ptr < total_samples) {
+                    // 【核心魔法：强制打断机制】
+                    // 如果外部切了歌（比如突然收到 final.wav 的指令），立刻跳出循环斩断当前波形！
+                    if (async_audio_data != (const uint8_t*)pcm) {
+                        break; 
+                    }
+
+                    int chunk = (total_samples - ptr < CHUNK_SAMPLES) ? (total_samples - ptr) : CHUNK_SAMPLES;
+                    for (int i = 0; i < chunk; i++) {
+                        buf[i] = (int16_t)(pcm[ptr + i] * multiplier);
+                    }
+                    i2s_write(I2S_NUM_0, buf, chunk * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+                    ptr += chunk;
+                }
+                
+                // 只有当指针没被别人抢走时，才意味着正常播完了，可以清空任务
+                if (async_audio_data == (const uint8_t*)pcm) {
+                    async_audio_data = nullptr;
+                    async_audio_len = 0;
+                }
+            }
+            
+            // 播完后清空任务，等待下一次硬币抛掷
+            async_audio_data = nullptr;
+            async_audio_len = 0;
+        }
+        
+        // 闲置时休眠 10 毫秒，绝不抢占 UI 渲染算力
+        vTaskDelay(pdMS_TO_TICKS(10)); 
+    }
+}
+
 
 void HAL_Init() {
     tft.init();
@@ -111,104 +160,124 @@ int HAL_Get_Knob_Delta(void) {
 bool HAL_Is_Key_Pressed() { return digitalRead(PIN_BTN) == LOW; }
 
 
+
 // ==========================================
-// 【I2S 纯净数字音频合成器 (50%方波 + 指数级打击衰减)】
-// 专为小尺寸喇叭调校，确保高频清脆，低频不破音
+// 【I2S 纯净数字音频合成器 (带动态低频保护与曲线音量)】
 // ==========================================
 void HAL_Buzzer_Play_Tone(uint16_t freq, uint16_t duration_ms) {
-    if (freq == 0 || duration_ms == 0) return;
+    if (freq == 0 || duration_ms == 0 || sysConfig.volume == 0) return;
     
-    uint32_t sample_rate = 16000; // 与 HAL_Init 中的 16kHz 配置保持一致
+    uint32_t sample_rate = 16000; 
     uint32_t total_samples = (sample_rate * duration_ms) / 1000;
     
-    // 音量调节 (0 - 32767)。8000 搭配方波能量已经非常饱满
-    int16_t max_volume = 8000; 
-    size_t bytes_written;
+    // 【魔法 1：听觉指数曲线】
+    // 将 0-100 的音量转化为 0-12000 的硬件振幅，使用平方算法更符合人耳对响度的感知
+    float vol_ratio = (float)sysConfig.volume / 100.0f;
+    int16_t max_volume = (int16_t)(12000.0f * vol_ratio * vol_ratio); 
 
-    // DMA 块传输缓冲池，彻底消灭单步传输导致的断流和浑浊杂音
+    // 【魔法 2：软件级动态高通滤波 (Dynamic High-Pass)】
+    // 如果系统呼叫了低频 (<1500Hz)，强制将其推力降低一半！防止纸盆打底产生机械杂音！
+    if (freq < 1500) {
+        max_volume = max_volume / 2;
+    }
+
+    size_t bytes_written;
     const int CHUNK_SAMPLES = 256; 
-    int16_t buf[CHUNK_SAMPLES * 2]; // *2 是因为双声道
+    int16_t buf[CHUNK_SAMPLES * 2]; 
     int buf_idx = 0;
 
     float period = (float)sample_rate / freq;
 
     for (uint32_t i = 0; i < total_samples; i++) {
         
-        // 1. 生成 50% 经典方波 (Square Wave)
-        // 配合拔高后的宏定义频率，产生极其干脆的电子设备 UI 质感
         float phase = fmod((float)i, period) / period; 
-        float wave = (phase < 0.5f) ? 1.0f : -1.0f; 
+        
+        // 【魔法 3：自适应波形切换】
+        // 高频用 50% 方波保证清脆响亮；
+        // 低频自动切换成 25% 窄脉冲，极大削弱容易引起共振的基频能量，用高频谐波骗过耳朵！
+        float duty = (freq < 1500) ? 0.25f : 0.5f;
+        float wave = (phase < duty) ? 1.0f : -1.0f; 
 
-        // 2. 指数级打击衰减 (Percussive Decay)
-        // 模拟实体按键/机械键盘的物理回弹感，瞬间爆发后极速收束，强行抑制喇叭纸盆的杂乱共振
+        // 指数级打击衰减
         float linear_envelope = 1.0f - ((float)i / total_samples); 
         float envelope = linear_envelope * linear_envelope; 
 
-        // 3. 计算本帧最终音频振幅
         int16_t sample_val = (int16_t)(wave * max_volume * envelope);
         
-        // 4. 填入左右双声道
         buf[buf_idx++] = sample_val; 
         buf[buf_idx++] = sample_val; 
 
-        // 5. 缓冲池满了，批量推入 I2S 底层硬件
         if (buf_idx >= CHUNK_SAMPLES * 2) {
             i2s_write(I2S_NUM_0, buf, sizeof(buf), &bytes_written, portMAX_DELAY);
             buf_idx = 0; 
         }
     }
     
-    // 把最后剩下的碎片数据推出去
     if (buf_idx > 0) {
         i2s_write(I2S_NUM_0, buf, buf_idx * sizeof(int16_t), &bytes_written, portMAX_DELAY);
     }
 }
 
+
 // ==========================================
-// 【科幻电火花音效合成器 (16kHz 降频适配版)】
+// 【科幻打字机 / 机械电火花音效 (彻底告别雪花白噪)】
+// ==========================================
+// ==========================================
+// 【科幻打字机音效 (极速降频扫频 Chirp 完全体)】
+// 彻底消灭直流爆音，打造极其精密的玻璃/金属齿轮咬合感
 // ==========================================
 void HAL_Buzzer_Random_Glitch() {
-    uint32_t duration_ms = random(10, 25);
-    uint32_t total_samples = (16000 * duration_ms) / 1000;
+    if (sysConfig.volume == 0) return;
+
+    uint32_t sample_rate = 16000;
+    // 每次敲击的时间极其短促 (3~5毫秒)，绝不拖泥带水
+    uint32_t duration_ms = random(3, 6); 
+    uint32_t total_samples = (sample_rate * duration_ms) / 1000;
+    
+    float vol_ratio = (float)sysConfig.volume / 100.0f;
+    // 扫频能量非常集中，音量不需要极大就能听得很清晰
+    int16_t max_volume = (int16_t)(10000.0f * vol_ratio * vol_ratio); 
+
     size_t bytes_written;
-
-    int16_t current_val = 0;
-    int hold_counter = 0;
-    int16_t max_volume = 8000; 
-
-    const int CHUNK_SAMPLES = 256;
-    int16_t buf[CHUNK_SAMPLES * 2];
+    // 5毫秒最多 80 个采样点，开 256 绝对够用，一次性推流 0 延迟
+    int16_t buf[256]; 
     int buf_idx = 0;
 
+    // 【核心声学魔法：扫频参数】
+    // 每次敲击的起始频率稍微有一点点随机波动，模拟机械键盘不同按键的细微差异
+    float start_freq = (float)random(3500, 4500); 
+    float end_freq = 800.0f; // 瞬间坠落到中低频收尾
+    float current_phase = 0.0f;
+
     for (uint32_t i = 0; i < total_samples; i++) {
-        // 降频采样：保持数值一段时间，产生“噼啪”颗粒感，而不是刺耳的嘶嘶雪花声
-        if (hold_counter <= 0) {
-            current_val = random(-max_volume, max_volume);
-            hold_counter = random(3, 12); 
-        }
-        hold_counter--;
+        float progress = (float)i / total_samples;
+        
+        // 1. 频率随时间呈线性极速下坠 (Chirp)
+        float current_freq = start_freq - (start_freq - end_freq) * progress;
+        
+        // 2. 累加相位 (扫频波形的唯一正确算法)
+        current_phase += current_freq / sample_rate;
+        if (current_phase > 1.0f) current_phase -= 1.0f;
 
-        // 线性衰减
-        float envelope = 1.0f - ((float)i / total_samples);
-        int16_t sample_val = (int16_t)(current_val * envelope);
+        // 3. 使用三角波 (Triangle Wave) 
+        // 相比方波的刺耳，三角波带有类似玻璃和金属弹片的圆润光泽感
+        float wave = 4.0f * fabs(current_phase - 0.5f) - 1.0f; 
 
-        buf[buf_idx++] = sample_val;
-        buf[buf_idx++] = sample_val;
+        // 4. 指数极速衰减，强行刹住喇叭纸盆
+        float envelope = (1.0f - progress) * (1.0f - progress);
 
-        if (buf_idx >= CHUNK_SAMPLES * 2) {
-            i2s_write(I2S_NUM_0, buf, sizeof(buf), &bytes_written, portMAX_DELAY);
-            buf_idx = 0;
-        }
+        int16_t sample_val = (int16_t)(wave * max_volume * envelope);
+        
+        // 填入左右双声道
+        buf[buf_idx++] = sample_val; 
+        buf[buf_idx++] = sample_val; 
     }
     
+    // 将整个音频块瞬间砸给 DMA，没有任何碎片断流
     if (buf_idx > 0) {
         i2s_write(I2S_NUM_0, buf, buf_idx * sizeof(int16_t), &bytes_written, portMAX_DELAY);
     }
 }
-
-// ==========================================
-// 【真实 WAV 音效播放接口 (扩展挂载点)】
-// ==========================================
 // ==========================================
 // 【真实 WAV 音效播放接口 (双核异步 0 延迟版)】
 // ==========================================

@@ -67,6 +67,7 @@ extern AppBase* appAlarm;
 extern AppBase* appSchedule;
 extern AppBase* appAnimSetting;
 extern AppBase* appPrescriptList;
+extern AppBase* appVolumeSetting;
 
 void Prescript_Launch_PushNormal(); 
 void Prescript_Launch_PushDirect(); 

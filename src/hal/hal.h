@@ -24,13 +24,14 @@
 
 
 // ==========================================
-// 【系统全局音效频率配置 (微型喇叭甜点区优化)】
+// 【系统全局音效频率配置 (主机级纯净调校)】
 // ==========================================
-#define SYS_SOUND_CONFIRM() HAL_Buzzer_Play_Tone(3800, 50)  // 极高频，水滴般清脆的确认感
-#define SYS_SOUND_ERROR()   HAL_Buzzer_Play_Tone(1600, 200) // 警告音，彻底避开 1000Hz 以下的物理共振死区
-#define SYS_SOUND_NAV()     HAL_Buzzer_Play_Tone(3200, 25)  // 滚轮导航，极短的高频“滴”
-#define SYS_SOUND_LONG()    HAL_Buzzer_Play_Tone(2000, 100) // 长按操作音
-#define SYS_SOUND_GLITCH()  HAL_Buzzer_Random_Glitch()
+#define SYS_SOUND_CONFIRM() HAL_Buzzer_Play_Tone(2800, 40)  // 较高频，清脆的确认水滴音
+#define SYS_SOUND_ERROR()   HAL_Buzzer_Play_Tone(300, 150)  // 极低频沉闷“嗡”声（底层已受动态保护，绝不破音）
+#define SYS_SOUND_NAV()     HAL_Buzzer_Play_Tone(3800, 10)  // 极短极脆的“滴” (仅10ms，像拨动金属齿轮)
+#define SYS_SOUND_LONG()    HAL_Buzzer_Play_Tone(1000, 60)  // 中频的确认感
+#define SYS_SOUND_GLITCH()  HAL_Buzzer_Random_Glitch()      // 机械脉冲嗒嗒声
+
 
 void HAL_Init(void);
 bool HAL_Is_Key_Pressed(void);
