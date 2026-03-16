@@ -8,6 +8,7 @@
 #include "sys_fs.h"   // <--- 【新增】引入文件系统中枢
 #include "hal.h"
 #include "app_manager.h"
+#include "sys/sys_audio.h"
 
 void setup() {
     setCpuFrequencyMhz(80);
@@ -23,6 +24,7 @@ void setup() {
     SysFS_Load_Prescripts();
     sysConfig.load();
     SysTime_Init();
+    sysAudio.begin();
     HAL_Init();
     appManager.begin();
 

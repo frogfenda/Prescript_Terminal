@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
+#include "../sys/sys_audio.h"
 
 #define PIN_KNOB_A 4
 #define PIN_KNOB_B 5
@@ -23,23 +24,14 @@
 #define UI_TIME_SAFE_PAD   28  
 
 
-// ==========================================
-// 【系统全局音效频率配置 (主机级纯净调校)】
-// ==========================================
-#define SYS_SOUND_CONFIRM() HAL_Buzzer_Play_Tone(2800, 40)  // 较高频，清脆的确认水滴音
-#define SYS_SOUND_ERROR()   HAL_Buzzer_Play_Tone(300, 150)  // 极低频沉闷“嗡”声（底层已受动态保护，绝不破音）
-#define SYS_SOUND_NAV()     HAL_Buzzer_Play_Tone(3800, 10)  // 极短极脆的“滴” (仅10ms，像拨动金属齿轮)
-#define SYS_SOUND_LONG()    HAL_Buzzer_Play_Tone(1000, 60)  // 中频的确认感
-#define SYS_SOUND_GLITCH()  HAL_Buzzer_Random_Glitch()      // 机械脉冲嗒嗒声
+
 
 
 void HAL_Init(void);
 bool HAL_Is_Key_Pressed(void);
 int  HAL_Get_Knob_Delta(void); 
 
-void HAL_Buzzer_Play_Tone(uint16_t freq, uint16_t duration_ms);
-void HAL_Buzzer_Random_Glitch(void);
-void HAL_Play_Real_Sound(const uint8_t* audio_data, uint32_t data_length);
+
 
 void HAL_Screen_Clear(void);
 void HAL_Screen_DrawHeader(void);

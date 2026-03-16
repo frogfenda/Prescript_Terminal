@@ -36,7 +36,7 @@ void SysConfig::load()
         coin_data.mode = 0;
         coin_data.sanity = 0;
         pomodoro_current_idx = 0;
-        volume = 70; // 【新增】：默认音量设为 7
+        volume = 40; // 【新增】：默认音量设为 7
         const char *def_names[5] = {"常规专注", "深度工作", "短时冲刺", "阅读模式", "冥想休息"};
         uint32_t def_w[5] = {25, 60, 15, 45, 10};
         uint32_t def_r[5] = {5, 10, 3, 10, 5};
@@ -69,7 +69,7 @@ void SysConfig::load()
     auto_push_enable = doc["auto_push_enable"] | false;
     auto_push_min_min = doc["auto_push_min_min"] | 30;
     auto_push_max_min = doc["auto_push_max_min"] | 120;
-    volume = doc["volume"] | 70;
+    volume = doc["volume"] | 40;
     if (volume > 100) volume = 100;
     pomodoro_current_idx = doc["pom_idx"] | 0;
     JsonArray pm_arr = doc["pom_presets"];

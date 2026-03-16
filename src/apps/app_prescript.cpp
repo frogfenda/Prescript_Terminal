@@ -6,10 +6,7 @@
 #include "sys_config.h"
 #include <LittleFS.h>
 #include "hal/hal.h"
-
-// 引入底层我们刚刚写的硬件循环锁
-extern volatile bool g_audio_loop;
-extern volatile const uint8_t *async_audio_data;
+#include "sys/sys_audio.h"
 
 class AppPrescript : public AppBase
 {
@@ -62,18 +59,10 @@ private:
     uint8_t *wav_final_data = nullptr;
     uint32_t wav_final_len = 0;
 
-    // ==========================================
-    // 【终极降级发声逻辑】
-    // ==========================================
     void playProcedureSound()
     {
-        // 如果有真实的 WAV，就不需要在这里每帧触发了！
-        // 因为底层的 DMA 硬件已经在全自动无缝循环了，这里什么都不做，绝不打扰！
-        // 只有当硬盘里没找到 WAV 时，我们才在这里降级播放电子杂音。
         if (!wav_procedure_data)
-        {
             SYS_SOUND_GLITCH();
-        }
     }
 
     void Init_Glitch_Pool()
@@ -337,8 +326,8 @@ private:
         // ==========================================
         if (wav_procedure_data)
         {
-            g_audio_loop = true;
-            HAL_Play_Real_Sound(wav_procedure_data, wav_procedure_len);
+            // 【修改】：不再操作 g_audio_loop，直接用 playWAV 的第三个参数 true 开启循环！
+            sysAudio.playWAV(wav_procedure_data, wav_procedure_len, true);
         }
 
         if (current_lang == LANG_ZH)
@@ -921,23 +910,10 @@ private:
         // ==========================================
         // 【终极打断】：强行解除硬件无限循环，并切歌！
         // ==========================================
-        g_audio_loop = false;
+        sysAudio.stopWAV(); // 【修改】：一键优雅停止
 
-        if (wav_final_data)
-        {
-            HAL_Play_Real_Sound(wav_final_data, wav_final_len);
-        }
-        else
-        {
-            // 如果连 final 都没有，我们要强制清除还在循环播放的旧音频指针
-            async_audio_data = nullptr;
-            delay(AUDIO_DONE_DELAY);
-            HAL_Buzzer_Play_Tone(1500, 60);
-            delay(30);
-            HAL_Buzzer_Play_Tone(2000, 60);
-            delay(30);
-            SYS_SOUND_CONFIRM();
-        }
+        delay(AUDIO_DONE_DELAY);
+        SYS_SOUND_SUCCESS_4BEEPS();
 
         SysAutoPush_ResetTimer();
     }
@@ -948,7 +924,7 @@ public:
         Init_Glitch_Pool();
         m_scroll_offset = 0;
 
-        File f_proc = LittleFS.open("/assets/coins/procedure.wav", "r");
+        File f_proc = LittleFS.open("/assets/procedure.wav", "r");
         if (f_proc)
         {
             wav_procedure_len = f_proc.size() - 44;
@@ -959,19 +935,6 @@ public:
                 f_proc.read(wav_procedure_data, wav_procedure_len);
             }
             f_proc.close();
-        }
-
-        File f_fin = LittleFS.open("/assets/coins/final.wav", "r");
-        if (f_fin)
-        {
-            wav_final_len = f_fin.size() - 44;
-            wav_final_data = (uint8_t *)ps_malloc(wav_final_len);
-            if (wav_final_data)
-            {
-                f_fin.seek(44);
-                f_fin.read(wav_final_data, wav_final_len);
-            }
-            f_fin.close();
         }
 
         extern int __internal_prescript_mode;
@@ -1006,12 +969,9 @@ public:
 
     void onDestroy() override
     {
-        // 【防崩溃锁】：离开应用时，如果副核还在读这两个内存，强行斩断并等待！
-        if (async_audio_data == wav_procedure_data || async_audio_data == wav_final_data)
-        {
-            async_audio_data = nullptr;
-            delay(5);
-        }
+        // 【修改】：直接调用停止接口，不再判断指针
+        sysAudio.stopWAV();
+        delay(5);
 
         if (wav_procedure_data)
         {
