@@ -1,8 +1,9 @@
 // 文件：src/hal/hal.cpp
 #include "hal.h"
-#include <LittleFS.h>           // <--- 引入文件系统！绝不再用 my_image.h！
+#include <LittleFS.h>
 #include <U8g2_for_TFT_eSPI.h> 
 #include "esp_sleep.h"
+#include <driver/i2s.h> // 【核心新增】：ESP32 I2S 底层驱动
 
 TFT_eSPI tft = TFT_eSPI(); 
 TFT_eSprite textSprite = TFT_eSprite(&tft); 
@@ -35,8 +36,6 @@ void HAL_Init() {
     textSprite.setTextWrap(false); 
 
     pinMode(PIN_BTN, INPUT_PULLUP);
-    pinMode(PIN_BUZZER, OUTPUT);
-    digitalWrite(PIN_BUZZER, HIGH); 
     pinMode(PIN_KNOB_A, INPUT_PULLUP);
     pinMode(PIN_KNOB_B, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_A), ISR_Knob_Turn, CHANGE);
@@ -47,8 +46,31 @@ void HAL_Init() {
     u8f.setFontDirection(0);     
     u8f.setBackgroundColor(TFT_BLACK);   
     u8f.setFont(u8g2_font_wqy12_t_gb2312);
-}
 
+    i2s_config_t i2s_config = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+        .sample_rate = 16000, // 【降频核心】：16kHz，完美平衡音质与面包板电磁抗干扰能力！
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT, 
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 6,   // 增加缓冲池数量
+        .dma_buf_len = 512,
+        .use_apll = true,     // 开启硬件锁相环，消灭底噪
+        .tx_desc_auto_clear = true
+    };
+
+    i2s_pin_config_t pin_config = {
+        .bck_io_num = PIN_I2S_BCLK,
+        .ws_io_num = PIN_I2S_LRC,
+        .data_out_num = PIN_I2S_DOUT,
+        .data_in_num = I2S_PIN_NO_CHANGE
+    };
+
+    i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
+    i2s_set_pin(I2S_NUM_0, &pin_config);
+    i2s_zero_dma_buffer(I2S_NUM_0); 
+}
 int HAL_Get_Knob_Delta(void) { 
     int delta = raw_knob_counter / 4;
     if (delta != 0) raw_knob_counter -= delta * 4; 
@@ -56,12 +78,113 @@ int HAL_Get_Knob_Delta(void) {
 }
 bool HAL_Is_Key_Pressed() { return digitalRead(PIN_BTN) == LOW; }
 
+
+// ==========================================
+// 【I2S 纯净数字音频合成器 (50%方波 + 指数级打击衰减)】
+// 专为小尺寸喇叭调校，确保高频清脆，低频不破音
+// ==========================================
 void HAL_Buzzer_Play_Tone(uint16_t freq, uint16_t duration_ms) {
-    digitalWrite(PIN_BUZZER, LOW); delay(duration_ms); digitalWrite(PIN_BUZZER, HIGH);
+    if (freq == 0 || duration_ms == 0) return;
+    
+    uint32_t sample_rate = 16000; // 与 HAL_Init 中的 16kHz 配置保持一致
+    uint32_t total_samples = (sample_rate * duration_ms) / 1000;
+    
+    // 音量调节 (0 - 32767)。8000 搭配方波能量已经非常饱满
+    int16_t max_volume = 8000; 
+    size_t bytes_written;
+
+    // DMA 块传输缓冲池，彻底消灭单步传输导致的断流和浑浊杂音
+    const int CHUNK_SAMPLES = 256; 
+    int16_t buf[CHUNK_SAMPLES * 2]; // *2 是因为双声道
+    int buf_idx = 0;
+
+    float period = (float)sample_rate / freq;
+
+    for (uint32_t i = 0; i < total_samples; i++) {
+        
+        // 1. 生成 50% 经典方波 (Square Wave)
+        // 配合拔高后的宏定义频率，产生极其干脆的电子设备 UI 质感
+        float phase = fmod((float)i, period) / period; 
+        float wave = (phase < 0.5f) ? 1.0f : -1.0f; 
+
+        // 2. 指数级打击衰减 (Percussive Decay)
+        // 模拟实体按键/机械键盘的物理回弹感，瞬间爆发后极速收束，强行抑制喇叭纸盆的杂乱共振
+        float linear_envelope = 1.0f - ((float)i / total_samples); 
+        float envelope = linear_envelope * linear_envelope; 
+
+        // 3. 计算本帧最终音频振幅
+        int16_t sample_val = (int16_t)(wave * max_volume * envelope);
+        
+        // 4. 填入左右双声道
+        buf[buf_idx++] = sample_val; 
+        buf[buf_idx++] = sample_val; 
+
+        // 5. 缓冲池满了，批量推入 I2S 底层硬件
+        if (buf_idx >= CHUNK_SAMPLES * 2) {
+            i2s_write(I2S_NUM_0, buf, sizeof(buf), &bytes_written, portMAX_DELAY);
+            buf_idx = 0; 
+        }
+    }
+    
+    // 把最后剩下的碎片数据推出去
+    if (buf_idx > 0) {
+        i2s_write(I2S_NUM_0, buf, buf_idx * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+    }
 }
+
+// ==========================================
+// 【科幻电火花音效合成器 (16kHz 降频适配版)】
+// ==========================================
 void HAL_Buzzer_Random_Glitch() {
-    digitalWrite(PIN_BUZZER, LOW); delay(random(2) + 1); digitalWrite(PIN_BUZZER, HIGH);
+    uint32_t duration_ms = random(10, 25);
+    uint32_t total_samples = (16000 * duration_ms) / 1000;
+    size_t bytes_written;
+
+    int16_t current_val = 0;
+    int hold_counter = 0;
+    int16_t max_volume = 8000; 
+
+    const int CHUNK_SAMPLES = 256;
+    int16_t buf[CHUNK_SAMPLES * 2];
+    int buf_idx = 0;
+
+    for (uint32_t i = 0; i < total_samples; i++) {
+        // 降频采样：保持数值一段时间，产生“噼啪”颗粒感，而不是刺耳的嘶嘶雪花声
+        if (hold_counter <= 0) {
+            current_val = random(-max_volume, max_volume);
+            hold_counter = random(3, 12); 
+        }
+        hold_counter--;
+
+        // 线性衰减
+        float envelope = 1.0f - ((float)i / total_samples);
+        int16_t sample_val = (int16_t)(current_val * envelope);
+
+        buf[buf_idx++] = sample_val;
+        buf[buf_idx++] = sample_val;
+
+        if (buf_idx >= CHUNK_SAMPLES * 2) {
+            i2s_write(I2S_NUM_0, buf, sizeof(buf), &bytes_written, portMAX_DELAY);
+            buf_idx = 0;
+        }
+    }
+    
+    if (buf_idx > 0) {
+        i2s_write(I2S_NUM_0, buf, buf_idx * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+    }
 }
+
+// ==========================================
+// 【真实 WAV 音效播放接口 (扩展挂载点)】
+// ==========================================
+void HAL_Play_Real_Sound(const uint8_t* audio_data, uint32_t data_length) {
+    if (audio_data == nullptr || data_length == 0) return;
+    size_t bytes_written;
+    
+    // 直接将内存中的音频数组以零延迟推入功放
+    i2s_write(I2S_NUM_0, audio_data, data_length, &bytes_written, portMAX_DELAY);
+}
+
 void HAL_Screen_Clear() { tft.fillScreen(TFT_BLACK); textSprite.fillSprite(TFT_BLACK); }
 
 void HAL_Screen_DrawHeader() {
@@ -71,39 +194,19 @@ void HAL_Screen_DrawHeader() {
     textSprite.print("[ PRESCRIPT ]");
 }
 
-// ========================================================
-// 【终极进化】：从硬盘安全读取，并画入精灵图缓存，避免任何闪烁和覆盖问题！
-// ========================================================
 void HAL_Screen_DrawStandbyImage() {
-    // 1. 先把整个背景刷成纯黑，以防万一
     textSprite.fillSprite(TFT_BLACK);
-
-    // 2. 尝试打开硬盘中的图像文件
     File file = LittleFS.open("/assets/standby.bin", "r");
     if (!file) {
-        // 如果文件不存在，画一个红框并提示，绝对不会黑屏！
         textSprite.drawRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_RED);
         textSprite.setTextColor(TFT_RED, TFT_BLACK);
         textSprite.drawString("ERR: NO standby.bin", 10, 10);
         return; 
     }
-
-    // 3. 【降维打击】：直接获取 Sprite 底层的显存物理指针
     uint16_t* sprite_ptr = (uint16_t*)textSprite.getPointer();
-    
     if (sprite_ptr != nullptr) {
-        // 暴力流式灌入：一次性将 43168 字节吸入显存！
         size_t bytes_to_read = HAL_Get_Screen_Width() * HAL_Get_Screen_Height() * 2;
         file.read((uint8_t*)sprite_ptr, bytes_to_read);
-        
-        // 【色彩反转补丁】：
-        // 如果你烧录后发现画面出现了，但是颜色诡异（比如人脸变成蓝色阿凡达），
-        // 说明转换图片时高低字节反了。请【取消下面这段代码的注释】即可完美修复：
-        /*
-        for (int i = 0; i < (HAL_Get_Screen_Width() * HAL_Get_Screen_Height()); i++) {
-            sprite_ptr[i] = (sprite_ptr[i] >> 8) | (sprite_ptr[i] << 8);
-        }
-        */
     }
     file.close();
 }
@@ -168,36 +271,21 @@ void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color) {
     textSprite.drawPixel(x, y, color); 
 }
 void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h) {
-    // 【核心修复】：补偿物理屏幕的 (18, 82) 硬件偏移！
     textSprite.pushSprite(x + 18, y + 82, x, y, w, h);
 }
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* data) {
-    // 1. 开启高低字节翻转，修复块传输时的“反色/花屏”问题
     textSprite.setSwapBytes(true); 
-    
-    // 2. 将硬币数据块极速拍到画布上
     textSprite.pushImage(x, y, w, h, data);
-    
-    // 3. 画完立刻关闭翻转，防止影响到系统里其他正常文字的颜色！
     textSprite.setSwapBytes(false); 
 }
-// ==========================================
-// 【系统休眠模块】
-// ==========================================
-void HAL_Sleep_Enter() {
-    // 1. 发送 0x10 命令给 ST7789 驱动芯片，让屏幕面板进入睡眠模式（可省 10~15mA）
 
-    delay(120); // 必须等待面板放电
-    
-    // 2. 核心：设定唯一的唤醒源 —— 旋钮按键（PIN_BTN），并在低电平 (0) 时触发
+void HAL_Sleep_Enter() {
+    delay(120);
     esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BTN, 0);
-    
-    // 3. 彻底暂停 CPU 运行，进入浅度睡眠
     esp_light_sleep_start();
 }
 
 void HAL_Sleep_Exit() {
-    // 发送 0x11 命令，唤醒 ST7789 屏幕面板
     tft.writecommand(0x11); 
     delay(120);
 }

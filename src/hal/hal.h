@@ -10,6 +10,9 @@
 #define PIN_BTN    6   
 #define PIN_BUZZER 7
 
+#define PIN_I2S_BCLK 18
+#define PIN_I2S_LRC  21
+#define PIN_I2S_DOUT 17
 // ==========================================
 // 系统级 UI 布局尺寸定义
 // ==========================================
@@ -19,13 +22,14 @@
 #define UI_TEXT_Y_TOP      16  
 #define UI_TIME_SAFE_PAD   28  
 
+
 // ==========================================
-// 语义化系统音效宏定义
+// 【系统全局音效频率配置 (微型喇叭甜点区优化)】
 // ==========================================
-#define SYS_SOUND_CONFIRM() HAL_Buzzer_Play_Tone(2500, 80)
-#define SYS_SOUND_ERROR()   HAL_Buzzer_Play_Tone(1000, 300)
-#define SYS_SOUND_NAV()     HAL_Buzzer_Play_Tone(2200, 40)
-#define SYS_SOUND_LONG()    HAL_Buzzer_Play_Tone(800, 150)
+#define SYS_SOUND_CONFIRM() HAL_Buzzer_Play_Tone(3800, 50)  // 极高频，水滴般清脆的确认感
+#define SYS_SOUND_ERROR()   HAL_Buzzer_Play_Tone(1600, 200) // 警告音，彻底避开 1000Hz 以下的物理共振死区
+#define SYS_SOUND_NAV()     HAL_Buzzer_Play_Tone(3200, 25)  // 滚轮导航，极短的高频“滴”
+#define SYS_SOUND_LONG()    HAL_Buzzer_Play_Tone(2000, 100) // 长按操作音
 #define SYS_SOUND_GLITCH()  HAL_Buzzer_Random_Glitch()
 
 void HAL_Init(void);
