@@ -5,6 +5,35 @@
 #include "esp_sleep.h"
 #include <driver/i2s.h> // 【核心新增】：ESP32 I2S 底层驱动
 
+#include <driver/i2s.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+// ==========================================
+// 【音频守护线程全局变量】
+// ==========================================
+static const uint8_t* async_audio_data = nullptr;
+static uint32_t async_audio_len = 0;
+static TaskHandle_t audioTaskHandle = NULL;
+
+// 【后台异步播放线程】
+void audio_bg_task(void *pvParameters) {
+    size_t bytes_written;
+    while (1) {
+        // 如果收到了播放任务
+        if (async_audio_data != nullptr && async_audio_len > 0) {
+            // 在独立核心中阻塞推流，绝对不会卡住主渲染循环！
+            i2s_write(I2S_NUM_0, async_audio_data, async_audio_len, &bytes_written, portMAX_DELAY);
+            
+            // 播完后清空任务，等待下一次召唤
+            async_audio_data = nullptr;
+            async_audio_len = 0;
+        }
+        // 闲置时休眠，让出 CPU 算力
+        vTaskDelay(pdMS_TO_TICKS(10)); 
+    }
+}
+
 TFT_eSPI tft = TFT_eSPI(); 
 TFT_eSprite textSprite = TFT_eSprite(&tft); 
 U8g2_for_TFT_eSPI u8f;        
@@ -70,6 +99,9 @@ void HAL_Init() {
     i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
     i2s_set_pin(I2S_NUM_0, &pin_config);
     i2s_zero_dma_buffer(I2S_NUM_0); 
+    // 【新增】：启动异步音频守护线程 
+    // 参数 0 代表将此任务绑定在“核心 0”上运行，彻底避开默认在核心 1 上狂奔的 UI 渲染！
+    xTaskCreatePinnedToCore(audio_bg_task, "Audio_Task", 4096, NULL, 1, &audioTaskHandle, 0);
 }
 int HAL_Get_Knob_Delta(void) { 
     int delta = raw_knob_counter / 4;
@@ -177,12 +209,17 @@ void HAL_Buzzer_Random_Glitch() {
 // ==========================================
 // 【真实 WAV 音效播放接口 (扩展挂载点)】
 // ==========================================
+// ==========================================
+// 【真实 WAV 音效播放接口 (双核异步 0 延迟版)】
+// ==========================================
 void HAL_Play_Real_Sound(const uint8_t* audio_data, uint32_t data_length) {
     if (audio_data == nullptr || data_length == 0) return;
-    size_t bytes_written;
     
-    // 直接将内存中的音频数组以零延迟推入功放
-    i2s_write(I2S_NUM_0, audio_data, data_length, &bytes_written, portMAX_DELAY);
+    // 我们不再这里调用耗时的 i2s_write。
+    // 只做一件事：把要播放的内存地址交给守护线程，然后立刻 Return (耗时不到 1 微秒)！
+    async_audio_len = 0; // 先清零防止冲突
+    async_audio_data = audio_data;
+    async_audio_len = data_length;
 }
 
 void HAL_Screen_Clear() { tft.fillScreen(TFT_BLACK); textSprite.fillSprite(TFT_BLACK); }

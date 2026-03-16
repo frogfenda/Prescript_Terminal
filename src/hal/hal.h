@@ -38,6 +38,7 @@ int  HAL_Get_Knob_Delta(void);
 
 void HAL_Buzzer_Play_Tone(uint16_t freq, uint16_t duration_ms);
 void HAL_Buzzer_Random_Glitch(void);
+void HAL_Play_Real_Sound(const uint8_t* audio_data, uint32_t data_length);
 
 void HAL_Screen_Clear(void);
 void HAL_Screen_DrawHeader(void);

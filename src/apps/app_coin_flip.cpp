@@ -40,8 +40,15 @@ struct CoinEntity {
 class AppCoinAnim : public AppBase {
 private:
     uint16_t *img_heads = nullptr; 
-    uint16_t *img_tails = nullptr; // 【回归】：重新启用独立的反面内存
+    uint16_t *img_tails = nullptr; 
     uint16_t *coin_buffer = nullptr;
+
+    // 【新增】：PSRAM 音频内存物理指针
+    uint8_t *wav_heads_data = nullptr; 
+    uint32_t wav_heads_len = 0;
+    
+    uint8_t *wav_tails_data = nullptr;
+    uint32_t wav_tails_len = 0;
 
     CoinEntity coins[4]; 
     int active_coins = 1;
@@ -49,16 +56,43 @@ private:
     uint32_t last_frame_time = 0;
 
     void loadCoinData() {
+        // 1. 分配并读取图片数据（放在内部高速 RAM）
         if (!img_heads) img_heads = (uint16_t *)malloc(COIN_SIZE * COIN_SIZE * 2);
         if (!img_tails) img_tails = (uint16_t *)malloc(COIN_SIZE * COIN_SIZE * 2);
         if (!coin_buffer) coin_buffer = (uint16_t *)malloc(COIN_SIZE * COIN_SIZE * 2);
 
-        // 分别加载正反面高清原图
         File f1 = LittleFS.open("/assets/coins/heads.bin", "r");
         if (f1) { f1.read((uint8_t *)img_heads, COIN_SIZE * COIN_SIZE * 2); f1.close(); }
         
         File f2 = LittleFS.open("/assets/coins/tails.bin", "r");
         if (f2) { f2.read((uint8_t *)img_tails, COIN_SIZE * COIN_SIZE * 2); f2.close(); }
+
+        // ==========================================
+        // 2. 【核心魔法】：将硬盘里的 WAV 瞬间吸入 PSRAM 高速外部内存！
+        // ==========================================
+        File f_hw = LittleFS.open("/assets/coins/heads.wav", "r");
+        if (f_hw) {
+            // 减去 44 字节的标准 WAV 文件头，只保留纯净的 PCM 音频波形
+            wav_heads_len = f_hw.size() - 44; 
+            // 使用 ps_malloc 分配外部 PSRAM，绝不挤占宝贵的内部内存！
+            wav_heads_data = (uint8_t *)ps_malloc(wav_heads_len);
+            if (wav_heads_data) {
+                f_hw.seek(44); // 跳过文件头
+                f_hw.read(wav_heads_data, wav_heads_len); // 一口吸入内存
+            }
+            f_hw.close();
+        }
+
+        File f_tw = LittleFS.open("/assets/coins/tails.wav", "r");
+        if (f_tw) {
+            wav_tails_len = f_tw.size() - 44;
+            wav_tails_data = (uint8_t *)ps_malloc(wav_tails_len);
+            if (wav_tails_data) {
+                f_tw.seek(44);
+                f_tw.read(wav_tails_data, wav_tails_len);
+            }
+            f_tw.close();
+        }
     }
 
     void drawScaledCoinToBuffer(int idx, float scaleX) {
@@ -160,21 +194,33 @@ private:
         }
     }
 
-    void stopCoinInstantly(int idx) {
+void stopCoinInstantly(int idx) {
         coins[idx].is_flipping = false;
         
         int heads_chance = 50 + sysConfig.coin_data.sanity; 
         int roll = random(100);                       
         coins[idx].target_face = (roll < heads_chance) ? 0 : 1;
-        coins[idx].current_angle = (coins[idx].target_face == 0) ? 0.0f : PI;
         
+        // 瞬间拍平：正面(0.0) 或 反面(PI)
+        coins[idx].current_angle = (coins[idx].target_face == 0) ? 0.0f : PI;
         coins[idx].needs_redraw = true; 
         
         if (coins[idx].target_face == 0) {
             coins[idx].flash_frames = CoinAnimParams::FLASH_DURATION;
-            SYS_SOUND_CONFIRM(); 
+            
+            // 【降维打击】：正面落地，直接把 PSRAM 里的音频块砸给功放！
+            if (wav_heads_data) {
+                HAL_Play_Real_Sound(wav_heads_data, wav_heads_len);
+            } else {
+                SYS_SOUND_CONFIRM(); // 如果文件没找到，降级回电子音防奔溃
+            }
         } else {
-            SYS_SOUND_NAV(); 
+            // 反面落地
+            if (wav_tails_data) {
+                HAL_Play_Real_Sound(wav_tails_data, wav_tails_len);
+            } else {
+                SYS_SOUND_NAV(); 
+            }
         }
     }
 
@@ -243,12 +289,16 @@ public:
         }
     }
 
-    void onDestroy() override {
+   void onDestroy() override {
+        // 退出界面时，必须严格释放内存，防止内存泄漏！
         if (img_heads) { free(img_heads); img_heads = nullptr; }
-        if (img_tails) { free(img_tails); img_tails = nullptr; } // 安全释放
+        if (img_tails) { free(img_tails); img_tails = nullptr; }
         if (coin_buffer) { free(coin_buffer); coin_buffer = nullptr; }
+        
+        // 【新增】：释放 PSRAM 音频内存
+        if (wav_heads_data) { free(wav_heads_data); wav_heads_data = nullptr; }
+        if (wav_tails_data) { free(wav_tails_data); wav_tails_data = nullptr; }
     }
-
     void onKnob(int delta) override {}
 
     void onKeyShort() override {
