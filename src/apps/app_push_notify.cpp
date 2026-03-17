@@ -11,21 +11,28 @@ bool g_push_notify_keep_stack = false;
 extern AppBase *appPrescript; // 引入外部声明
 
 // 【核心魔法】：抢占式打断机制
+// 【核心魔法】：抢占式打断机制 (无闪烁版)
 void PushNotify_Trigger_Random(bool keep_stack)
 {
     g_push_notify_mode = 0;
     g_push_notify_keep_stack = keep_stack;
 
-    // 如果当前屏幕已经在闪烁或者在解密乱码，直接拔除它，丢弃旧指令！
-    if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)
-    {
-        appManager.popApp();
-    }
-
     if (keep_stack)
-        appManager.pushApp(appPushNotify);
+    {
+        // 如果当前已经在闪烁或解码，直接平滑替换，避免 pop 引起底层菜单闪烁
+        if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)
+        {
+            appManager.replaceApp(appPushNotify);
+        }
+        else
+        {
+            appManager.pushApp(appPushNotify);
+        }
+    }
     else
+    {
         appManager.launchApp(appPushNotify);
+    }
 }
 
 void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
@@ -34,16 +41,21 @@ void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
     snprintf(g_push_notify_text, sizeof(g_push_notify_text), "%s", text);
     g_push_notify_keep_stack = keep_stack;
 
-    // 如果当前屏幕已经在闪烁或者在解密乱码，直接拔除它，丢弃旧指令！
-    if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)
-    {
-        appManager.popApp();
-    }
-
     if (keep_stack)
-        appManager.pushApp(appPushNotify);
+    {
+        if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)
+        {
+            appManager.replaceApp(appPushNotify);
+        }
+        else
+        {
+            appManager.pushApp(appPushNotify);
+        }
+    }
     else
+    {
         appManager.launchApp(appPushNotify);
+    }
 }
 
 class AppPushNotify : public AppBase
@@ -100,8 +112,8 @@ public:
 
         if (g_push_notify_keep_stack)
         {
-            appManager.popApp();
-            appManager.pushApp(appPrescript);
+            // 【核心修复】：废除 pop + push，直接使用 replaceApp 平滑切入解码界面！
+            appManager.replaceApp(appPrescript);
         }
         else
             appManager.launchApp(appPrescript);

@@ -70,7 +70,8 @@ void SysConfig::load()
     auto_push_min_min = doc["auto_push_min_min"] | 30;
     auto_push_max_min = doc["auto_push_max_min"] | 120;
     volume = doc["volume"] | 40;
-    if (volume > 100) volume = 100;
+    if (volume > 100)
+        volume = 100;
     pomodoro_current_idx = doc["pom_idx"] | 0;
     JsonArray pm_arr = doc["pom_presets"];
     for (int i = 0; i < 5; i++)
@@ -84,17 +85,24 @@ void SysConfig::load()
     {
         coin_data.mode = coin_node["mode"] | 0;
         coin_data.sanity = coin_node["sanity"] | 0;
-        coin_data.coin_count = coin_node["coin_count"] | 1; // 默认 1 枚
+        coin_data.coin_count = coin_node["coin_count"] | 1;
+        coin_data.coin_type = coin_node["coin_type"] | 0; // 【新增解析】
     }
     else
     {
         coin_data.mode = 0;
         coin_data.sanity = 0;
         coin_data.coin_count = 1;
+        coin_data.coin_type = 0; // 【新增】
     }
-    // 绝对防呆，防止越界
-    if (coin_data.coin_count < 1 || coin_data.coin_count > 4)
+
+    // 【修改】：绝对防呆，把硬币上限从原来的 4 或 8 改成 9！
+    if (coin_data.coin_count < 1 || coin_data.coin_count > 9)
         coin_data.coin_count = 1;
+
+    // 【新增】：限制硬币型号只能是 0, 1, 2
+    if (coin_data.coin_type < 0 || coin_data.coin_type > 2)
+        coin_data.coin_type = 0;
 
     alarm_count = doc["alarm_count"] | 0;
     JsonArray al_arr = doc["alarms"];
@@ -177,7 +185,8 @@ void SysConfig::save()
     JsonObject coin_node = doc["coin_app"].to<JsonObject>();
     coin_node["mode"] = coin_data.mode;
     coin_node["sanity"] = coin_data.sanity;
-    coin_node["coin_count"] = coin_data.coin_count; // 保存数量
+    coin_node["coin_count"] = coin_data.coin_count;
+    coin_node["coin_type"] = coin_data.coin_type; // 【新增写入】
     // [大扫除]：彻底删除了所有跟 custom_p 写入硬盘相关的代码！
 
     // ==========================================

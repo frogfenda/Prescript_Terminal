@@ -4,31 +4,21 @@
 #include "hal/hal.h"
 #include <LittleFS.h>
 #include "sys/sys_config.h"
+#include "sys/sys_audio.h"
 
-#define COIN_SIZE 64
+const int SRC_COIN_SIZE = 64;
 
-// ==========================================
-// 【动画参数调优引擎】
-// ==========================================
 namespace CoinAnimParams
 {
     const float PERSPECTIVE_SCALE = 1.0f;
-
-    // 维持 47FPS (21ms) 避开 ST7789 屏幕 60Hz 扫描频闪共振
     const uint32_t FRAME_DELAY_MS = 16;
-
-    // 【旋转质感调优】：0.55f 约等于每帧转 31 度。
-    // 这个速度能让硬币在极速狂转时，依然保留清晰的“变窄 -> 翻面”的真实 3D 视觉过程。
     const float RAPID_SPIN_STEP = 0.6f;
 
-    const int AUTO_SPIN_INITIAL = 4;
-    const int AUTO_SPIN_INTERVAL = 10;
+    const int AUTO_SPIN_INITIAL = 45;
+    const int AUTO_SPIN_INTERVAL = 20;
     const int FLASH_DURATION = 6;
 }
 
-// ==========================================
-// 【多硬币物理实体阵列】
-// ==========================================
 struct CoinEntity
 {
     float current_angle;
@@ -46,61 +36,79 @@ private:
     uint16_t *img_tails = nullptr;
     uint16_t *coin_buffer = nullptr;
 
-    // 【新增】：PSRAM 音频内存物理指针
     uint8_t *wav_heads_data = nullptr;
     uint32_t wav_heads_len = 0;
 
     uint8_t *wav_tails_data = nullptr;
     uint32_t wav_tails_len = 0;
 
-    CoinEntity coins[4];
+    CoinEntity coins[9]; // 【封印彻底解除】：支持 9 枚实体！
     int active_coins = 1;
+    int current_coin_size = SRC_COIN_SIZE;
+
     bool global_is_animating = false;
     uint32_t last_frame_time = 0;
 
     void loadCoinData()
     {
-        // 1. 分配并读取图片数据（放在内部高速 RAM）
         if (!img_heads)
-            img_heads = (uint16_t *)malloc(COIN_SIZE * COIN_SIZE * 2);
+            img_heads = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
         if (!img_tails)
-            img_tails = (uint16_t *)malloc(COIN_SIZE * COIN_SIZE * 2);
+            img_tails = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
         if (!coin_buffer)
-            coin_buffer = (uint16_t *)malloc(COIN_SIZE * COIN_SIZE * 2);
+            coin_buffer = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
 
-        File f1 = LittleFS.open("/assets/coins/heads.bin", "r");
+        // ==========================================
+        // 【智能材质拼装与兜底机制】
+        // 自动拼装 rheads.bin 或 gheads.bin，如果找不到，自动降级用经典款
+        // ==========================================
+        String prefix = "/assets/coins/";
+        if (sysConfig.coin_data.coin_type == 1)
+            prefix += "r";
+        else if (sysConfig.coin_data.coin_type == 2)
+            prefix += "g";
+
+        String path_h_bin = prefix + "heads.bin";
+        String path_t_bin = prefix + "tails.bin";
+        String path_h_wav = prefix + "heads.wav";
+        String path_t_wav = prefix + "tails.wav";
+
+        File f1 = LittleFS.open(path_h_bin.c_str(), "r");
+        if (!f1)
+            f1 = LittleFS.open("/assets/coins/heads.bin", "r"); // 兜底保护
         if (f1)
         {
-            f1.read((uint8_t *)img_heads, COIN_SIZE * COIN_SIZE * 2);
+            f1.read((uint8_t *)img_heads, SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
             f1.close();
         }
 
-        File f2 = LittleFS.open("/assets/coins/tails.bin", "r");
+        File f2 = LittleFS.open(path_t_bin.c_str(), "r");
+        if (!f2)
+            f2 = LittleFS.open("/assets/coins/tails.bin", "r");
         if (f2)
         {
-            f2.read((uint8_t *)img_tails, COIN_SIZE * COIN_SIZE * 2);
+            f2.read((uint8_t *)img_tails, SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
             f2.close();
         }
 
-        // ==========================================
-        // 2. 【核心魔法】：将硬盘里的 WAV 瞬间吸入 PSRAM 高速外部内存！
-        // ==========================================
-        File f_hw = LittleFS.open("/assets/coins/heads.wav", "r");
+        File f_hw = LittleFS.open(path_h_wav.c_str(), "r");
+        if (!f_hw)
+            f_hw = LittleFS.open("/assets/coins/heads.wav", "r");
         if (f_hw)
         {
-            // 减去 44 字节的标准 WAV 文件头，只保留纯净的 PCM 音频波形
             wav_heads_len = f_hw.size() - 44;
-            // 使用 ps_malloc 分配外部 PSRAM，绝不挤占宝贵的内部内存！
             wav_heads_data = (uint8_t *)ps_malloc(wav_heads_len);
             if (wav_heads_data)
             {
-                f_hw.seek(44);                            // 跳过文件头
-                f_hw.read(wav_heads_data, wav_heads_len); // 一口吸入内存
+                f_hw.seek(44);
+                f_hw.read(wav_heads_data, wav_heads_len);
             }
             f_hw.close();
         }
 
-        File f_tw = LittleFS.open("/assets/coins/tails.wav", "r");
+        File f_tw = LittleFS.open(path_t_wav.c_str(), "r");
+        if (!f_tw)
+            f_tw = LittleFS.open("/assets/coins/tails.wav", "r");
         if (f_tw)
         {
             wav_tails_len = f_tw.size() - 44;
@@ -114,11 +122,10 @@ private:
         }
     }
 
-    void drawScaledCoinToBuffer(int idx, float scaleX)
+    void drawScaledCoinToBuffer(int idx, float scaleX, int target_size)
     {
-        memset(coin_buffer, 0, COIN_SIZE * COIN_SIZE * 2);
+        memset(coin_buffer, 0, target_size * target_size * 2);
 
-        // 【真实材质】：根据 scaleX 的正负，决定是从正面图还是反面图取像素！
         uint16_t *img = (scaleX >= 0) ? img_heads : img_tails;
         if (!img)
             return;
@@ -127,61 +134,58 @@ private:
         bool is_flashing = (coins[idx].flash_frames > 0);
         bool is_dimmed = (!is_spinning && coins[idx].target_face == 1);
 
-        int drawW = COIN_SIZE * fabs(scaleX) * CoinAnimParams::PERSPECTIVE_SCALE;
+        int drawW = target_size * fabs(scaleX) * CoinAnimParams::PERSPECTIVE_SCALE;
         if (drawW % 2 != 0)
             drawW++;
         if (drawW <= 1)
             return;
 
-        int startX = (COIN_SIZE - drawW) / 2;
+        int startX = (target_size - drawW) / 2;
         bool is_back = (scaleX < 0);
-        uint8_t x_map[COIN_SIZE];
 
+        uint8_t x_map[SRC_COIN_SIZE];
         for (int x = 0; x < drawW; x++)
         {
-            int origX = x * (COIN_SIZE - 1) / (drawW - 1);
+            int origX = x * (SRC_COIN_SIZE - 1) / (drawW - 1);
             if (is_back)
-                origX = (COIN_SIZE - 1) - origX;
+                origX = (SRC_COIN_SIZE - 1) - origX;
             x_map[x] = origX;
         }
 
-        for (int y = 0; y < COIN_SIZE; y++)
+        for (int dst_y = 0; dst_y < target_size; dst_y++)
         {
-            int y_offset = y * COIN_SIZE;
-            for (int x = 0; x < drawW; x++)
+            int src_y = dst_y * SRC_COIN_SIZE / target_size;
+            if (src_y >= SRC_COIN_SIZE)
+                src_y = SRC_COIN_SIZE - 1;
+
+            int src_y_offset = src_y * SRC_COIN_SIZE;
+            int dst_y_offset = dst_y * target_size;
+
+            for (int dst_x = 0; dst_x < drawW; dst_x++)
             {
-                uint16_t color = img[y_offset + x_map[x]];
+                uint16_t color = img[src_y_offset + x_map[dst_x]];
+
                 if (color != 0x0000)
                 {
                     if (is_flashing && !is_back && !is_spinning)
                     {
-                        // 【优化】：高能过曝衰减算法
-                        // 利用剩余的 flash_frames 计算当前的闪光强度 (256 为满强度)
                         uint32_t intensity = (coins[idx].flash_frames * 256) / CoinAnimParams::FLASH_DURATION;
-
-                        // 提取原图的 RGB565 分量
                         uint16_t r = (color >> 11) & 0x1F;
                         uint16_t g = (color >> 5) & 0x3F;
                         uint16_t b = color & 0x1F;
-
-                        // 将原图色彩向纯白 (31, 63, 31) 进行线性差值逼近
-                        // 强度越高，颜色越接近纯白；随着帧数递减，颜色极其丝滑地回归原图
                         r = r + (((31 - r) * intensity) >> 8);
                         g = g + (((63 - g) * intensity) >> 8);
                         b = b + (((31 - b) * intensity) >> 8);
-
                         color = (r << 11) | (g << 5) | b;
                     }
                     else if (is_dimmed && !is_spinning)
                     {
-                        // 失败反面：压暗至 30% 亮度
                         uint16_t r = ((color >> 11) & 0x1F) * 80 / 100;
                         uint16_t g = ((color >> 5) & 0x3F) * 80 / 100;
                         uint16_t b = (color & 0x1F) * 80 / 100;
                         color = (r << 11) | (g << 5) | b;
                     }
-
-                    coin_buffer[y_offset + startX + x] = color;
+                    coin_buffer[dst_y_offset + startX + dst_x] = color;
                 }
             }
         }
@@ -204,25 +208,33 @@ private:
         HAL_Screen_Update();
     }
 
-    // 零撕裂脏矩形推送引擎
     void drawActiveCoinsOnly()
     {
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
-        int gap = (sw - (active_coins * COIN_SIZE)) / (active_coins + 1);
-        int start_y = (sh - COIN_SIZE) / 2;
+
+        int min_gap = 4;
+        int max_possible_size = (sw - (active_coins + 1) * min_gap) / active_coins;
+        int max_h = (sh > SRC_COIN_SIZE) ? SRC_COIN_SIZE : sh - 4;
+
+        current_coin_size = (max_possible_size < max_h) ? max_possible_size : max_h;
+        if (current_coin_size > SRC_COIN_SIZE)
+            current_coin_size = SRC_COIN_SIZE;
+
+        int actual_gap = (sw - (active_coins * current_coin_size)) / (active_coins + 1);
+        int start_y = (sh - current_coin_size) / 2;
 
         for (int i = 0; i < active_coins; i++)
         {
             if (coins[i].needs_redraw || coins[i].is_flipping || coins[i].flash_frames > 0)
             {
                 float scale = cos(coins[i].current_angle);
-                drawScaledCoinToBuffer(i, scale);
 
-                int target_x = gap + i * (COIN_SIZE + gap);
+                drawScaledCoinToBuffer(i, scale, current_coin_size);
+                int target_x = actual_gap + i * (current_coin_size + actual_gap);
 
-                HAL_Sprite_PushImage(target_x, start_y, COIN_SIZE, COIN_SIZE, coin_buffer);
-                HAL_Screen_Update_Area(target_x, start_y, COIN_SIZE, COIN_SIZE);
+                HAL_Sprite_PushImage(target_x, start_y, current_coin_size, current_coin_size, coin_buffer);
+                HAL_Screen_Update_Area(target_x, start_y, current_coin_size, current_coin_size);
 
                 coins[i].needs_redraw = false;
             }
@@ -236,36 +248,25 @@ private:
         int heads_chance = 50 + sysConfig.coin_data.sanity;
         int roll = random(100);
         coins[idx].target_face = (roll < heads_chance) ? 0 : 1;
-
-        // 瞬间拍平：正面(0.0) 或 反面(PI)
         coins[idx].current_angle = (coins[idx].target_face == 0) ? 0.0f : PI;
         coins[idx].needs_redraw = true;
+
+        sysAudio.stopWAV();
 
         if (coins[idx].target_face == 0)
         {
             coins[idx].flash_frames = CoinAnimParams::FLASH_DURATION;
-
-            // 【降维打击】：正面落地，直接把 PSRAM 里的音频块砸给功放！
             if (wav_heads_data)
-            {
                 sysAudio.playWAV(wav_heads_data, wav_heads_len);
-            }
             else
-            {
-                SYS_SOUND_CONFIRM(); // 如果文件没找到，降级回电子音防奔溃
-            }
+                SYS_SOUND_CONFIRM();
         }
         else
         {
-            // 反面落地
             if (wav_tails_data)
-            {
                 sysAudio.playWAV(wav_tails_data, wav_tails_len);
-            }
             else
-            {
                 SYS_SOUND_NAV();
-            }
         }
     }
 
@@ -276,8 +277,8 @@ public:
         active_coins = sysConfig.coin_data.coin_count;
         if (active_coins < 1)
             active_coins = 1;
-        if (active_coins > 4)
-            active_coins = 4;
+        if (active_coins > 9)
+            active_coins = 9;
 
         global_is_animating = false;
         for (int i = 0; i < active_coins; i++)
@@ -316,19 +317,14 @@ public:
                 if (coins[i].is_flipping)
                 {
                     any_active = true;
-                    // 【真实 3D 旋转累加】
                     coins[i].current_angle += CoinAnimParams::RAPID_SPIN_STEP;
 
                     if (sysConfig.coin_data.mode == 0)
                     {
                         if (coins[i].auto_stop_timer > 0)
-                        {
                             coins[i].auto_stop_timer--;
-                        }
                         else
-                        {
                             stopCoinInstantly(i);
-                        }
                     }
                 }
 
@@ -337,24 +333,20 @@ public:
                     any_active = true;
                     coins[i].flash_frames--;
                     if (coins[i].flash_frames == 0)
-                    {
                         coins[i].needs_redraw = true;
-                    }
                 }
             }
 
             drawActiveCoinsOnly();
-
             if (!any_active)
-            {
                 global_is_animating = false;
-            }
         }
     }
 
     void onDestroy() override
     {
-        // 退出界面时，必须严格释放内存，防止内存泄漏！
+        sysAudio.stopWAV();
+
         if (img_heads)
         {
             free(img_heads);
@@ -371,7 +363,6 @@ public:
             coin_buffer = nullptr;
         }
 
-        // 【新增】：释放 PSRAM 音频内存
         if (wav_heads_data)
         {
             free(wav_heads_data);
@@ -383,6 +374,7 @@ public:
             wav_tails_data = nullptr;
         }
     }
+
     void onKnob(int delta) override {}
 
     void onKeyShort() override
@@ -403,6 +395,7 @@ public:
             return;
         }
 
+        sysAudio.stopWAV();
         SYS_SOUND_CONFIRM();
         global_is_animating = true;
 
@@ -440,7 +433,7 @@ private:
     bool is_editing = false;
 
 protected:
-    int getMenuCount() override { return 3; }
+    int getMenuCount() override { return 4; } // 【修改】：选项由 3 个变为 4 个
 
     const char *getTitle() override
     {
@@ -459,6 +452,18 @@ protected:
             sprintf(text_buf, zh ? "%s理智波动 [ %+d ]" : "%sSANITY: [ %+d ]", cursor, sysConfig.coin_data.sanity);
         else if (index == 2)
             sprintf(text_buf, zh ? "%s阵列数量 [ %d ]" : "%sCOINS: [ %d ]", cursor, sysConfig.coin_data.coin_count);
+        else if (index == 3)
+        {
+            // 【新增】：根据 0/1/2 返回不同的酷炫名称
+            const char *type_str;
+            if (sysConfig.coin_data.coin_type == 1)
+                type_str = zh ? "狂气红" : "RED";
+            else if (sysConfig.coin_data.coin_type == 2)
+                type_str = zh ? "沉稳绿" : "GREEN";
+            else
+                type_str = zh ? "经典金" : "GOLD";
+            sprintf(text_buf, zh ? "%s硬币型号 [ %s ]" : "%sTYPE: [ %s ]", cursor, type_str);
+        }
         return text_buf;
     }
 
@@ -466,7 +471,6 @@ protected:
     {
         if (!is_editing || index != current_selection)
             return false;
-
         static char val_str[16];
         bool zh = appManager.getLanguage() == LANG_ZH;
         if (index == 0)
@@ -492,17 +496,25 @@ protected:
             *suffix = " ]";
             return true;
         }
+        else if (index == 3)
+        { // 【新增修改态 UI】
+            *prefix = zh ? ">> 硬币型号 [ " : ">> TYPE: [ ";
+            if (sysConfig.coin_data.coin_type == 1)
+                *anim_val = zh ? "狂气红" : "RED";
+            else if (sysConfig.coin_data.coin_type == 2)
+                *anim_val = zh ? "沉稳绿" : "GREEN";
+            else
+                *anim_val = zh ? "经典金" : "GOLD";
+            *suffix = " ]";
+            return true;
+        }
         return false;
     }
 
     uint16_t getItemColor(int index) override
     {
         if (index == current_selection)
-        {
-            if (is_editing)
-                return 0x1C9F;
-            return 0xFFFF;
-        }
+            return is_editing ? 0x1C9F : 0xFFFF;
         return 0x07FF;
     }
 
@@ -520,7 +532,6 @@ protected:
         if (is_editing)
         {
             triggerEditAnimation(delta);
-
             if (current_selection == 0)
                 sysConfig.coin_data.mode = sysConfig.coin_data.mode == 0 ? 1 : 0;
             else if (current_selection == 1)
@@ -534,10 +545,18 @@ protected:
             else if (current_selection == 2)
             {
                 sysConfig.coin_data.coin_count += delta;
-                if (sysConfig.coin_data.coin_count > 4)
-                    sysConfig.coin_data.coin_count = 4;
+                if (sysConfig.coin_data.coin_count > 9)
+                    sysConfig.coin_data.coin_count = 9;
                 if (sysConfig.coin_data.coin_count < 1)
                     sysConfig.coin_data.coin_count = 1;
+            }
+            else if (current_selection == 3)
+            { // 【新增逻辑】
+                sysConfig.coin_data.coin_type += delta;
+                if (sysConfig.coin_data.coin_type > 2)
+                    sysConfig.coin_data.coin_type = 2;
+                if (sysConfig.coin_data.coin_type < 0)
+                    sysConfig.coin_data.coin_type = 0;
             }
         }
         else

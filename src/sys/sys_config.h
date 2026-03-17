@@ -31,6 +31,7 @@ struct CoinSaveData {
     int mode;        // 运行模式：0自动, 1手动
     int sanity;      // 理智波动：-45 到 45
     int coin_count;  // 【新增】：硬币数量 (1 到 4)
+    int coin_type;   // 【新增】：硬币型号 (0:经典金, 1:狂气红, 2:沉稳绿)
 };
 // 声明全局实例化对象
 

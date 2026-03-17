@@ -277,6 +277,16 @@ void AppManager::popApp()
     }
 }
 
+void AppManager::replaceApp(AppBase* newApp)
+{
+    if (currentApp) {
+        currentApp->onDestroy();
+    }
+    currentApp = newApp;
+    currentApp->onCreate();
+    currentApp->onResume();
+}
+
 void AppManager::resetIdleTimer() { idle_timer = millis(); }
 
 void AppManager::run()
