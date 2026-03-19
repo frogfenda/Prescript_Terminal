@@ -234,6 +234,7 @@ void AppManager::begin()
     config_sleep_time_ms = sysConfig.sleep_time_ms;
     last_tick = millis();
     idle_timer = millis();
+    SysAudio_PreloadAssets();
     launchApp(appStandby);
 }
 

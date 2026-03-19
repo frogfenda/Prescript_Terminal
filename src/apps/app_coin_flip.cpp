@@ -91,35 +91,7 @@ private:
             f2.close();
         }
 
-        File f_hw = LittleFS.open(path_h_wav.c_str(), "r");
-        if (!f_hw)
-            f_hw = LittleFS.open("/assets/coins/heads.wav", "r");
-        if (f_hw)
-        {
-            wav_heads_len = f_hw.size() - 44;
-            wav_heads_data = (uint8_t *)ps_malloc(wav_heads_len);
-            if (wav_heads_data)
-            {
-                f_hw.seek(44);
-                f_hw.read(wav_heads_data, wav_heads_len);
-            }
-            f_hw.close();
-        }
-
-        File f_tw = LittleFS.open(path_t_wav.c_str(), "r");
-        if (!f_tw)
-            f_tw = LittleFS.open("/assets/coins/tails.wav", "r");
-        if (f_tw)
-        {
-            wav_tails_len = f_tw.size() - 44;
-            wav_tails_data = (uint8_t *)ps_malloc(wav_tails_len);
-            if (wav_tails_data)
-            {
-                f_tw.seek(44);
-                f_tw.read(wav_tails_data, wav_tails_len);
-            }
-            f_tw.close();
-        }
+       
     }
 
     void drawScaledCoinToBuffer(int idx, float scaleX, int target_size)
@@ -257,14 +229,14 @@ private:
         {
             coins[idx].flash_frames = CoinAnimParams::FLASH_DURATION;
             if (wav_heads_data)
-                sysAudio.playWAV(wav_heads_data, wav_heads_len);
+                sysAudio.playWAV(g_wav_heads, g_wav_heads_len);
             else
                 SYS_SOUND_CONFIRM();
         }
         else
         {
             if (wav_tails_data)
-                sysAudio.playWAV(wav_tails_data, wav_tails_len);
+                sysAudio.playWAV(g_wav_tails, g_wav_tails_len);
             else
                 SYS_SOUND_NAV();
         }
@@ -363,16 +335,7 @@ public:
             coin_buffer = nullptr;
         }
 
-        if (wav_heads_data)
-        {
-            free(wav_heads_data);
-            wav_heads_data = nullptr;
-        }
-        if (wav_tails_data)
-        {
-            free(wav_tails_data);
-            wav_tails_data = nullptr;
-        }
+ 
     }
 
     void onKnob(int delta) override {}

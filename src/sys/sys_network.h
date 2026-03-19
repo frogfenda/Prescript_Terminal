@@ -4,14 +4,16 @@
 
 #include <Arduino.h>
 
+// 找到这行 enum，加上 NET_FETCHING_API
 enum NetworkState {
     NET_DISCONNECTED,
     NET_CONNECTING,
     NET_CONNECTED,
     NET_SYNCING_NTP,
+    NET_FETCHING_API, // 【新增】：后台幽灵潜行拉取 API 状态
     NET_SYNC_SUCCESS,
-    NET_SYNC_FAILED,
-    NET_CONNECT_FAILED
+    NET_CONNECT_FAILED,
+    NET_SYNC_FAILED
 };
 
 void Network_Init();

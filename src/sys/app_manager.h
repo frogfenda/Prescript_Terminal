@@ -82,7 +82,7 @@ void Alarm_DeleteMobile(const char *name);
 void Alarm_UpdateBackground();
 void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text);
 void Schedule_UpdateBackground();
-void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text);
+void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden = false);
 void Schedule_DeleteMobile(const char *title);
 // ==========================================
 // 【全新引擎】：并发锁与跨核信箱

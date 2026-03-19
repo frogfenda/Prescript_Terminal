@@ -25,6 +25,7 @@ struct ScheduleItem {
     String prescript;     // 为空则代表"随机都市指令"
     bool is_expired;      // 是否已过期
     bool is_restored;     // 是否是恢复的日程
+    bool is_hidden;       // 【新增】：是否为隐藏日程（不在UI显示）
 };
 
 struct CoinSaveData {

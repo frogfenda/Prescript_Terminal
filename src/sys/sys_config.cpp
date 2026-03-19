@@ -125,6 +125,7 @@ void SysConfig::load()
         schedules[i].prescript = sc_arr[i]["ps"] | "";
         schedules[i].is_expired = sc_arr[i]["ex"] | false;
         schedules[i].is_restored = sc_arr[i]["rs"] | false;
+        schedules[i].is_hidden = sc_arr[i]["hd"] | false; // 【新增】：读取隐藏属性
     }
 
     // [大扫除]：彻底删除了所有跟 cp_arr 解析相关的代码！
@@ -181,6 +182,7 @@ void SysConfig::save()
         obj["ps"] = schedules[i].prescript;
         obj["ex"] = schedules[i].is_expired;
         obj["rs"] = schedules[i].is_restored;
+        obj["hd"] = schedules[i].is_hidden; // 【新增】：写入隐藏属性
     }
     JsonObject coin_node = doc["coin_app"].to<JsonObject>();
     coin_node["mode"] = coin_data.mode;

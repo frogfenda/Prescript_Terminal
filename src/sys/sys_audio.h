@@ -28,3 +28,15 @@ extern SysAudio sysAudio;
     sysAudio.playTone(7000, 250); \
 } while(0)
 
+// 在 sys_audio.h 的最底部，#endif 之前加上：
+extern uint8_t* g_wav_procedure;
+extern uint32_t g_wav_procedure_len;
+extern uint8_t* g_wav_final;
+extern uint32_t g_wav_final_len;
+
+extern uint8_t* g_wav_heads;
+extern uint32_t g_wav_heads_len;
+extern uint8_t* g_wav_tails;
+extern uint32_t g_wav_tails_len;
+
+void SysAudio_PreloadAssets(); // 声明开机预载函数

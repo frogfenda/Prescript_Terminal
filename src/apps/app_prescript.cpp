@@ -327,7 +327,7 @@ private:
         if (wav_procedure_data)
         {
             // 【修改】：不再操作 g_audio_loop，直接用 playWAV 的第三个参数 true 开启循环！
-            sysAudio.playWAV(wav_procedure_data, wav_procedure_len, true);
+            sysAudio.playWAV(g_wav_procedure, g_wav_procedure_len, true);
         }
 
         if (current_lang == LANG_ZH)
@@ -931,30 +931,7 @@ public:
         Init_Glitch_Pool();
         m_scroll_offset = 0;
 
-        File f_proc = LittleFS.open("/assets/procedure.wav", "r");
-        if (f_proc)
-        {
-            wav_procedure_len = f_proc.size() - 44;
-            wav_procedure_data = (uint8_t *)ps_malloc(wav_procedure_len);
-            if (wav_procedure_data)
-            {
-                f_proc.seek(44);
-                f_proc.read(wav_procedure_data, wav_procedure_len);
-            }
-            f_proc.close();
-        }
-        File f_final = LittleFS.open("/assets/final.wav", "r");
-        if (f_final)
-        {
-            wav_final_len = f_final.size() - 44;
-            wav_final_data = (uint8_t *)ps_malloc(wav_final_len);
-            if (wav_final_data)
-            {
-                f_final.seek(44);
-                f_final.read(wav_final_data, wav_final_len);
-            }
-            f_final.close();
-        }
+       
         extern int __internal_prescript_mode;
         if (__internal_prescript_mode != 2 && __internal_prescript_mode != 3)
         {
@@ -990,17 +967,6 @@ public:
         // 【修改】：直接调用停止接口，不再判断指针
         sysAudio.stopWAV();
         delay(5);
-
-        if (wav_procedure_data)
-        {
-            free(wav_procedure_data);
-            wav_procedure_data = nullptr;
-        }
-        if (wav_final_data)
-        {
-            free(wav_final_data);
-            wav_final_data = nullptr;
-        }
 
         extern int __internal_prescript_mode;
         __internal_prescript_mode = 0;
