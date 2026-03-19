@@ -12,8 +12,6 @@ SysAudio sysAudio;
 volatile const uint8_t* g_wav_data = nullptr;
 volatile uint32_t g_wav_len = 0;
 volatile bool g_wav_loop = false;
-
-// 【核心修复】：新增音频轨道流水号！解决同音频连续重播被忽略的 Bug
 volatile uint8_t g_wav_id = 0; 
 
 SemaphoreHandle_t g_i2s_mutex = NULL;
@@ -33,8 +31,6 @@ void audio_bg_task(void *pvParameters) {
             const uint8_t* current_data = (const uint8_t*)g_wav_data; 
             uint32_t current_len = g_wav_len;
             bool is_looping = g_wav_loop;
-            
-            // 【记住流水号】：底层锁死当前播放的是第几次命令
             uint8_t current_id = g_wav_id; 
             
             int16_t* pcm = (int16_t*)current_data;
@@ -49,7 +45,6 @@ void audio_bg_task(void *pvParameters) {
             const int FADE_LEN = 64;
 
             while (ptr < total_samples) {
-                // 【终极抢占】：如果换了歌（指针变了），或者强行重播了同一首歌（流水号变了），立刻斩断跳出！
                 if (g_wav_data != current_data || g_wav_id != current_id) break; 
 
                 int chunk = (total_samples - ptr < CHUNK_SAMPLES) ? (total_samples - ptr) : CHUNK_SAMPLES;
@@ -94,7 +89,6 @@ void audio_bg_task(void *pvParameters) {
                 last_val = 0;
             }
             
-            // 只有正常播完，且没有新的播放请求覆盖它，才清空任务
             if (g_wav_data == current_data && g_wav_id == current_id) {
                 g_wav_data = nullptr;
             }
@@ -109,15 +103,16 @@ void SysAudio::begin() {
         g_i2s_mutex = xSemaphoreCreateMutex();
     }
 
+    // 【同步修改 1】：扩大 DMA 吞吐缓冲池，喂饱 44100Hz 的恐怖消耗速度
     i2s_config_t i2s_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-        .sample_rate = 16000,
+        .sample_rate = 44100, // 全局升级 44100Hz
         .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT, 
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 6,
-        .dma_buf_len = 160,
+        .dma_buf_len = 512, // 【防卡死修改】：从 160 扩大到 512
         .use_apll = false,
         .tx_desc_auto_clear = true
     };
@@ -136,14 +131,14 @@ void SysAudio::begin() {
 
 void SysAudio::playWAV(const uint8_t* data, uint32_t len, bool loop) {
     if (!data || len == 0) return;
-    g_wav_id++; // 【每次点火】：强制更新流水号，底层发现号不对立刻斩断重播！
+    g_wav_id++; 
     g_wav_loop = loop;
     g_wav_len = len;
     g_wav_data = data; 
 }
 
 void SysAudio::stopWAV() {
-    g_wav_id++; // 【刹车指令】：同样更新流水号，让底层退场
+    g_wav_id++; 
     g_wav_data = nullptr;
     g_wav_loop = false;
 }
@@ -152,7 +147,7 @@ void SysAudio::playTone(uint16_t freq, uint16_t duration_ms) {
     stopWAV(); 
     if (freq == 0 || duration_ms == 0 || sysConfig.volume == 0) return;
     
-    uint32_t sample_rate = 16000; 
+    uint32_t sample_rate = 44100; // 同步升级
     uint32_t total_samples = (sample_rate * duration_ms) / 1000;
     
     float vol_ratio = (float)sysConfig.volume / 100.0f;
@@ -193,14 +188,18 @@ void SysAudio::playTone(uint16_t freq, uint16_t duration_ms) {
 void SysAudio::playGlitch() {
     stopWAV();
     if (sysConfig.volume == 0) return;
-    uint32_t sample_rate = 16000;
+    uint32_t sample_rate = 44100; // 同步升级
     uint32_t duration_ms = random(3, 6); 
     uint32_t total_samples = (sample_rate * duration_ms) / 1000;
     
     float vol_ratio = (float)sysConfig.volume / 100.0f;
     int16_t max_volume = (int16_t)(10000.0f * vol_ratio * vol_ratio); 
 
-    size_t bytes_written; int16_t buf[256]; int buf_idx = 0;
+    size_t bytes_written; 
+    const int CHUNK_SAMPLES = 256; 
+    int16_t buf[CHUNK_SAMPLES * 2]; 
+    int buf_idx = 0;
+    
     float start_freq = (float)random(3500, 4500); 
     float end_freq = 800.0f; float current_phase = 0.0f;
 
@@ -214,7 +213,17 @@ void SysAudio::playGlitch() {
         int16_t sample_val = (int16_t)(wave * max_volume * envelope);
         
         buf[buf_idx++] = sample_val; buf[buf_idx++] = sample_val; 
+        
+        // 【核心修复 2】：新增切片冲刷阀门，装满 512 个数据就送给声卡，杜绝数组越界引发重启！
+        if (buf_idx >= CHUNK_SAMPLES * 2) {
+            if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY)) {
+                i2s_write(I2S_NUM_0, buf, sizeof(buf), &bytes_written, portMAX_DELAY);
+                xSemaphoreGive(g_i2s_mutex);
+            }
+            buf_idx = 0; 
+        }
     }
+    // 把循环结束后剩下的残余数据送入声卡
     if (buf_idx > 0) {
         if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY)) {
             i2s_write(I2S_NUM_0, buf, buf_idx * sizeof(int16_t), &bytes_written, portMAX_DELAY);

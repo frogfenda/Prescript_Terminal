@@ -911,9 +911,16 @@ private:
         // 【终极打断】：强行解除硬件无限循环，并切歌！
         // ==========================================
         sysAudio.stopWAV(); // 【修改】：一键优雅停止
-
-        delay(AUDIO_DONE_DELAY);
-        SYS_SOUND_SUCCESS_4BEEPS();
+        if (wav_final_data)
+        {
+            // 参数3为 false，代表这声极具压迫感的解码音效只播放一次
+            sysAudio.playWAV(wav_final_data, wav_final_len, false);
+        }
+        else
+        {
+            // 文件没读到的兜底保护
+            SYS_SOUND_SUCCESS_4BEEPS();
+        }
 
         SysAutoPush_ResetTimer();
     }
@@ -936,7 +943,18 @@ public:
             }
             f_proc.close();
         }
-
+        File f_final = LittleFS.open("/assets/final.wav", "r");
+        if (f_final)
+        {
+            wav_final_len = f_final.size() - 44;
+            wav_final_data = (uint8_t *)ps_malloc(wav_final_len);
+            if (wav_final_data)
+            {
+                f_final.seek(44);
+                f_final.read(wav_final_data, wav_final_len);
+            }
+            f_final.close();
+        }
         extern int __internal_prescript_mode;
         if (__internal_prescript_mode != 2 && __internal_prescript_mode != 3)
         {

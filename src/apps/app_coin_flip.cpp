@@ -414,11 +414,9 @@ public:
 
     void onKeyLong() override
     {
-        if (!global_is_animating)
-        {
+
             SYS_SOUND_NAV();
             appManager.popApp();
-        }
     }
 };
 
