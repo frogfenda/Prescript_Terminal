@@ -22,17 +22,29 @@ void DBArchive_SaveToFile(SystemLang_t lang)
         f.close();
     }
 }
-void _Cb_PreAdd(void* payload);
+
 // ==========================================
 // 邮局拆包回调：接收到蓝牙传来的新指令
 // ==========================================
 void _Cb_PreAdd(void *payload)
 {
     Evt_PreAdd_t *p = (Evt_PreAdd_t *)payload;
+    
+    // 1. 获取字符串，并进行“净化”
+    String new_text = String(p->text);
+    new_text.trim(); // 极其重要！杀掉尾部可能附带的 \r 或 \n，防止 UI 渲染出空白！
+    if (new_text.length() == 0) return; // 如果是空的，直接丢弃
 
-    // 呼叫本文件内部的物理写盘函数
+    // 2. 物理写盘
     extern void DBArchive_AddRecord(SystemLang_t lang, const String &text);
-    DBArchive_AddRecord((SystemLang_t)p->lang, String(p->text));
+    DBArchive_AddRecord((SystemLang_t)p->lang, new_text);
+
+    // 3. 打印极度显眼的确认日志！
+    Serial.printf("[指令库] 成功添加指令到 %s 库: %s\n", 
+                 (p->lang == 0) ? "中文" : "英文", 
+                 new_text.c_str());
+
+    // 4. 视觉反馈：强行跳转到最新一条 (确保你已经在类里加上了 refreshUI 函数)
 }
 
 // 接口 1：从外部添加一条新指令到硬盘
@@ -54,6 +66,28 @@ bool DBArchive_DeleteRecord(SystemLang_t lang, int index)
         return true;
     }
     return false;
+}
+void _Cb_PreDel(void* payload) {
+    Evt_PreDel_t* p = (Evt_PreDel_t*)payload;
+    String target = String(p->text);
+    SystemLang_t target_lang = (SystemLang_t)p->lang;
+    
+    // 声明你在上方写好的外部接口和存储数组
+    extern bool DBArchive_DeleteRecord(SystemLang_t lang, int index);
+    extern std::vector<String> sys_prescripts_zh;
+    extern std::vector<String> sys_prescripts_en;
+
+    // 根据传入的语言，选择对应的指令池
+    std::vector<String> *target_pool = (target_lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    
+    // 遍历寻找匹配的指令并删除
+    for (int i = 0; i < target_pool->size(); i++) {
+        if ((*target_pool)[i] == target) {
+            DBArchive_DeleteRecord(target_lang, i);
+            Serial.printf("[指令库] 成功抹除指令: %s\n", target.c_str());
+            break; // 找到并删除后，立刻停止遍历
+        }
+    }
 }
 // ========================================================
 
@@ -484,6 +518,7 @@ public:
     void onSystemInit() override
     {
         SysEvent_Subscribe(EVT_PRESCRIPT_ADD, _Cb_PreAdd);
+        SysEvent_Subscribe(EVT_PRESCRIPT_DEL, _Cb_PreDel); // 【新增】：认领删除任务
         appManager.registerBackgroundApp(this);
     }
 };

@@ -11,7 +11,8 @@ enum SysEventID {
     EVT_POMODORO_UPDATE,
     EVT_NOTIFY_CUSTOM,
     EVT_BLE_SYNC_REQ,
-    EVT_PRESCRIPT_ADD   // 【新增】：添加都市指令频道
+    EVT_PRESCRIPT_ADD,   // 【新增】：添加都市指令频道
+    EVT_PRESCRIPT_DEL   // 【新增】：删除都市指令频道
 };
 
 
@@ -26,6 +27,10 @@ struct Evt_PomUpd_t { int idx; const char* name; int w; int r; };
 // 2. 在下方结构体区域，增加对应的数据包：
 struct Evt_PreAdd_t { 
     int lang; // 0代表中文(ZH)，1代表英文(EN)
+    const char* text; 
+};
+struct Evt_PreDel_t { 
+    int lang; 
     const char* text; 
 };
 // 3. 邮局接口声明

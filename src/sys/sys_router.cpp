@@ -6,7 +6,8 @@
 
 #include "hal/hal.h"
 #include <time.h>
-
+#include "sys_config.h"
+#include "app_manager.h"
 // ==========================================
 // 蓝牙消息解析与路由分发
 // ==========================================
@@ -119,14 +120,31 @@ void SysRouter_ProcessBLE(const String& msg) {
             SysEvent_Publish(EVT_SCHEDULE_ADD, &payload); // 扔给邮局！
         }
     }
-    // 9. 拦截：添加新指令到数据库
-    else if (msg.startsWith("PRE:")) {
-        // 格式约定: PRE:ZH:指令内容 或 PRE:EN:指令内容
-        int target_lang = msg.startsWith("PRE:ZH:") ? 0 : 1; 
-        String text = msg.substring(7); // 跳过 "PRE:XX:" 7个字符
-        
-        Evt_PreAdd_t payload = {target_lang, text.c_str()};
-        SysEvent_Publish(EVT_PRESCRIPT_ADD, &payload); // 扔给邮局！
+// 9. 拦截：添加新指令 (精准匹配中文)
+    else if (msg.startsWith("PRE:ZH:")) {
+        String text = msg.substring(7); // 跳过前缀
+        // 【核心修复】：绝不写死数字，直接使用系统宏 LANG_ZH！
+        Evt_PreAdd_t payload = {LANG_ZH, text.c_str()}; 
+        SysEvent_Publish(EVT_PRESCRIPT_ADD, &payload);
+    } 
+    // 9. 拦截：添加新指令 (精准匹配英文)
+    else if (msg.startsWith("PRE:EN:")) {
+        String text = msg.substring(7); 
+        // 【核心修复】：使用 LANG_EN
+        Evt_PreAdd_t payload = {LANG_EN, text.c_str()}; 
+        SysEvent_Publish(EVT_PRESCRIPT_ADD, &payload);
+    }
+    // 10. 拦截：删除现有指令 (中文)
+    else if (msg.startsWith("PRE_DEL:ZH:")) {
+        String text = msg.substring(11); 
+        Evt_PreDel_t payload = {LANG_ZH, text.c_str()};
+        SysEvent_Publish(EVT_PRESCRIPT_DEL, &payload);
+    }
+    // 10. 拦截：删除现有指令 (英文)
+    else if (msg.startsWith("PRE_DEL:EN:")) {
+        String text = msg.substring(11); 
+        Evt_PreDel_t payload = {LANG_EN, text.c_str()};
+        SysEvent_Publish(EVT_PRESCRIPT_DEL, &payload);
     }
 }
 

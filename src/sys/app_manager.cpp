@@ -9,10 +9,13 @@
 #include "sys_router.h"
 #include "sys_event.h"
 #include "sys_auto_push.h"
+#include <queue>
+#include <mutex>
+std::queue<String> g_ble_msg_queue; // 无限容量的动态队列
+std::mutex g_ble_mutex;             // 线程安全锁
 
 volatile bool g_cross_core_trigger_push = false;
-volatile bool g_ble_has_msg = false;
-char g_ble_msg_buf[512] = {0};
+
 void _Cb_SysNotify(void *payload)
 {
     Evt_Notify_t *p = (Evt_Notify_t *)payload;
@@ -128,7 +131,7 @@ void AppManager::resetIdleTimer() { idle_timer = millis(); }
 
 void AppManager::run()
 {
-    Network_Update();
+   Network_Update();
     for (int i = 0; i < bg_app_count; i++)
     {
         bg_apps[i]->onBackgroundTick();
@@ -137,17 +140,28 @@ void AppManager::run()
     if (g_cross_core_trigger_push)
     {
         g_cross_core_trigger_push = false;
-        // 直接无脑打断！
         PushNotify_Trigger_Random(true);
     }
 
-    // 【解耦中心】：调用极其干净的路由协议分发器
-    if (g_ble_has_msg)
+    // ==========================================
+    // 【核心修复】：在绝对安全的主线程 (Core 1) 拆快递！
+    // ==========================================
+    String pending_ble_msg = "";
     {
-        g_ble_has_msg = false;
-        SysRouter_ProcessBLE(String(g_ble_msg_buf)); // 【修改这一行】
+        // 锁住邮筒，拿出一封信就跑
+        std::lock_guard<std::mutex> lock(g_ble_mutex);
+        if (!g_ble_msg_queue.empty()) {
+            pending_ble_msg = g_ble_msg_queue.front();
+            g_ble_msg_queue.pop();
+        }
     }
-
+    // 把信交给路由器（此时写硬盘绝对不会和 UI 冲突！）
+    if (pending_ble_msg.length() > 0) {
+        SysRouter_ProcessBLE(pending_ble_msg);
+    }
+    // ==========================================
+    // 【解耦中心】：调用极其干净的路由协议分发器
+   
     uint32_t current_time = millis();
     last_tick = current_time;
 
