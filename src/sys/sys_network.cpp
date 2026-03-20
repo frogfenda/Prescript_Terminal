@@ -25,7 +25,7 @@ volatile int g_api_cmd_count = 0;
 void api_fetch_bg_task(void *pvParameters) {
     HTTPClient http;
     // 【警告】这里替换成你的真实 JSON API 网址
-    http.begin("http://你的域名或JSON托管网址.com/cmd.json"); 
+    http.begin("https://index.dimension-404.cloud/api/schedule/sync"); 
     http.setTimeout(5000); 
     
     int httpCode = http.GET();
