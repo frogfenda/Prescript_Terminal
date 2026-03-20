@@ -5,12 +5,16 @@
 #include "sys_config.h"
 #include <time.h>
 #include "sys_event.h"
+#include "sys_ble.h"
 
 int g_schedule_edit_idx = -1;
 extern AppBase *appScheduleEdit;
 extern AppBase *appScheduleExpired;
-
+void _Cb_SchAdd(void* payload);
+void _Cb_SchDel(void* payload);
+void _Cb_SchSync(void* payload);
 void Schedule_DeleteMobile(const char *title)
+
 {
     bool deleted = false;
     for (int i = 0; i < sysConfig.schedule_count; i++)
@@ -535,22 +539,52 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
+    void onSystemInit() override {
+        // 1. 去邮局订阅自己的频道
+        SysEvent_Subscribe(EVT_SCHEDULE_ADD, _Cb_SchAdd);
+        SysEvent_Subscribe(EVT_SCHEDULE_DEL, _Cb_SchDel);
+        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_SchSync);
+        
+        // 2. 向系统总管申请后台巡逻权限！
+        appManager.registerBackgroundApp(this);
+    }
 };
 // === 日程表专用的邮局拆包回调 ===
-void _Cb_SchAdd(void* payload) {
-    Evt_SchAdd_t* p = (Evt_SchAdd_t*)payload;
+void _Cb_SchAdd(void *payload)
+{
+    Evt_SchAdd_t *p = (Evt_SchAdd_t *)payload;
     Schedule_AddMobile(p->tt, p->title, p->text, p->is_hidden);
 }
 
-void _Cb_SchDel(void* payload) {
-    Evt_SchDel_t* p = (Evt_SchDel_t*)payload;
+void _Cb_SchDel(void *payload)
+{
+    Evt_SchDel_t *p = (Evt_SchDel_t *)payload;
     Schedule_DeleteMobile(p->title);
 }
 
-// 供系统开机时调用的注册入口
-void Schedule_InitEvents() {
-    SysEvent_Subscribe(EVT_SCHEDULE_ADD, _Cb_SchAdd);
-    SysEvent_Subscribe(EVT_SCHEDULE_DEL, _Cb_SchDel);
+// 收到路由器的同步口哨声，日程表自己把自己的数据发给蓝牙！
+void _Cb_SchSync(void *payload)
+{
+    for (int i = 0; i < sysConfig.schedule_count; i++)
+    {
+        if (sysConfig.schedules[i].is_expired || sysConfig.schedules[i].is_hidden)
+            continue;
+        struct tm t_info;
+        time_t tt = sysConfig.schedules[i].target_time;
+        localtime_r(&tt, &t_info);
+        char dt[32];
+        sprintf(dt, "%04d-%02d-%02dT%02d:%02d", t_info.tm_year + 1900, t_info.tm_mon + 1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min);
+        String safeName = sysConfig.schedules[i].title.c_str();
+        safeName.replace("\"", "\\\"");
+        String safeTxt = sysConfig.schedules[i].prescript.c_str();
+        safeTxt.replace("\"", "\\\"");
+        String out = "SYNC:SCH:{\"dt\":\"" + String(dt) + "\",\"n\":\"" + safeName + "\",\"t\":\"" + safeTxt + "\"}";
+        SysBLE_Notify(out.c_str());
+        delay(50);
+    }
 }
+
+
+
 AppScheduleMenu instanceScheduleMenu;
 AppBase *appSchedule = &instanceScheduleMenu;

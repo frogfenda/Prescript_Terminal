@@ -46,7 +46,7 @@ public:
     void run();
     void resetIdleTimer();
     void registerBackgroundApp(AppBase* app);
-    
+    void installApp(AppBase* app);
     SystemLang_t getLanguage() { return current_lang; }
     void toggleLanguage() { current_lang = (current_lang == LANG_EN) ? LANG_ZH : LANG_EN; }
     AppBase *getCurrentApp() { return currentApp; }

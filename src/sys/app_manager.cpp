@@ -8,12 +8,17 @@
 #include "sys_res.h"
 #include "sys_router.h"
 #include "sys_event.h"
-extern void Schedule_InitEvents();
-extern void Alarm_InitEvents();
+#include "sys_auto_push.h"
 
 volatile bool g_cross_core_trigger_push = false;
 volatile bool g_ble_has_msg = false;
 char g_ble_msg_buf[512] = {0};
+void _Cb_SysNotify(void *payload)
+{
+    Evt_Notify_t *p = (Evt_Notify_t *)payload;
+    PushNotify_Trigger_Custom(p->text, p->keep_stack);
+}
+
 AppManager appManager;
 
 extern void SysBLE_Notify(const char *data);
@@ -37,19 +42,34 @@ void AppManager::registerBackgroundApp(AppBase *app)
     }
 }
 
+void AppManager::installApp(AppBase* app) {
+    if (app != nullptr) {
+        app->onSystemInit(); // 触发 App 的自我安装程序！
+    }
+}
+
 void AppManager::begin()
 {
     current_lang = (SystemLang_t)sysConfig.language;
     config_sleep_time_ms = sysConfig.sleep_time_ms;
     last_tick = millis();
     idle_timer = millis();
-    SysRes_Init();
-// 【新增】：开机时要求各大 App 去邮局登记频道！
-    Schedule_InitEvents();
-    Alarm_InitEvents();
 
-    registerBackgroundApp(appSchedule);
-    registerBackgroundApp(appAlarm);
+    SysRes_Init(); 
+
+    
+    // 系统级的特殊拦截保留在这里
+    SysEvent_Subscribe(EVT_NOTIFY_CUSTOM, _Cb_SysNotify);
+    
+    // ==========================================
+    // 【终极清爽的 App 挂载流水线】
+    // ==========================================
+    installApp(appSchedule);
+    installApp(appAlarm);
+    installApp(appPomodoro);
+    installApp(appPrescriptList);
+    // (未来如果有新的 App，直接往这里加一行 installApp 即可，其他什么都不用管！)
+    
     launchApp(appStandby);
 }
 

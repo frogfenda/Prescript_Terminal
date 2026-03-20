@@ -4,9 +4,13 @@
 #include "app_manager.h"
 #include "sys_config.h"
 #include "sys_event.h"
+#include "sys_ble.h"
 
 int g_alarm_edit_idx = -1;
 extern AppBase *appAlarmEdit;
+void _Cb_AlmAdd(void* payload);
+void _Cb_AlmDel(void* payload);
+void _Cb_AlmSync(void* payload);
 
 void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text)
 {
@@ -350,6 +354,13 @@ public:
             PushNotify_Trigger_Custom(sysConfig.alarms[pending_alarm_idx].prescript.c_str(), false);
         }
     }
+    void onSystemInit() override {
+        SysEvent_Subscribe(EVT_ALARM_ADD, _Cb_AlmAdd);
+        SysEvent_Subscribe(EVT_ALARM_DEL, _Cb_AlmDel);
+        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_AlmSync);
+        
+        appManager.registerBackgroundApp(this);
+    }
 };
 // === 闹钟专用的邮局拆包回调 ===
 void _Cb_AlmAdd(void* payload) {
@@ -361,10 +372,18 @@ void _Cb_AlmDel(void* payload) {
     Evt_AlmDel_t* p = (Evt_AlmDel_t*)payload;
     Alarm_DeleteMobile(p->name);
 }
-
-void Alarm_InitEvents() {
-    SysEvent_Subscribe(EVT_ALARM_ADD, _Cb_AlmAdd);
-    SysEvent_Subscribe(EVT_ALARM_DEL, _Cb_AlmDel);
+void _Cb_AlmSync(void* payload) {
+    for (int i = 0; i < sysConfig.alarm_count; i++) {
+        String safeName = sysConfig.alarms[i].name.c_str(); safeName.replace("\"", "\\\"");
+        String safeTxt = sysConfig.alarms[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
+        String out = "SYNC:ALM:{\"h\":" + String(sysConfig.alarms[i].hour) + ",\"m\":" + String(sysConfig.alarms[i].min) + ",\"n\":\"" + safeName + "\",\"t\":\"" + safeTxt + "\"}";
+        SysBLE_Notify(out.c_str());
+        delay(50);
+    }
 }
+
+
+
+
 AppAlarmMenu instanceAlarmMenu;
 AppBase *appAlarm = &instanceAlarmMenu;

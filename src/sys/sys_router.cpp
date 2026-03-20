@@ -1,9 +1,9 @@
 // 文件：src/sys/sys_router.cpp
 #include "sys_router.h"
 #include "sys_event.h"
-#include "sys_config.h"
+
 #include "sys_ble.h"
-#include "app_manager.h" // 仅保留用于 PushNotify 和 UI 相关调用
+
 #include "hal/hal.h"
 #include <time.h>
 
@@ -12,54 +12,30 @@
 // ==========================================
 void SysRouter_ProcessBLE(const String& msg) {
     // 1. 处理手机端拉取同步请求
-    if (msg.startsWith("GET:SYNC")) {
-        SystemLang_t sync_lang = msg.endsWith("EN") ? LANG_EN : LANG_ZH;
+   if (msg.startsWith("GET:SYNC")) {
         SysBLE_Notify("SYNC:CLEAR");
         delay(50);
         
-        // 读取系统配置，向手机回传日程
-        for (int i = 0; i < sysConfig.schedule_count; i++) {
-            if (sysConfig.schedules[i].is_expired || sysConfig.schedules[i].is_hidden) continue;
-            struct tm t_info; 
-            time_t tt = sysConfig.schedules[i].target_time; 
-            localtime_r(&tt, &t_info);
-            
-            char dt[32]; 
-            sprintf(dt, "%04d-%02d-%02dT%02d:%02d", t_info.tm_year + 1900, t_info.tm_mon + 1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min);
-            
-            String safeName = sysConfig.schedules[i].title.c_str(); safeName.replace("\"", "\\\"");
-            String safeTxt = sysConfig.schedules[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
-            String out = "SYNC:SCH:{\"dt\":\"" + String(dt) + "\",\"n\":\"" + safeName + "\",\"t\":\"" + safeTxt + "\"}";
-            SysBLE_Notify(out.c_str());
-            delay(50);
-        }
+        // 【核心解耦】：大喊一声“蓝牙要数据了！”，谁有数据谁自己往外发！
+        SysEvent_Publish(EVT_BLE_SYNC_REQ, nullptr); 
         
-        // 向手机回传闹钟
-        for (int i = 0; i < sysConfig.alarm_count; i++) {
-            String safeName = sysConfig.alarms[i].name.c_str(); safeName.replace("\"", "\\\"");
-            String safeTxt = sysConfig.alarms[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
-            String out = "SYNC:ALM:{\"h\":" + String(sysConfig.alarms[i].hour) + ",\"m\":" + String(sysConfig.alarms[i].min) + ",\"n\":\"" + safeName + "\",\"t\":\"" + safeTxt + "\"}";
-            SysBLE_Notify(out.c_str());
-            delay(50);
-        }
-        
-        // 终端屏幕闪烁反馈
+        // 屏幕闪烁反馈 (路由器自己保留视觉效果，因为这属于网络交互)
         for (int intensity = 255; intensity >= 0; intensity -= 20) {
             uint16_t g = (intensity * 63) / 255; 
             uint16_t b = (intensity * 31) / 255; 
             uint16_t neon_cyan = (g << 5) | b;
             HAL_Draw_Rect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), neon_cyan);
             HAL_Draw_Rect(1, 1, HAL_Get_Screen_Width() - 2, HAL_Get_Screen_Height() - 2, neon_cyan);
-            HAL_Screen_Update(); 
-            delay(15);
+            HAL_Screen_Update(); delay(15);
         }
         return;
     }
-    
     // 2. 立即推送通知
     if (msg.startsWith("TXT:")) {
-        PushNotify_Trigger_Custom(msg.substring(4).c_str(), true);
-    } 
+        String text = msg.substring(4);
+        Evt_Notify_t payload = {text.c_str(), true};
+        SysEvent_Publish(EVT_NOTIFY_CUSTOM, &payload); // 打包扔给邮局！
+    }
     // 3. 拦截：添加闹钟
     else if (msg.startsWith("ALM:")) {
         int p1 = msg.indexOf(':', 4); 
@@ -142,6 +118,15 @@ void SysRouter_ProcessBLE(const String& msg) {
             Evt_SchAdd_t payload = {(uint32_t)mktime(&t_info), title.c_str(), text.c_str(), true};
             SysEvent_Publish(EVT_SCHEDULE_ADD, &payload); // 扔给邮局！
         }
+    }
+    // 9. 拦截：添加新指令到数据库
+    else if (msg.startsWith("PRE:")) {
+        // 格式约定: PRE:ZH:指令内容 或 PRE:EN:指令内容
+        int target_lang = msg.startsWith("PRE:ZH:") ? 0 : 1; 
+        String text = msg.substring(7); // 跳过 "PRE:XX:" 7个字符
+        
+        Evt_PreAdd_t payload = {target_lang, text.c_str()};
+        SysEvent_Publish(EVT_PRESCRIPT_ADD, &payload); // 扔给邮局！
     }
 }
 

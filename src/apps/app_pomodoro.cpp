@@ -3,6 +3,7 @@
 #include "app_menu_base.h"
 #include "app_manager.h"
 #include "sys_config.h"
+#include "sys_event.h"
 
 void Pomodoro_UpdatePreset(int index, const char* name, int work_m, int rest_m) {
     if (index < 0 || index >= 5) return;
@@ -15,6 +16,7 @@ void Pomodoro_UpdatePreset(int index, const char* name, int work_m, int rest_m) 
 extern AppBase* appPomodoroRun;
 extern AppBase* appPomodoroPresets;
 extern AppBase* appPomodoroEdit;
+void _Cb_PomUpd(void* payload);
 
 class AppPomodoroRun : public AppBase {
 private:
@@ -278,5 +280,19 @@ protected:
     void onLongPressed() override { appManager.popApp(); }
 public:
     void onResume() override { AppMenuBase::onResume(); }
+    void onSystemInit() override{
+    SysEvent_Subscribe(EVT_POMODORO_UPDATE, _Cb_PomUpd);
+    appManager.registerBackgroundApp(this);
+}
 };
+// === 番茄钟专属拆包回调 ===
+void _Cb_PomUpd(void* payload) {
+    Evt_PomUpd_t* p = (Evt_PomUpd_t*)payload;
+    // 呼叫原本用于更新的接口
+    extern void Pomodoro_UpdatePreset(int idx, const char* name, int w, int r);
+    Pomodoro_UpdatePreset(p->idx, p->name, p->w, p->r);
+}
+
+// 供系统开机时调用的注册入口
+
 AppPomodoroMenu instancePomodoroMenu; AppBase* appPomodoro = &instancePomodoroMenu;
