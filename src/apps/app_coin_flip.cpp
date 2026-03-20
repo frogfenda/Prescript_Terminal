@@ -37,11 +37,7 @@ private:
     uint16_t *img_tails = nullptr;
     uint16_t *coin_buffer = nullptr;
 
-    uint8_t *wav_heads_data = nullptr;
-    uint32_t wav_heads_len = 0;
 
-    uint8_t *wav_tails_data = nullptr;
-    uint32_t wav_tails_len = 0;
 
     CoinEntity coins[9]; // 【封印彻底解除】：支持 9 枚实体！
     int active_coins = 1;
@@ -229,14 +225,14 @@ private:
         if (coins[idx].target_face == 0)
         {
             coins[idx].flash_frames = CoinAnimParams::FLASH_DURATION;
-            if (wav_heads_data)
+            if (g_wav_heads)
                 sysAudio.playWAV(g_wav_heads, g_wav_heads_len);
             else
                 SYS_SOUND_CONFIRM();
         }
         else
         {
-            if (wav_tails_data)
+            if (g_wav_tails)
                 sysAudio.playWAV(g_wav_tails, g_wav_tails_len);
             else
                 SYS_SOUND_NAV();

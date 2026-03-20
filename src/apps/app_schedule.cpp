@@ -66,15 +66,40 @@ void Sort_Schedules()
 // 【修改】：末尾增加 bool is_hidden = false 参数
 void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden)
 {
-    if (sysConfig.schedule_count >= 15)
-        return;
+    // 【核心修复 1：查重防刷】
+    // 遍历检查是否已经存在完全相同的日程（防止每次联网都重复添加同一个 API 指令）
+    for (int i = 0; i < sysConfig.schedule_count; i++) {
+        if (sysConfig.schedules[i].target_time == target_time && 
+            sysConfig.schedules[i].title == String(title)) {
+            return; // 已经存在，绝对不重复添加！
+        }
+    }
+
+    // 【核心修复 2：容量保护与强制清理】
+    if (sysConfig.schedule_count >= 15) {
+        bool freed = false;
+        // 如果 15 个槽位满了，强行找一个已经过期的常规日程清理掉，给新指令腾位置
+        for (int i = 0; i < sysConfig.schedule_count; i++) {
+            if (sysConfig.schedules[i].is_expired) {
+                // 覆盖删除
+                for (int j = i; j < sysConfig.schedule_count - 1; j++) {
+                    sysConfig.schedules[j] = sysConfig.schedules[j + 1];
+                }
+                sysConfig.schedule_count--;
+                freed = true;
+                break; // 腾出一个位置就够了
+            }
+        }
+        if (!freed) return; // 如果实在全是未来的未过期任务，只能放弃添加
+    }
+
     int idx = sysConfig.schedule_count;
     sysConfig.schedules[idx].target_time = target_time;
     sysConfig.schedules[idx].title = title;
     sysConfig.schedules[idx].prescript = text;
     sysConfig.schedules[idx].is_expired = false;
     sysConfig.schedules[idx].is_restored = false;
-    sysConfig.schedules[idx].is_hidden = is_hidden; // 【新增】：记录隐藏状态
+    sysConfig.schedules[idx].is_hidden = is_hidden; 
     sysConfig.schedule_count++;
     Sort_Schedules();
     sysConfig.save();
@@ -417,51 +442,8 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
-    void onBackgroundTick() override
-    {
-        static uint32_t last_check = 0;
-        if (millis() - last_check < 1000)
-            return; // 1秒检查一次
-        last_check = millis();
 
-        time_t now;
-        time(&now);
-        if (now < 1000000000)
-            return; // 时间没对准时不查
 
-        bool need_save = false;
-        for (int i = 0; i < sysConfig.schedule_count; i++)
-        {
-            ScheduleItem &s = sysConfig.schedules[i];
-
-            // 处理过期销毁 (超过24小时自动粉碎)
-            if (s.is_expired && (now - s.expire_time > 86400))
-            {
-                for (int j = i; j < sysConfig.schedule_count - 1; j++)
-                    sysConfig.schedules[j] = sysConfig.schedules[j + 1];
-                sysConfig.schedule_count--;
-                need_save = true;
-                i--;
-                continue;
-            }
-
-            // 处理到点引爆
-            if (!s.is_expired && now >= s.target_time)
-            {
-                s.is_expired = true;
-                s.expire_time = now;
-                s.is_restored = false;
-                need_save = true;
-
-                if (s.prescript.length() == 0)
-                    PushNotify_Trigger_Random(false);
-                else
-                    PushNotify_Trigger_Custom(s.prescript.c_str(), false);
-            }
-        }
-        if (need_save)
-            sysConfig.save();
-    }
 };
 AppScheduleExpired instanceScheduleExpired;
 AppBase *appScheduleExpired = &instanceScheduleExpired;
@@ -548,6 +530,68 @@ public:
         // 2. 向系统总管申请后台巡逻权限！
         appManager.registerBackgroundApp(this);
     }
+       void onBackgroundTick() override
+    {
+        static uint32_t last_check = 0;
+        if (millis() - last_check < 1000)
+            return; // 1秒检查一次
+        last_check = millis();
+
+        time_t now;
+        time(&now);
+        if (now < 1000000000)
+            return; // 时间没对准时不查
+
+        bool need_save = false;
+        for (int i = 0; i < sysConfig.schedule_count; i++)
+        {
+            ScheduleItem &s = sysConfig.schedules[i];
+
+            // ==========================================
+            // 【核心修复 3：隐秘炸弹阅后即焚！】
+            // ==========================================
+            bool should_destroy = false;
+            if (s.is_expired) {
+                if (s.is_hidden) {
+                    // 隐秘日程：一旦引爆变成 expired，下一秒立刻彻底粉碎！不占内存！
+                    should_destroy = true; 
+                } else if (now - s.expire_time > 86400) {
+                    // 常规日程：保留 24 小时在“收容所”供查看
+                    should_destroy = true; 
+                }
+            }
+
+            if (should_destroy)
+            {
+                for (int j = i; j < sysConfig.schedule_count - 1; j++)
+                    sysConfig.schedules[j] = sysConfig.schedules[j + 1];
+                sysConfig.schedule_count--;
+                need_save = true;
+                i--; // 游标回退
+                continue;
+            }
+
+            // 处理到点引爆
+            if (!s.is_expired && now >= s.target_time)
+            {
+                s.is_expired = true;
+                s.expire_time = now;
+                s.is_restored = false;
+                need_save = true;
+
+                if (s.prescript.length() == 0)
+                    PushNotify_Trigger_Random(false);
+                else
+                    PushNotify_Trigger_Custom(s.prescript.c_str(), false);
+                
+                // 💡 妙笔：引爆后 is_expired 变为 true。
+                // 到了下一秒的循环，隐秘日程就会被上面的 should_destroy 瞬间碾碎！
+            }
+        }
+        if (need_save)
+            sysConfig.save();
+    }
+
 };
 // === 日程表专用的邮局拆包回调 ===
 void _Cb_SchAdd(void *payload)

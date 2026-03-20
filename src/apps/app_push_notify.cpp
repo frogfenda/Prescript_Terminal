@@ -16,7 +16,7 @@ void PushNotify_Trigger_Random(bool keep_stack)
 {
     g_push_notify_mode = 0;
     g_push_notify_keep_stack = keep_stack;
-
+    appManager.resetIdleTimer();
     if (keep_stack)
     {
         // 如果当前已经在闪烁或解码，直接平滑替换，避免 pop 引起底层菜单闪烁
@@ -40,7 +40,7 @@ void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
     g_push_notify_mode = 1;
     snprintf(g_push_notify_text, sizeof(g_push_notify_text), "%s", text);
     g_push_notify_keep_stack = keep_stack;
-
+    appManager.resetIdleTimer();
     if (keep_stack)
     {
         if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)

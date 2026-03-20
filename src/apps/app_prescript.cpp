@@ -54,15 +54,9 @@ private:
     };
     State m_state;
 
-    uint8_t *wav_procedure_data = nullptr;
-    uint32_t wav_procedure_len = 0;
-
-    uint8_t *wav_final_data = nullptr;
-    uint32_t wav_final_len = 0;
-
     void playProcedureSound()
     {
-        if (!wav_procedure_data)
+        if (!g_wav_procedure)
             SYS_SOUND_GLITCH();
     }
 
@@ -325,7 +319,7 @@ private:
         // ==========================================
         // 【核心点燃】：在长达数秒的动画循环开始前，命令副核无限循环 procedure 音效！
         // ==========================================
-        if (wav_procedure_data)
+        if (g_wav_procedure)
         {
             // 【修改】：不再操作 g_audio_loop，直接用 playWAV 的第三个参数 true 开启循环！
             sysAudio.playWAV(g_wav_procedure, g_wav_procedure_len, true);
@@ -912,10 +906,10 @@ private:
         // 【终极打断】：强行解除硬件无限循环，并切歌！
         // ==========================================
         sysAudio.stopWAV(); // 【修改】：一键优雅停止
-        if (wav_final_data)
+        if (g_wav_final)
         {
             // 参数3为 false，代表这声极具压迫感的解码音效只播放一次
-            sysAudio.playWAV(wav_final_data, wav_final_len, false);
+            sysAudio.playWAV(g_wav_final, g_wav_final_len, false);
         }
         else
         {

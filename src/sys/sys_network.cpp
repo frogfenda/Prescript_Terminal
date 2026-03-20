@@ -24,19 +24,18 @@ TempApiCmd g_api_cmd_mag[5]; // 弹匣容量：一次最多拉取 5 条隐秘指
 volatile int g_api_cmd_count = 0;
 
 // 【幽灵间谍线程】：专门负责在后台忍受网络延迟
-// 【幽灵间谍线程】：专门负责在后台忍受网络延迟
 void api_fetch_bg_task(void *pvParameters) {
     
     // ==========================================
-    // 【核心修复 1】：HTTPS 必须使用安全客户端，并跳过证书校验！
+    // 【核心修复】：彻底抛弃 SSL，改用轻量级普通客户端！
     // ==========================================
-    WiFiClientSecure client;
-    client.setInsecure(); // 极其重要：跳过 SSL 证书强制校验，防止报错或握手失败
+    WiFiClient client; // 【极其重要】：去掉了 Secure！不再需要 setInsecure()！
     
     HTTPClient http;
-    // 把 client 塞进 begin 函数里
-    http.begin(client, "https://index.dimension-404.cloud/api/schedule/sync"); 
-    http.setTimeout(5000); 
+
+    // 使用明文 HTTP 协议，速度极快，内存占用几乎为零！
+    http.begin(client, "http://index.dimension-404.cloud/api/schedule/sync"); 
+    http.setTimeout(4000); 
     
     int httpCode = http.GET();
     if (httpCode == 200) {
@@ -44,14 +43,18 @@ void api_fetch_bg_task(void *pvParameters) {
         
         JsonDocument doc; 
         if (!deserializeJson(doc, payload)) {
-            JsonArray arr = doc.as<JsonArray>();
+           JsonArray arr = doc.as<JsonArray>();
             int count = 0;
             for (JsonObject obj : arr) {
                 if (count >= 5) break; 
                 
-                g_api_cmd_mag[count].tt = obj["tt"] | 0;
-                g_api_cmd_mag[count].tl = obj["tl"] | "隐秘行动";
-                g_api_cmd_mag[count].ps = obj["ps"] | "";
+                // ==========================================
+                // 【核心修复】：精准匹配你全新的 API 键名！
+                // ==========================================
+                g_api_cmd_mag[count].tt = obj["time"] | 0;         // 从 "tt" 改为 "time"
+                g_api_cmd_mag[count].tl = obj["title"] | "隐秘行动"; // 从 "tl" 改为 "title"
+                g_api_cmd_mag[count].ps = obj["ps"] | "";          // 这个没变，保持原样
+                
                 count++;
             }
             g_api_cmd_count = count; 
