@@ -3,6 +3,7 @@
 #include "app_menu_base.h"
 #include "app_manager.h"
 #include "sys_config.h"
+#include "sys_event.h"
 
 int g_alarm_edit_idx = -1;
 extern AppBase *appAlarmEdit;
@@ -41,44 +42,6 @@ void Alarm_DeleteMobile(const char *name)
         sysConfig.save();
 }
 
-void Alarm_UpdateBackground()
-{
-    static uint32_t last_check = 0;
-    if (millis() - last_check < 1000)
-        return;
-    last_check = millis();
-
-    time_t now;
-    time(&now);
-    if (now < 1000000000)
-        return;
-
-    struct tm timeinfo;
-    localtime_r(&now, &timeinfo);
-
-    static int last_trigger_min = -1;
-    static bool missed_alarm_pending = false;
-    static int pending_alarm_idx = -1;
-
-    if (timeinfo.tm_min != last_trigger_min)
-    {
-        for (int i = 0; i < sysConfig.alarm_count; i++)
-        {
-            if (sysConfig.alarms[i].is_active && sysConfig.alarms[i].hour == timeinfo.tm_hour && sysConfig.alarms[i].min == timeinfo.tm_min)
-            {
-                missed_alarm_pending = true;
-                pending_alarm_idx = i;
-                last_trigger_min = timeinfo.tm_min;
-                break;
-            }
-        }
-    }
-    if (missed_alarm_pending)
-    {
-        missed_alarm_pending = false;
-        PushNotify_Trigger_Custom(sysConfig.alarms[pending_alarm_idx].prescript.c_str(), false);
-    }
-}
 
 class AppAlarmEdit : public AppBase
 {
@@ -347,6 +310,61 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
+    void onBackgroundTick() override 
+    {
+        static uint32_t last_check = 0;
+        if (millis() - last_check < 1000) return;
+        last_check = millis();
+
+        time_t now; time(&now);
+        if (now < 1000000000) return;
+
+        struct tm timeinfo;
+        localtime_r(&now, &timeinfo);
+
+        static int last_trigger_min = -1;
+        static bool missed_alarm_pending = false;
+        static int pending_alarm_idx = -1;
+
+        // 每分钟只判定一次，防止同一分钟内无限狂响
+        if (timeinfo.tm_min != last_trigger_min)
+        {
+            for (int i = 0; i < sysConfig.alarm_count; i++)
+            {
+                if (sysConfig.alarms[i].is_active && 
+                    sysConfig.alarms[i].hour == timeinfo.tm_hour && 
+                    sysConfig.alarms[i].min == timeinfo.tm_min)
+                {
+                    missed_alarm_pending = true;
+                    pending_alarm_idx = i;
+                    last_trigger_min = timeinfo.tm_min;
+                    break;
+                }
+            }
+        }
+        
+        // 到点拉起通知
+        if (missed_alarm_pending)
+        {
+            missed_alarm_pending = false;
+            PushNotify_Trigger_Custom(sysConfig.alarms[pending_alarm_idx].prescript.c_str(), false);
+        }
+    }
 };
+// === 闹钟专用的邮局拆包回调 ===
+void _Cb_AlmAdd(void* payload) {
+    Evt_AlmAdd_t* p = (Evt_AlmAdd_t*)payload;
+    Alarm_AddPresetMobile(p->name, p->hour, p->min, p->text);
+}
+
+void _Cb_AlmDel(void* payload) {
+    Evt_AlmDel_t* p = (Evt_AlmDel_t*)payload;
+    Alarm_DeleteMobile(p->name);
+}
+
+void Alarm_InitEvents() {
+    SysEvent_Subscribe(EVT_ALARM_ADD, _Cb_AlmAdd);
+    SysEvent_Subscribe(EVT_ALARM_DEL, _Cb_AlmDel);
+}
 AppAlarmMenu instanceAlarmMenu;
 AppBase *appAlarm = &instanceAlarmMenu;

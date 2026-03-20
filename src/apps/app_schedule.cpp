@@ -4,6 +4,7 @@
 #include "app_manager.h"
 #include "sys_config.h"
 #include <time.h>
+#include "sys_event.h"
 
 int g_schedule_edit_idx = -1;
 extern AppBase *appScheduleEdit;
@@ -73,46 +74,6 @@ void Schedule_AddMobile(uint32_t target_time, const char *title, const char *tex
     sysConfig.schedule_count++;
     Sort_Schedules();
     sysConfig.save();
-}
-
-void Schedule_UpdateBackground()
-{
-    static uint32_t last_check = 0;
-    if (millis() - last_check < 1000)
-        return;
-    last_check = millis();
-    time_t now;
-    time(&now);
-    if (now < 1000000000)
-        return;
-
-    bool need_save = false;
-    for (int i = 0; i < sysConfig.schedule_count; i++)
-    {
-        ScheduleItem &s = sysConfig.schedules[i];
-        if (s.is_expired && (now - s.expire_time > 86400))
-        {
-            for (int j = i; j < sysConfig.schedule_count - 1; j++)
-                sysConfig.schedules[j] = sysConfig.schedules[j + 1];
-            sysConfig.schedule_count--;
-            need_save = true;
-            i--;
-            continue;
-        }
-        if (!s.is_expired && now >= s.target_time)
-        {
-            s.is_expired = true;
-            s.expire_time = now;
-            s.is_restored = false;
-            need_save = true;
-            if (s.prescript.length() == 0)
-                PushNotify_Trigger_Random(false);
-            else
-                PushNotify_Trigger_Custom(s.prescript.c_str(), false);
-        }
-    }
-    if (need_save)
-        sysConfig.save();
 }
 
 class AppScheduleEdit : public AppBase
@@ -452,6 +413,51 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
+    void onBackgroundTick() override
+    {
+        static uint32_t last_check = 0;
+        if (millis() - last_check < 1000)
+            return; // 1秒检查一次
+        last_check = millis();
+
+        time_t now;
+        time(&now);
+        if (now < 1000000000)
+            return; // 时间没对准时不查
+
+        bool need_save = false;
+        for (int i = 0; i < sysConfig.schedule_count; i++)
+        {
+            ScheduleItem &s = sysConfig.schedules[i];
+
+            // 处理过期销毁 (超过24小时自动粉碎)
+            if (s.is_expired && (now - s.expire_time > 86400))
+            {
+                for (int j = i; j < sysConfig.schedule_count - 1; j++)
+                    sysConfig.schedules[j] = sysConfig.schedules[j + 1];
+                sysConfig.schedule_count--;
+                need_save = true;
+                i--;
+                continue;
+            }
+
+            // 处理到点引爆
+            if (!s.is_expired && now >= s.target_time)
+            {
+                s.is_expired = true;
+                s.expire_time = now;
+                s.is_restored = false;
+                need_save = true;
+
+                if (s.prescript.length() == 0)
+                    PushNotify_Trigger_Random(false);
+                else
+                    PushNotify_Trigger_Custom(s.prescript.c_str(), false);
+            }
+        }
+        if (need_save)
+            sysConfig.save();
+    }
 };
 AppScheduleExpired instanceScheduleExpired;
 AppBase *appScheduleExpired = &instanceScheduleExpired;
@@ -521,7 +527,7 @@ public:
     {
         active_count = 0;
         for (int i = 0; i < sysConfig.schedule_count; i++)
-           if(!sysConfig.schedules[i].is_expired && !sysConfig.schedules[i].is_hidden) 
+            if (!sysConfig.schedules[i].is_expired && !sysConfig.schedules[i].is_hidden)
                 active_indices[active_count++] = i;
         if (current_selection >= getMenuCount())
             current_selection = getMenuCount() - 1;
@@ -530,5 +536,21 @@ public:
         AppMenuBase::onResume();
     }
 };
+// === 日程表专用的邮局拆包回调 ===
+void _Cb_SchAdd(void* payload) {
+    Evt_SchAdd_t* p = (Evt_SchAdd_t*)payload;
+    Schedule_AddMobile(p->tt, p->title, p->text, p->is_hidden);
+}
+
+void _Cb_SchDel(void* payload) {
+    Evt_SchDel_t* p = (Evt_SchDel_t*)payload;
+    Schedule_DeleteMobile(p->title);
+}
+
+// 供系统开机时调用的注册入口
+void Schedule_InitEvents() {
+    SysEvent_Subscribe(EVT_SCHEDULE_ADD, _Cb_SchAdd);
+    SysEvent_Subscribe(EVT_SCHEDULE_DEL, _Cb_SchDel);
+}
 AppScheduleMenu instanceScheduleMenu;
 AppBase *appSchedule = &instanceScheduleMenu;

@@ -28,7 +28,8 @@ private:
     uint32_t last_tick;
 
     SystemLang_t current_lang;
-
+    AppBase* bg_apps[10]; 
+    uint8_t bg_app_count = 0;
     AppBase *navStack[MAX_NAV_STACK];
     int stackTop;
 
@@ -44,7 +45,8 @@ public:
     
     void run();
     void resetIdleTimer();
-
+    void registerBackgroundApp(AppBase* app);
+    
     SystemLang_t getLanguage() { return current_lang; }
     void toggleLanguage() { current_lang = (current_lang == LANG_EN) ? LANG_ZH : LANG_EN; }
     AppBase *getCurrentApp() { return currentApp; }
@@ -79,9 +81,7 @@ void Prescript_Launch_Custom_Wait(const char *custom_text);
 void PushNotify_Trigger_Random(bool keep_stack = false);
 void PushNotify_Trigger_Custom(const char *custom_text, bool keep_stack = false);
 void Alarm_DeleteMobile(const char *name);
-void Alarm_UpdateBackground();
 void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text);
-void Schedule_UpdateBackground();
 void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden = false);
 void Schedule_DeleteMobile(const char *title);
 // ==========================================

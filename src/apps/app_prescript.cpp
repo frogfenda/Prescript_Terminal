@@ -7,6 +7,7 @@
 #include <LittleFS.h>
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
+#include "sys/sys_res.h"
 
 class AppPrescript : public AppBase
 {

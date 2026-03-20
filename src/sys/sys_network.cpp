@@ -5,6 +5,8 @@
 #include <time.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <WiFiClientSecure.h> // 【新增】：处理 HTTPS 必须引入的库
+#include "sys_router.h"
 
 // ==========================================
 // 【隐秘炸弹】跨线程通信弹匣 (支持多发连射)
@@ -22,31 +24,37 @@ TempApiCmd g_api_cmd_mag[5]; // 弹匣容量：一次最多拉取 5 条隐秘指
 volatile int g_api_cmd_count = 0;
 
 // 【幽灵间谍线程】：专门负责在后台忍受网络延迟
+// 【幽灵间谍线程】：专门负责在后台忍受网络延迟
 void api_fetch_bg_task(void *pvParameters) {
+    
+    // ==========================================
+    // 【核心修复 1】：HTTPS 必须使用安全客户端，并跳过证书校验！
+    // ==========================================
+    WiFiClientSecure client;
+    client.setInsecure(); // 极其重要：跳过 SSL 证书强制校验，防止报错或握手失败
+    
     HTTPClient http;
-    // 【警告】这里替换成你的真实 JSON API 网址
-    http.begin("https://index.dimension-404.cloud/api/schedule/sync"); 
+    // 把 client 塞进 begin 函数里
+    http.begin(client, "https://index.dimension-404.cloud/api/schedule/sync"); 
     http.setTimeout(5000); 
     
     int httpCode = http.GET();
     if (httpCode == 200) {
         String payload = http.getString();
         
-        // 动态计算 JSON 大小，防止多条数据导致内存溢出
         JsonDocument doc; 
         if (!deserializeJson(doc, payload)) {
-            // 【核心升级】：按照“数组”格式遍历解析！
             JsonArray arr = doc.as<JsonArray>();
             int count = 0;
             for (JsonObject obj : arr) {
-                if (count >= 5) break; // 防呆保护：最多装填5发，防止内存越界
+                if (count >= 5) break; 
                 
                 g_api_cmd_mag[count].tt = obj["tt"] | 0;
                 g_api_cmd_mag[count].tl = obj["tl"] | "隐秘行动";
                 g_api_cmd_mag[count].ps = obj["ps"] | "";
                 count++;
             }
-            g_api_cmd_count = count; // 记录实际装填了多少发
+            g_api_cmd_count = count; 
             g_api_fetch_success = true;
         }
     }
@@ -155,16 +163,15 @@ void Network_Update()
     else if (g_state == NET_SYNCING_NTP)
     {
         struct tm timeinfo;
-        // 快速尝试获取时间，10ms超时，非阻塞
+        // 【防卡顿机制】：0毫秒非阻塞查询，绝对不卡主线程UI动画！
         if (getLocalTime(&timeinfo, 0))
         {
-            // 【修改点 1】：对时成功后，进入拉取状态并释放幽灵线程！
             g_state = NET_FETCHING_API;
             g_api_fetch_done = false;
             g_api_fetch_success = false;
 
-            // 启动后台间谍！把它扔在核心 0 上默默干活，不抢 UI 动画的资源
-            xTaskCreatePinnedToCore(api_fetch_bg_task, "API_Task", 4096, NULL, 1, NULL, 0);
+            // 启动后台间谍线程拉取 API (分配 10KB 内存防 HTTPS 爆栈)
+            xTaskCreatePinnedToCore(api_fetch_bg_task, "API_Task", 10240, NULL, 1, NULL, 0);
         }
         else if (millis() - g_ntp_start_time > 10000)
         {
@@ -183,43 +190,47 @@ void Network_Update()
                 }
             }
         }
-    // ==========================================
-    // 【新增幽灵线程的“接应点”】
-    // ==========================================
-    } else if (g_state == NET_FETCHING_API) {
-        if (g_api_fetch_done) {
+    }
+    else if (g_state == NET_FETCHING_API)
+    {
+        // 幽灵线程下载完毕，回到主线程接应
+        if (g_api_fetch_done)
+        {
             g_state = NET_SYNC_SUCCESS;
             
-            // 【核心升级】：如果成功截获了指令阵列
-            if (g_api_fetch_success && g_api_cmd_count > 0) {
+            // 如果成功截获了指令阵列
+            if (g_api_fetch_success && g_api_cmd_count > 0)
+            {
                 Serial.printf("[API] 成功截获 %d 条隐秘指令！\n", g_api_cmd_count);
                 
-                extern void Schedule_AddMobile(uint32_t, const char*, const char*, bool);
-                
-                // 像机枪一样连续种下隐形炸弹
-                for (int i = 0; i < g_api_cmd_count; i++) {
-                    if (g_api_cmd_mag[i].tt > 0) {
-                        Schedule_AddMobile(g_api_cmd_mag[i].tt, 
-                                           g_api_cmd_mag[i].tl.c_str(), 
-                                           g_api_cmd_mag[i].ps.c_str(), 
-                                           true); // true = 绝对隐形！
+                // 【第二刀解耦机制】：网络模块不再亲自写硬盘，而是把数据抛给路由中心！
+                for (int i = 0; i < g_api_cmd_count; i++)
+                {
+                    if (g_api_cmd_mag[i].tt > 0)
+                    {
+                        SysRouter_ProcessAPI(g_api_cmd_mag[i].tt, 
+                                             g_api_cmd_mag[i].tl, 
+                                             g_api_cmd_mag[i].ps);
                         delay(50); // 给一点点时间让 LittleFS 写入硬盘，防卡顿
                     }
                 }
             }
 
             // 间谍任务彻底结束，执行“拔网线”撤退逻辑，极限省电！
-            if (g_bg_sync_active) {
+            if (g_bg_sync_active)
+            {
                 g_bg_sync_active = false;
-                if (!g_bg_was_connected) {
+                if (!g_bg_was_connected)
+                {
                     Network_Disconnect(); 
-                } else {
+                }
+                else
+                {
                     g_is_connecting = false; 
                 }
             }
         }
     }
-    
     else if (g_state == NET_SYNC_SUCCESS)
     {
         // 如果是正常长期联网，到达成功后停止轮询，保持连接

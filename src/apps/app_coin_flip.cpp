@@ -5,6 +5,7 @@
 #include <LittleFS.h>
 #include "sys/sys_config.h"
 #include "sys/sys_audio.h"
+#include "sys/sys_res.h"
 
 const int SRC_COIN_SIZE = 64;
 

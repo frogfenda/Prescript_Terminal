@@ -19,7 +19,9 @@ public:
     virtual void onKnob(int delta) = 0;
     virtual void onKeyShort() = 0;
     virtual void onKeyLong() = 0;
-
+// 【新增】：后台滴答钩子。哪怕 App 没显示在屏幕上，系统也会在后台呼叫它！
+    virtual void onBackgroundTick() {}
+    
 protected:
     float edit_anim_progress = 0.0f; 
     int   edit_anim_dir = 0;         
