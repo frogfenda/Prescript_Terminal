@@ -9,6 +9,7 @@
 #include "hal.h"
 #include "app_manager.h"
 #include "sys/sys_audio.h"
+#include "sys_haptic.h"
 
 void setup() {
     setCpuFrequencyMhz(80);
@@ -27,7 +28,7 @@ void setup() {
     sysAudio.begin();
     HAL_Init();
     appManager.begin();
-
+    sysHaptic.begin();
     SysAutoPush_Init(); 
     SysBLE_Init(); 
     Network_AutoSyncTask(); 

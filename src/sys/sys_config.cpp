@@ -29,7 +29,6 @@ void SysConfig::load()
         sleep_time_ms = 30000;
         true_sleep_time_ms = 0xFFFFFFFF;
         decode_anim_style = 0;
-
         auto_push_enable = false;
         auto_push_min_min = 30;
         auto_push_max_min = 120;
@@ -49,7 +48,8 @@ void SysConfig::load()
 
         alarm_count = 0;
         schedule_count = 0;
-
+        haptic_enable = true;
+        haptic_intensity = 3; // 默认拉满！
         // [大扫除]：删除了旧版 custom_prescript_count = 0; 的初始化
 
         // 生成默认文件并保存
@@ -127,6 +127,9 @@ void SysConfig::load()
         schedules[i].is_restored = sc_arr[i]["rs"] | false;
         schedules[i].is_hidden = sc_arr[i]["hd"] | false; // 【新增】：读取隐藏属性
     }
+    // load() 里面加：
+    haptic_enable = doc["hap_en"] | true;
+    haptic_intensity = doc["hap_in"] | 3;
 
     // [大扫除]：彻底删除了所有跟 cp_arr 解析相关的代码！
 }
@@ -190,7 +193,9 @@ void SysConfig::save()
     coin_node["coin_count"] = coin_data.coin_count;
     coin_node["coin_type"] = coin_data.coin_type; // 【新增写入】
     // [大扫除]：彻底删除了所有跟 custom_p 写入硬盘相关的代码！
-
+    // save() 里面加：
+    doc["hap_en"] = haptic_enable;
+    doc["hap_in"] = haptic_intensity;
     // ==========================================
     // 序列化并写入硬盘
     // ==========================================

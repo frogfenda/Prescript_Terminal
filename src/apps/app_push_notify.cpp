@@ -3,6 +3,7 @@
 #include "app_manager.h"
 #include <stdio.h>
 #include <string.h>
+#include "sys_haptic.h"
 
 int g_push_notify_mode = 0; // 0: random(抽卡), 1: custom(日程闹钟)
 char g_push_notify_text[512] = {0};
@@ -84,7 +85,7 @@ public:
             show_text = !show_text;
             if (show_text)
                 sysAudio.playTone(2500, 50);
-
+                SYS_HAPTIC_ALERT();
             HAL_Sprite_Clear();
             if (show_text)
             {

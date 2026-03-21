@@ -6,7 +6,7 @@
 #include "sys/sys_config.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_res.h"
-
+#include "sys_haptic.h"
 const int SRC_COIN_SIZE = 64;
 
 namespace CoinAnimParams
@@ -36,8 +36,6 @@ private:
     uint16_t *img_heads = nullptr;
     uint16_t *img_tails = nullptr;
     uint16_t *coin_buffer = nullptr;
-
-
 
     CoinEntity coins[9]; // 【封印彻底解除】：支持 9 枚实体！
     int active_coins = 1;
@@ -87,8 +85,6 @@ private:
             f2.read((uint8_t *)img_tails, SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
             f2.close();
         }
-
-       
     }
 
     void drawScaledCoinToBuffer(int idx, float scaleX, int target_size)
@@ -229,6 +225,7 @@ private:
                 sysAudio.playWAV(g_wav_heads, g_wav_heads_len);
             else
                 SYS_SOUND_CONFIRM();
+            SYS_HAPTIC_COIN_HEADS();
         }
         else
         {
@@ -236,6 +233,7 @@ private:
                 sysAudio.playWAV(g_wav_tails, g_wav_tails_len);
             else
                 SYS_SOUND_NAV();
+            SYS_HAPTIC_COIN_TAILS();
         }
     }
 
@@ -331,8 +329,6 @@ public:
             free(coin_buffer);
             coin_buffer = nullptr;
         }
-
- 
     }
 
     void onKnob(int delta) override {}
@@ -375,8 +371,8 @@ public:
     void onKeyLong() override
     {
 
-            SYS_SOUND_NAV();
-            appManager.popApp();
+        SYS_SOUND_NAV();
+        appManager.popApp();
     }
 };
 

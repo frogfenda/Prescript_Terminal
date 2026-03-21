@@ -8,6 +8,7 @@
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_res.h"
+#include "sys_haptic.h"
 
 class AppPrescript : public AppBase
 {
@@ -910,6 +911,7 @@ private:
         {
             // 参数3为 false，代表这声极具压迫感的解码音效只播放一次
             sysAudio.playWAV(g_wav_final, g_wav_final_len, false);
+            SYS_HAPTIC_DECODE();
         }
         else
         {
