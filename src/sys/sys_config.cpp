@@ -50,6 +50,8 @@ void SysConfig::load()
         schedule_count = 0;
         haptic_enable = true;
         haptic_intensity = 3; // 默认拉满！
+        nfc_mode = 0;
+
         // [大扫除]：删除了旧版 custom_prescript_count = 0; 的初始化
 
         // 生成默认文件并保存
@@ -131,6 +133,9 @@ void SysConfig::load()
     haptic_enable = doc["hap_en"] | true;
     haptic_intensity = doc["hap_in"] | 3;
 
+    nfc_mode = doc["nfc_m"] | 0;
+
+
     // [大扫除]：彻底删除了所有跟 cp_arr 解析相关的代码！
 }
 
@@ -196,6 +201,7 @@ void SysConfig::save()
     // save() 里面加：
     doc["hap_en"] = haptic_enable;
     doc["hap_in"] = haptic_intensity;
+    doc["nfc_m"] = nfc_mode;
     // ==========================================
     // 序列化并写入硬盘
     // ==========================================

@@ -11,8 +11,10 @@ enum SysEventID {
     EVT_POMODORO_UPDATE,
     EVT_NOTIFY_CUSTOM,
     EVT_BLE_SYNC_REQ,
+    EVT_NFC_SCANNED,
     EVT_PRESCRIPT_ADD,   // 【新增】：添加都市指令频道
     EVT_PRESCRIPT_DEL   // 【新增】：删除都市指令频道
+    
 };
 
 
@@ -32,6 +34,11 @@ struct Evt_PreAdd_t {
 struct Evt_PreDel_t { 
     int lang; 
     const char* text; 
+};
+// 定义一个 NFC 电报包裹
+struct Evt_NfcScanned_t {
+    char uid[32];     // 卡片的物理 UID
+    char payload[512]; // 解析出的文本指令 (如 "PRE:ZH:生成E.G.O侵蚀警告")
 };
 // 3. 邮局接口声明
 typedef void (*SysEventCallback)(void* payload);

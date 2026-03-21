@@ -24,27 +24,23 @@ void DBArchive_SaveToFile(SystemLang_t lang)
 }
 
 // ==========================================
-// 邮局拆包回调：接收到蓝牙传来的新指令
+// 邮局拆包回调：接收到蓝牙/NFC传来的新指令
 // ==========================================
 void _Cb_PreAdd(void *payload)
 {
     Evt_PreAdd_t *p = (Evt_PreAdd_t *)payload;
     
-    // 1. 获取字符串，并进行“净化”
     String new_text = String(p->text);
-    new_text.trim(); // 极其重要！杀掉尾部可能附带的 \r 或 \n，防止 UI 渲染出空白！
-    if (new_text.length() == 0) return; // 如果是空的，直接丢弃
+    new_text.trim(); 
+    if (new_text.length() == 0) return; 
 
-    // 2. 物理写盘
     extern void DBArchive_AddRecord(SystemLang_t lang, const String &text);
     DBArchive_AddRecord((SystemLang_t)p->lang, new_text);
 
-    // 3. 打印极度显眼的确认日志！
+    // 【真正的修复点】：用 LANG_ZH 来判断，彻底杜绝 0 和 1 的乌龙！
     Serial.printf("[指令库] 成功添加指令到 %s 库: %s\n", 
-                 (p->lang == 0) ? "中文" : "英文", 
+                 (p->lang == LANG_ZH) ? "中文" : "英文", 
                  new_text.c_str());
-
-    // 4. 视觉反馈：强行跳转到最新一条 (确保你已经在类里加上了 refreshUI 函数)
 }
 
 // 接口 1：从外部添加一条新指令到硬盘

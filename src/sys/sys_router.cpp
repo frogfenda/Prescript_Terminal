@@ -158,3 +158,23 @@ void SysRouter_ProcessAPI(uint32_t tt, const String& title, const String& text) 
         SysEvent_Publish(EVT_SCHEDULE_ADD, &payload); // 扔给邮局！
     }
 }
+// ==========================================
+// 【新增】：NFC 物理卡片路由分发中心
+// ==========================================
+void _Cb_NfcScanned(void* payload) {
+    Evt_NfcScanned_t* p = (Evt_NfcScanned_t*)payload;
+    String text = String(p->payload);
+
+    Serial.printf("[路由中心] 收到 NFC 物理卡片指令: %s\n", text.c_str());
+
+    // 【核心魔法】：直接把 NFC 读到的文本，暴力喂给蓝牙的解析管线！
+    // 无论是添加闹钟、日程、番茄钟还是都市指令，瞬间全部生效！
+    SysRouter_ProcessBLE(text);
+
+
+}
+
+// 在系统初始化时，订阅 NFC 频道的电报
+void SysRouter_Init() {
+    SysEvent_Subscribe(EVT_NFC_SCANNED, _Cb_NfcScanned);
+}
