@@ -1,3 +1,4 @@
+// 文件：src/sys/sys_nfc.cpp
 #include "sys_nfc.h"
 #include "sys_config.h"
 #include "sys_event.h"
@@ -12,16 +13,12 @@
 #define PIN_NFC_SCK   1
 #define PIN_NFC_MISO  2
 #define PIN_NFC_MOSI  47
-#define PIN_NFC_SS    15  // 如果你之前改成了 46，请在这里改回 46
+#define PIN_NFC_SS    15 // 已经隔离，防屏幕白屏串扰
 #define PIN_NFC_RESET 39
 
-// 【降维打击】：实例化一个独立的硬件 SPI 总线 (HSPI)
 SPIClass nfc_spi(HSPI);
-
-// 将独立的硬件总线传给 Adafruit 官方库，彻底脱离屏幕所在的默认总线！
 Adafruit_PN532 nfc(PIN_NFC_SS, &nfc_spi);
 
-// PN532 专属的硬件通讯规范：1MHz, 低位在前, 模式0
 static const SPISettings pn532_spi_settings(1000000, LSBFIRST, SPI_MODE0);
 
 SysNFC sysNfc;
@@ -53,16 +50,12 @@ uint8_t ndef_file[] = {
     'c','o','m','.','P','r','o','j','e','c','t','M','o','o','n','.','L','i','m','b','u','s','C','o','m','p','a','n','y'
 };
 
-// ==========================================
-// 【引擎升级】：纯粹的硬件级 SPI 穿透魔法
-// ==========================================
 bool raw_sendCommand(uint8_t* cmd, uint8_t cmdlen) {
-    // 锁定硬件总线
     nfc_spi.beginTransaction(pn532_spi_settings);
     
     digitalWrite(PIN_NFC_SS, LOW);
     delay(2);
-    nfc_spi.transfer(0x01); // DATA_WRITE
+    nfc_spi.transfer(0x01); 
     nfc_spi.transfer(0x00); nfc_spi.transfer(0x00); nfc_spi.transfer(0xFF);
     
     uint8_t len = cmdlen + 1;
@@ -77,13 +70,12 @@ bool raw_sendCommand(uint8_t* cmd, uint8_t cmdlen) {
     nfc_spi.transfer(~sum + 1); nfc_spi.transfer(0x00);
     digitalWrite(PIN_NFC_SS, HIGH);
 
-    // 轮询 Ready 状态
     uint16_t t = 1000;
     bool isReady = false;
     while(t > 0) { 
         digitalWrite(PIN_NFC_SS, LOW);
         delay(2);
-        nfc_spi.transfer(0x02); // STATUS_READ
+        nfc_spi.transfer(0x02); 
         uint8_t status = nfc_spi.transfer(0x00);
         digitalWrite(PIN_NFC_SS, HIGH);
         
@@ -97,14 +89,13 @@ bool raw_sendCommand(uint8_t* cmd, uint8_t cmdlen) {
         return false;
     }
 
-    // 读取 ACK 帧
     digitalWrite(PIN_NFC_SS, LOW);
     delay(1);
-    nfc_spi.transfer(0x03); // DATA_READ
+    nfc_spi.transfer(0x03); 
     for(int i = 0; i < 6; i++) nfc_spi.transfer(0x00); 
     digitalWrite(PIN_NFC_SS, HIGH);
 
-    nfc_spi.endTransaction(); // 释放硬件总线
+    nfc_spi.endTransaction(); 
     return true;
 }
 
@@ -116,7 +107,7 @@ int raw_readResponse(uint8_t* buf, uint8_t maxlen, uint16_t timeout) {
     while(t > 0) { 
         digitalWrite(PIN_NFC_SS, LOW);
         delay(2);
-        nfc_spi.transfer(0x02); // STATUS_READ
+        nfc_spi.transfer(0x02); 
         uint8_t status = nfc_spi.transfer(0x00);
         digitalWrite(PIN_NFC_SS, HIGH);
         
@@ -132,7 +123,7 @@ int raw_readResponse(uint8_t* buf, uint8_t maxlen, uint16_t timeout) {
 
     digitalWrite(PIN_NFC_SS, LOW);
     delay(1);
-    nfc_spi.transfer(0x03); // DATA_READ
+    nfc_spi.transfer(0x03); 
 
     if (nfc_spi.transfer(0x00) != 0x00 || nfc_spi.transfer(0x00) != 0x00 || nfc_spi.transfer(0x00) != 0xFF) {
         digitalWrite(PIN_NFC_SS, HIGH); nfc_spi.endTransaction(); return -1;
@@ -143,8 +134,8 @@ int raw_readResponse(uint8_t* buf, uint8_t maxlen, uint16_t timeout) {
         digitalWrite(PIN_NFC_SS, HIGH); nfc_spi.endTransaction(); return -1;
     }
 
-    nfc_spi.transfer(0x00); // D5
-    nfc_spi.transfer(0x00); // CMD
+    nfc_spi.transfer(0x00); 
+    nfc_spi.transfer(0x00); 
     
     int actual_len = len - 2;
     for(int i = 0; i < actual_len; i++) {
@@ -152,8 +143,8 @@ int raw_readResponse(uint8_t* buf, uint8_t maxlen, uint16_t timeout) {
         if (i < maxlen) buf[i] = b;
     }
     
-    nfc_spi.transfer(0x00); // Checksum
-    nfc_spi.transfer(0x00); // Postamble
+    nfc_spi.transfer(0x00); 
+    nfc_spi.transfer(0x00); 
     digitalWrite(PIN_NFC_SS, HIGH);
     
     nfc_spi.endTransaction();
@@ -170,6 +161,28 @@ void raw_reset() {
     vTaskDelay(pdMS_TO_TICKS(2));
     digitalWrite(PIN_NFC_SS, HIGH);
     vTaskDelay(pdMS_TO_TICKS(10));
+}
+
+// ==========================================
+// 【低功耗控制接口】：随时物理断电
+// ==========================================
+void SysNfc_Sleep() {
+    if (nfcTaskHandle != NULL) {
+        vTaskSuspend(nfcTaskHandle);
+    }
+    digitalWrite(PIN_NFC_RESET, LOW);
+    Serial.println("[NFC-电源管理] 模块已进入深度休眠，射频天线关闭 (1µA)。");
+}
+
+void SysNfc_Wakeup() {
+    digitalWrite(PIN_NFC_RESET, HIGH);
+    vTaskDelay(pdMS_TO_TICKS(50)); 
+    nfc.begin();
+    nfc.SAMConfig();
+    if (nfcTaskHandle != NULL) {
+        vTaskResume(nfcTaskHandle);
+    }
+    Serial.println("[NFC-电源管理] 模块已唤醒，恢复主动雷达扫描。");
 }
 
 void nfc_bg_task(void *pvParameters)
@@ -224,12 +237,24 @@ void nfc_bg_task(void *pvParameters)
                     int current_file = 0; 
                     bool payload_delivered = false; 
                     
+                    int timeout_err_cnt = 0; 
+                    
                     while (g_nfc_is_emulating && millis() < g_nfc_emu_end_time) {
                         uint8_t tgGet[] = { 0x86 };
                         if (!raw_sendCommand(tgGet, 1)) break;
                         
-                        int apdu_len = raw_readResponse(response, sizeof(response), 1000);
-                        if (apdu_len <= 1) continue; 
+                        int apdu_len = raw_readResponse(response, sizeof(response), 500);
+                        
+                        if (apdu_len <= 1) {
+                            timeout_err_cnt++;
+                            if (timeout_err_cnt >= 3) {
+                                Serial.println("[NFC-硬件SPI] APDU 交互超时！手机可能已移开，斩断隧道...");
+                                break; 
+                            }
+                            continue; 
+                        }
+                        
+                        timeout_err_cnt = 0;
                         
                         uint8_t* apdu = &response[1];
                         apdu_len -= 1;
@@ -285,8 +310,13 @@ void nfc_bg_task(void *pvParameters)
                             break; 
                         }
                     }
-                    Serial.println("[NFC-硬件SPI] 载荷投递完毕！准备迎接下一次碰触...");
-                    sysHaptic.playConfirm();
+                    
+                    if (payload_delivered) {
+                        Serial.println("[NFC-硬件SPI] 载荷投递成功！准备迎接下一次碰触...");
+                        sysHaptic.playConfirm();
+                    } else {
+                        Serial.println("[NFC-硬件SPI] 隧道已重置，继续保持靶卡伪装...");
+                    }
 
                     vTaskDelay(pdMS_TO_TICKS(1500));
                     raw_reset(); 
@@ -298,19 +328,22 @@ void nfc_bg_task(void *pvParameters)
             continue; 
         }
 
-        // =====================================
-        // 日常读卡区 保持不变
+// =====================================
+        // 日常读卡区
         // =====================================
         uint8_t uid[] = {0, 0, 0, 0, 0, 0, 0};
         uint8_t uidLength;
-        bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 200);
+        // 【核心功耗压制】：只发波 40 毫秒！
+        bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 40);
 
         if (success) {
+            // 【新增防抖魔法 1】：刚扫到卡时，人的手还在运动！强行等待 150ms 让手放稳！
+            vTaskDelay(pdMS_TO_TICKS(150)); 
+
             Evt_NfcScanned_t payload = {0};
             if (uidLength == 4) {
                 sprintf(payload.uid, "%02X%02X%02X%02X", uid[0], uid[1], uid[2], uid[3]);
                 Serial.printf("[NFC-官方] 发现 M1 卡, UID: %s\n", payload.uid);
-                vTaskDelay(pdMS_TO_TICKS(50));
 
                 uint8_t key_factory[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
                 uint8_t key_ndef[6] = {0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7};
@@ -324,6 +357,7 @@ void nfc_bg_task(void *pvParameters)
                     int block = data_blocks[i];
                     bool auth_success = false;
 
+                    // M1 卡每次读块都重新验证秘钥，防止手抖导致密码状态丢失
                     if (nfc.mifareclassic_AuthenticateBlock(uid, uidLength, block, 0, key_ndef)) auth_success = true;
                     else if (nfc.mifareclassic_AuthenticateBlock(uid, uidLength, block, 0, key_factory)) auth_success = true;
 
@@ -336,18 +370,21 @@ void nfc_bg_task(void *pvParameters)
                                 if (b == 0xFF || b == 0x00) continue;
                                 if ((b >= 32 && b <= 126) || b >= 128) raw_text += (char)b;
                             }
-                            i++; retry_count = 0; 
+                            i++; retry_count = 0; // 成功则进入下一块，清零计数器
                         } else {
                             retry_count++;
-                            if (retry_count > 3) break;                     
-                            vTaskDelay(pdMS_TO_TICKS(10)); 
+                            // 【核心修复 2】：重试次数从 3 次暴涨到 12 次！死缠烂打！
+                            if (retry_count > 12) { Serial.println("[NFC] 扇区读取彻底超时，放弃..."); break; }                    
+                            vTaskDelay(pdMS_TO_TICKS(20)); // 失败后给射频场 20ms 的恢复时间
                         }
                     } else {
                         retry_count++;
-                        if (retry_count > 3) break;
+                        if (retry_count > 12) { Serial.println("[NFC] 秘钥验证彻底超时，放弃..."); break; }
+                        vTaskDelay(pdMS_TO_TICKS(20));
                     }
                 }
 
+                // --- 下方文本提取逻辑保持不变 ---
                 int min_idx = 9999; int idx;
                 if ((idx = raw_text.indexOf("PRE:")) != -1 && idx < min_idx) min_idx = idx;
                 if ((idx = raw_text.indexOf("SCH:")) != -1 && idx < min_idx) min_idx = idx;
@@ -362,12 +399,13 @@ void nfc_bg_task(void *pvParameters)
                     snprintf(payload.payload, sizeof(payload.payload), "%s", clean_text.c_str());
                     sysAudio.playTone(4000, 50); sysHaptic.playConfirm();     
                     SysEvent_Publish(EVT_NFC_SCANNED, &payload);
+                } else {
+                    Serial.println("[NFC] 读卡完成，但未发现有效都市指令标签！");
                 }
             }
             else if (uidLength == 7) {
                 sprintf(payload.uid, "%02X%02X%02X%02X%02X%02X%02X", uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6]);
                 Serial.printf("[NFC-官方] 发现 NTAG, UID: %s\n", payload.uid);
-                vTaskDelay(pdMS_TO_TICKS(50));
                 
                 uint8_t data[4];
                 String raw_text = "";
@@ -386,8 +424,9 @@ void nfc_bg_task(void *pvParameters)
                         page++; retry_count = 0;
                     } else {
                         retry_count++;
-                        if (retry_count > 3) break;                     
-                        vTaskDelay(pdMS_TO_TICKS(10)); 
+                        // 【核心修复 3】：NTAG 同样拉高重试阈值到 12 次！
+                        if (retry_count > 12) { Serial.println("[NFC] 页读取彻底超时，放弃..."); break; }                     
+                        vTaskDelay(pdMS_TO_TICKS(15)); 
                     }
                 }
 
@@ -405,12 +444,17 @@ void nfc_bg_task(void *pvParameters)
                     snprintf(payload.payload, sizeof(payload.payload), "%s", clean_text.c_str());
                     sysAudio.playTone(4000, 50); sysHaptic.playConfirm();     
                     SysEvent_Publish(EVT_NFC_SCANNED, &payload);
+                } else {
+                    Serial.println("[NFC] 读卡完成，但未发现有效都市指令标签！");
                 }
             }
+            // 读完卡后强行休息 1.5 秒，防止同一张卡被疯狂连刷
             vTaskDelay(pdMS_TO_TICKS(1500));
         }
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
+        
+        // 【核心功耗压制】：每次没扫到卡，就去沉睡 400 毫秒！这句保留！
+        vTaskDelay(pdMS_TO_TICKS(400));
+    } // <--- 就是刚才丢了这个右大括号！
 }
 
 void SysNFC::begin()
@@ -421,10 +465,7 @@ void SysNFC::begin()
     digitalWrite(PIN_NFC_RESET, HIGH);
     delay(150);
 
-    // 【点睛之笔】：用指定的引脚唤醒 HSPI 总线，不惊动屏幕的 FSPI 默认总线
     nfc_spi.begin(PIN_NFC_SCK, PIN_NFC_MISO, PIN_NFC_MOSI, -1);
-    
-    // 启动官方库，此时它会自动挂载到我们传入的 nfc_spi 上
     nfc.begin();
     
     uint32_t versiondata = nfc.getFirmwareVersion();

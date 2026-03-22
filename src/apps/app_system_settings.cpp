@@ -16,7 +16,7 @@ protected:
     
     const char* getItemText(int index) override {
         NetworkState state = Network_GetState();
-        bool is_connected = (state == NET_CONNECTED || state == NET_SYNC_SUCCESS || state == NET_SYNCING_NTP);
+        bool is_connected = (state == NET_SYNCING_NTP || state == NET_SYNC_SUCCESS || state == NET_SYNCING_NTP);
 
         if (appManager.getLanguage() == LANG_ZH) {
             if (index == 0) return is_connected ? "断开无线网络" : "连接无线网络"; 

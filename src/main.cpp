@@ -37,7 +37,7 @@ void setup()
     SysBLE_Init();
     Network_Init();
     sysNfc.begin();
-    Network_AutoSyncTask();
+    Network_StartSync();
 }
 
 void loop()

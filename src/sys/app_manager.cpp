@@ -132,7 +132,7 @@ void AppManager::resetIdleTimer() { idle_timer = millis(); }
 
 void AppManager::run()
 {
-   Network_Update();
+
     for (int i = 0; i < bg_app_count; i++)
     {
         bg_apps[i]->onBackgroundTick();

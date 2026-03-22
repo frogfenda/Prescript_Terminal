@@ -1,29 +1,18 @@
 // 文件：src/sys/sys_network.h
-#ifndef SYS_NETWORK_H
-#define SYS_NETWORK_H
-
+#pragma once
 #include <Arduino.h>
 
-// 找到这行 enum，加上 NET_FETCHING_API
 enum NetworkState {
     NET_DISCONNECTED,
     NET_CONNECTING,
-    NET_CONNECTED,
-    NET_SYNCING_NTP,
-    NET_FETCHING_API, // 【新增】：后台幽灵潜行拉取 API 状态
-    NET_SYNC_SUCCESS,
-    NET_CONNECT_FAILED,
-    NET_SYNC_FAILED
+    NET_SYNCING_NTP,    // 正在解析DNS并对时
+    NET_FETCHING_API,   // 正在后台拉取指令
+    NET_SYNC_SUCCESS,   // 完美完成
+    NET_CONNECT_FAILED, // 连不上WiFi
+    NET_SYNC_FAILED     // 对时超时
 };
 
 void Network_Init();
-void Network_Update();
-void Network_Connect();
-void Network_Disconnect();
+// 【核心接口】：打个响指，在后台一气呵成完成（连网->NTP->API->断网保存）
+void Network_StartSync(); 
 NetworkState Network_GetState();
-
-// 【新增】：高级网络调度接口
-void Network_ForceNTP();        // 强制刷新时间（不改变WiFi连接）
-void Network_AutoSyncTask();    // 触发后台开机静默对时任务
-
-#endif
