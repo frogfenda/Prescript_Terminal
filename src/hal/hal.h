@@ -9,7 +9,7 @@
 #define PIN_KNOB_A 4
 #define PIN_KNOB_B 5
 #define PIN_BTN    6   
-#define PIN_BUZZER 7
+
 
 #define PIN_I2S_BCLK 18
 #define PIN_I2S_LRC  21

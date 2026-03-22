@@ -13,6 +13,7 @@ enum SysEventID {
     EVT_BLE_SYNC_REQ,
     EVT_NFC_SCANNED,
     EVT_PRESCRIPT_ADD,   // 【新增】：添加都市指令频道
+    EVT_WIFI_SET,
     EVT_PRESCRIPT_DEL   // 【新增】：删除都市指令频道
     
 };
@@ -39,6 +40,10 @@ struct Evt_PreDel_t {
 struct Evt_NfcScanned_t {
     char uid[32];     // 卡片的物理 UID
     char payload[512]; // 解析出的文本指令 (如 "PRE:ZH:生成E.G.O侵蚀警告")
+};
+struct Evt_WifiSet_t { 
+    const char* ssid; 
+    const char* pass; 
 };
 // 3. 邮局接口声明
 typedef void (*SysEventCallback)(void* payload);

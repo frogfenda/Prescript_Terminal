@@ -173,7 +173,7 @@ private:
         HAL_Screen_Update();
     }
 
-    void drawActiveCoinsOnly()
+   void drawActiveCoinsOnly()
     {
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
@@ -189,6 +189,9 @@ private:
         int actual_gap = (sw - (active_coins * current_coin_size)) / (active_coins + 1);
         int start_y = (sh - current_coin_size) / 2;
 
+        // 【核心修复】：增加一个脏标记，判断这一帧需不需要刷新屏幕
+        bool screen_needs_push = false; 
+
         for (int i = 0; i < active_coins; i++)
         {
             if (coins[i].needs_redraw || coins[i].is_flipping || coins[i].flash_frames > 0)
@@ -198,14 +201,23 @@ private:
                 drawScaledCoinToBuffer(i, scale, current_coin_size);
                 int target_x = actual_gap + i * (current_coin_size + actual_gap);
 
+                // 只把硬币图像压入 Sprite 内存画布
                 HAL_Sprite_PushImage(target_x, start_y, current_coin_size, current_coin_size, coin_buffer);
-                HAL_Screen_Update_Area(target_x, start_y, current_coin_size, current_coin_size);
+                
+                // 【核心修复】：删掉局部区域推屏指令，只做标记
+                screen_needs_push = true; 
 
                 coins[i].needs_redraw = false;
             }
         }
-    }
 
+        // 【核心修复】：所有硬币都在内存里画完后，一次性把整块画布推给屏幕！
+        // 彻底杜绝 SPI 局部更新指令轰炸导致的 ST7789 芯片死机！
+        if (screen_needs_push) {
+            HAL_Screen_Update(); 
+        }
+    }
+    
     void stopCoinInstantly(int idx)
     {
         coins[idx].is_flipping = false;

@@ -146,6 +146,25 @@ void SysRouter_ExecuteSingle(const String& msg) {
         Evt_PreDel_t payload = {LANG_EN, text.c_str()};
         SysEvent_Publish(EVT_PRESCRIPT_DEL, &payload);
     }
+    else if (msg.startsWith("WIFI:")) {
+        int p1 = msg.indexOf(':', 5); // 寻找密码前的冒号
+        if (p1 > 0) {
+            String ssid = msg.substring(5, p1);
+            String pass = msg.substring(p1 + 1);
+            Evt_WifiSet_t payload = {ssid.c_str(), pass.c_str()};
+            SysEvent_Publish(EVT_WIFI_SET, &payload); // 打包扔给邮局！
+            Serial.printf("[路由中心] 收到新网段授权: SSID=%s\n", ssid.c_str());
+        } 
+        else if (msg.length() > 5) {
+            // 如果只有 SSID，没有密码 (例如输入了 WIFI:Guest:)
+            String ssid = msg.substring(5);
+            if (ssid.endsWith(":")) ssid = ssid.substring(0, ssid.length() - 1);
+            
+            Evt_WifiSet_t payload = {ssid.c_str(), ""};
+            SysEvent_Publish(EVT_WIFI_SET, &payload);
+            Serial.printf("[路由中心] 收到开放网段授权: SSID=%s\n", ssid.c_str());
+        }
+    }
 }
 
 // ==========================================
