@@ -35,6 +35,7 @@ void setup()
     sysHaptic.begin();
     SysAutoPush_Init();
     SysBLE_Init();
+    Network_Init();
     sysNfc.begin();
     Network_AutoSyncTask();
 }
