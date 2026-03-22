@@ -2,12 +2,18 @@
 #pragma once
 #include <Arduino.h>
 
-class SysNFC {
+class SysNFC
+{
 public:
     void begin();
+    void triggerManualScan();
     
-    // 留给后续“低功耗手动唤醒”的快捷接口
-    void triggerManualScan(); 
+    // 【新增】：开启伪装模式
+    void SysNfc_StartEmulation(); 
 };
 
 extern SysNFC sysNfc;
+
+// 【新增】：向全系统暴露的倒计时状态
+extern bool g_nfc_is_emulating;
+extern uint32_t g_nfc_emu_end_time;

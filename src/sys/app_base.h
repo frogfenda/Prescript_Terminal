@@ -17,8 +17,16 @@ public:
     virtual void onDestroy() = 0;
 
     virtual void onKnob(int delta) = 0;
-    virtual void onKeyShort() = 0;
-    virtual void onKeyLong() = 0;
+// 主旋钮按键
+    virtual void onKeyShort() {}
+    virtual void onKeyLong() {}
+    virtual void onKeyDouble() {} // 【新增】：旋钮也可以双击了！
+
+    // 副按键 (7号引脚)
+    virtual void onBtn2Short() {}
+    virtual void onBtn2Long() {}
+    virtual void onBtn2Double() {}
+    
 // 【新增】：后台滴答钩子。哪怕 App 没显示在屏幕上，系统也会在后台呼叫它！
     virtual void onBackgroundTick() {}
     virtual void onSystemInit() {}

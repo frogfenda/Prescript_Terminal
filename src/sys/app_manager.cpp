@@ -9,6 +9,7 @@
 #include "sys_router.h"
 #include "sys_event.h"
 #include "sys_auto_push.h"
+#include "sys_nfc.h"
 #include <queue>
 #include <mutex>
 std::queue<String> g_ble_msg_queue; // 无限容量的动态队列
@@ -175,39 +176,55 @@ void AppManager::run()
         currentApp->onKnob(knob_delta);
     }
 
-    bool is_pressed = HAL_Is_Key_Pressed();
-    if (is_pressed)
-    {
+  // ==========================================
+    // 1. 旋钮主按键分发 (删除了原有的面条代码，全面接入多态引擎)
+    // ==========================================
+    BtnEvent main_evt = HAL_Get_Btn_Main_Event();
+    if (main_evt == BTN_DOUBLE) {
         resetIdleTimer();
-        if (!btn_is_holding)
-        {
-            btn_press_start_time = current_time;
-            btn_is_holding = true;
-            long_press_handled = false;
-        }
-        else if (!long_press_handled && (current_time - btn_press_start_time > BTN_LONG_PRESS_MS))
-        {
-            long_press_handled = true;
-            SYS_SOUND_LONG();
-            resetIdleTimer();
-            currentApp->onKeyLong();
-        }
-    }
-    else
-    {
-        if (btn_is_holding)
-        {
-            uint32_t duration = current_time - btn_press_start_time;
-            btn_is_holding = false;
-            if (!long_press_handled && duration > BTN_DEBOUNCE_MS)
-            {
-                resetIdleTimer();
-                currentApp->onKeyShort();
-            }
-        }
+        // 如果你需要旋钮双击有什么全局效果，写这里，否则下发给 APP
+        currentApp->onKeyDouble();
+    } else if (main_evt == BTN_LONG) {
+        resetIdleTimer();
+        SYS_SOUND_LONG();
+        currentApp->onKeyLong();
+    } else if (main_evt == BTN_SHORT) {
+        resetIdleTimer();
+        currentApp->onKeyShort();
     }
 
-    currentApp->onLoop();
+    // ==========================================
+    // 2. 副按键 (Btn2) 全局拦截分发
+    // ==========================================
+    extern AppBase* appPrescript; 
+    BtnEvent b2_evt = HAL_Get_Btn2_Event();
+
+    if (b2_evt == BTN_DOUBLE) {
+        resetIdleTimer();
+        SYS_SOUND_CONFIRM();
+        if (currentApp != appPrescript) {
+            launchApp(appPrescript); // 全局双击拉起都市指令
+        } else {
+            currentApp->onBtn2Double(); 
+        }
+    } 
+    else if (b2_evt == BTN_LONG) {
+        resetIdleTimer();
+        SYS_SOUND_LONG();
+        if (currentApp == appPrescript) {
+            currentApp->onBtn2Long();
+        } else {
+            // 【核心连线】：在其他界面长按，瞬间引爆 60 秒伪装！
+            extern void SysNfc_StartEmulation();
+            SysNfc_StartEmulation();
+        }
+    }
+    else if (b2_evt == BTN_SHORT) {
+        resetIdleTimer();
+        currentApp->onBtn2Short();
+    }
+
+    currentApp->onLoop(); // 继续执行 UI 刷新
 
     if (currentApp != appStandby)
     {

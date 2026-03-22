@@ -1015,6 +1015,19 @@ public:
         if (m_state == S_DONE || m_state == S_CHAOS)
             appManager.popApp();
     }
+    // ==========================================
+    // 【新增】：新侧边按键 (Btn2) 的专属逻辑
+    // ==========================================
+    void onBtn2Short() override {
+        // 短按逻辑与旋钮按下完全一致：触发解码 / 抽取下一条
+        onKeyShort(); 
+    }
+
+    void onBtn2Long() override {
+        // 长按逻辑：清脆退出，返回上一级
+        SYS_SOUND_NAV();
+        appManager.popApp();
+    }
 };
 
 int __internal_prescript_mode = 0;

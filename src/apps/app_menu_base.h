@@ -69,6 +69,24 @@ protected:
         HAL_Draw_Line(left_panel_w, UI_LINE_MARGIN_Y, left_panel_w, sh - UI_LINE_MARGIN_Y, 1);
 
         // ==========================================
+        // 【新增】：动态倒计时 HUD (仅在共用此框架的菜单页出现)
+        // ==========================================
+        extern bool g_nfc_is_emulating;
+        extern uint32_t g_nfc_emu_end_time;
+        if (g_nfc_is_emulating) {
+            int remain_sec = (g_nfc_emu_end_time - millis()) / 1000;
+            if (remain_sec < 0) remain_sec = 0;
+            
+            char bus_str[16];
+            sprintf(bus_str, "[BUS %02d]", remain_sec);
+            int bus_w = HAL_Get_Text_Width(bus_str);
+            int bus_x = (left_panel_w - bus_w) / 2;
+            
+            // 完美卡在左侧面板的底部，时间文本的正下方
+            HAL_Screen_ShowTextLine(bus_x, sh - 14, bus_str); 
+        }
+
+        // ==========================================
         // 2. 右侧：3D 滚轴核心阵列 (方向与视觉反转版)
         // ==========================================
         int right_panel_x = left_panel_w;
@@ -163,7 +181,7 @@ public:
     void onResume() override { drawMenuUI(visual_selection); }
     void onBackground() override {}
 
-    void onLoop() override {
+   void onLoop() override {
         bool needs_redraw = updateEditAnimation();
 
         int real_count = getMenuCount();
@@ -191,6 +209,28 @@ public:
             needs_redraw = true;
         }
 
+        // ==========================================
+        // 【核心新增】：NFC 倒计时自动心跳刷新引擎
+        // ==========================================
+        extern bool g_nfc_is_emulating;
+        extern uint32_t g_nfc_emu_end_time;
+        static int last_remain_sec = -1; // 静态变量，用来记住上一秒的时间
+
+        if (g_nfc_is_emulating) {
+            int remain_sec = (g_nfc_emu_end_time - millis()) / 1000;
+            if (remain_sec < 0) remain_sec = 0;
+            
+            // 只要当前秒数和上一秒不一样，说明时间跳动了！
+            if (remain_sec != last_remain_sec) {
+                last_remain_sec = remain_sec;
+                needs_redraw = true; // 强行触发局部 UI 的脏标记，要求重绘！
+            }
+        } else {
+            last_remain_sec = -1; // 没在伪装时，重置状态
+        }
+
+        // ==========================================
+        // 最终统一推屏
         if (needs_redraw) {
             drawMenuUI(visual_selection);
         }

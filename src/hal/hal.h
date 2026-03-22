@@ -25,7 +25,22 @@
 
 
 
+// ==========================================
+// 【新增】：通用按键事件枚举
+// ==========================================
+#define PIN_BTN2 7
 
+enum BtnEvent {
+    BTN_NONE = 0,
+    BTN_SHORT,   // 短按
+    BTN_LONG,    // 长按
+    BTN_DOUBLE   // 双击
+};
+
+void HAL_Btn2_Init();
+// 暴露给外界的两个获取事件的接口
+BtnEvent HAL_Get_Btn_Main_Event(); // 旋钮主按键
+BtnEvent HAL_Get_Btn2_Event();     // 侧边副按键
 
 void HAL_Init(void);
 bool HAL_Is_Key_Pressed(void);

@@ -54,7 +54,7 @@ void HAL_Init() {
     pinMode(PIN_KNOB_B, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_A), ISR_Knob_Turn, CHANGE);
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_B), ISR_Knob_Turn, CHANGE);
-
+    HAL_Btn2_Init();
     u8f.begin(textSprite);       
     u8f.setFontMode(1);          
     u8f.setFontDirection(0);     
@@ -174,6 +174,106 @@ void HAL_Sleep_Exit() {
     tft.writecommand(0x11); 
     delay(120);
 }
+// ==========================================
+// 【核心解耦】：通用按键多态状态机引擎 (极速响应版)
+// ==========================================
+class ButtonEngine {
+private:
+    uint32_t press_time = 0;
+    uint32_t release_time = 0;
+    bool is_pressed = false;
+    bool wait_double = false;
+    bool long_triggered = false;
+    
+    uint32_t long_press_ms;
+    uint32_t double_gap_ms;
+    bool enable_double_click; // 【新增】：双击使能开关
+
+public:
+    // 构造函数：默认开启双击。如果传 false，则松手瞬间立刻判定短按！
+    ButtonEngine(uint32_t lp_ms = 800, uint32_t dg_ms = 250, bool enable_dbl = true) {
+        long_press_ms = lp_ms;
+        double_gap_ms = dg_ms;
+        enable_double_click = enable_dbl;
+    }
+
+    BtnEvent update(bool current_state) {
+        uint32_t now = millis();
+        BtnEvent result = BTN_NONE;
+
+        if (current_state && !is_pressed) {
+            is_pressed = true;
+            press_time = now;
+            long_triggered = false;
+        } 
+        else if (!current_state && is_pressed) {
+            is_pressed = false;
+            uint32_t duration = now - press_time;
+
+            if (!long_triggered && duration > 20) { // 20ms 硬件防抖
+                if (enable_double_click) {
+                    // 如果开启了双击，就挂起等待
+                    if (wait_double) {
+                        wait_double = false;
+                        result = BTN_DOUBLE;
+                    } else {
+                        wait_double = true;
+                        release_time = now;
+                    }
+                } else {
+                    // 【核心修复】：如果不需要双击，松手的瞬间立刻开火！零延迟！
+                    result = BTN_SHORT; 
+                }
+            }
+        } 
+        else if (current_state && is_pressed) {
+            if (!long_triggered && (now - press_time > long_press_ms)) {
+                long_triggered = true;
+                wait_double = false; 
+                result = BTN_LONG;
+            }
+        } 
+        else if (!current_state && !is_pressed) {
+            // 只有开启双击的情况下，才会走到这个超时判定的逻辑
+            if (enable_double_click && wait_double && (now - release_time > double_gap_ms)) {
+                wait_double = false;
+                result = BTN_SHORT;
+            }
+        }
+        return result;
+    }
+};
+
+// ==========================================
+// 【完美实例化】：各司其职的按键配置
+// ==========================================
+// 旋钮主按键：关闭双击 (传入 false)，恢复绝对丝滑的零延迟响应！
+ButtonEngine engineMainBtn(800, 250, false); 
+
+// 副按键 (7号引脚)：开启双击 (传入 true)，承担复杂的宏指令调度！
+ButtonEngine engineBtn2(800, 250, true);    
+
+void HAL_Btn2_Init() {
+    pinMode(PIN_BTN2, INPUT_PULLUP);
+}
+
+BtnEvent HAL_Get_Btn_Main_Event() {
+    extern bool HAL_Is_Key_Pressed(); 
+    return engineMainBtn.update(HAL_Is_Key_Pressed());
+}
+
+BtnEvent HAL_Get_Btn2_Event() {
+    // 读取引脚并喂给状态机引擎
+    BtnEvent evt = engineBtn2.update(digitalRead(PIN_BTN2) == LOW);
+    
+    // 【物理雷达】：只要硬件没接错，按下去必定会打印！
+    if (evt == BTN_SHORT) Serial.println("[硬件层] 侦测到 Btn2: 短按");
+    else if (evt == BTN_DOUBLE) Serial.println("[硬件层] 侦测到 Btn2: 双击");
+    else if (evt == BTN_LONG) Serial.println("[硬件层] 侦测到 Btn2: 长按");
+    
+    return evt;
+}
+
 void HAL_Sprite_Clear() { textSprite.fillSprite(TFT_BLACK); }
 uint16_t HAL_Get_Screen_Width(void) { return 284; }
 uint16_t HAL_Get_Screen_Height(void) { return 76; }

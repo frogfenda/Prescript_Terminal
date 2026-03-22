@@ -11,7 +11,7 @@
 // ==========================================
 // 蓝牙消息解析与路由分发
 // ==========================================
-void SysRouter_ProcessBLE(const String& msg) {
+void SysRouter_ExecuteSingle(const String& msg) {
     // 1. 处理手机端拉取同步请求
    if (msg.startsWith("GET:SYNC")) {
         SysBLE_Notify("SYNC:CLEAR");
@@ -145,6 +145,47 @@ void SysRouter_ProcessBLE(const String& msg) {
         String text = msg.substring(11); 
         Evt_PreDel_t payload = {LANG_EN, text.c_str()};
         SysEvent_Publish(EVT_PRESCRIPT_DEL, &payload);
+    }
+}
+
+// ==========================================
+// 【全新升级】：全自动宏指令分割器 (连发冲锋枪)
+// ==========================================
+void SysRouter_ProcessBLE(const String& msg) {
+    int start = 0;
+    int end = 0;
+    
+    // 循环扫描整个字符串
+    while (start < msg.length()) {
+        // 支持两种分隔符：换行符 \n 或者 竖线 |
+        int pos1 = msg.indexOf('\n', start);
+        int pos2 = msg.indexOf('|', start);
+        
+        // 找出最近的一个分隔符
+        if (pos1 == -1) end = pos2;
+        else if (pos2 == -1) end = pos1;
+        else end = (pos1 < pos2) ? pos1 : pos2;
+
+        if (end == -1) {
+            end = msg.length(); // 如果后面没分隔符了，直接读到末尾
+        }
+
+        // 像切香肠一样切下一段指令
+        String cmd = msg.substring(start, end);
+        cmd.trim(); // 净化：砍掉首尾多余的空格或隐形回车
+        
+        if (cmd.length() > 0) {
+            Serial.printf("[宏引擎] 提取子指令并开火: %s\n", cmd.c_str());
+            
+            // 把切下来的这句指令，喂给单发引擎执行！
+            SysRouter_ExecuteSingle(cmd);
+            
+            // 【极其重要】：给系统总线 20 毫秒的喘息时间！
+            // 防止你瞬间压入 5 个 UI 跳转导致 FreeRTOS 动画崩溃
+            vTaskDelay(pdMS_TO_TICKS(20)); 
+        }
+        
+        start = end + 1; // 移动指针，准备切下一段
     }
 }
 

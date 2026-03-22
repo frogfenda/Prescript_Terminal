@@ -1,29 +1,37 @@
-// 文件：src/apps/app_push_notify.cpp
 #include "app_base.h"
 #include "app_manager.h"
 #include <stdio.h>
 #include <string.h>
 #include "sys_haptic.h"
 
-int g_push_notify_mode = 0; // 0: random(抽卡), 1: custom(日程闹钟)
+int g_push_notify_mode = 0; 
 char g_push_notify_text[512] = {0};
 bool g_push_notify_keep_stack = false;
 
-extern AppBase *appPrescript; // 引入外部声明
+extern AppBase *appPrescript; 
+extern AppBase *appStandby; // 【核心新增】：引入待机应用进行状态拦截！
 
-// 【核心魔法】：抢占式打断机制
-// 【核心魔法】：抢占式打断机制 (无闪烁版)
+// ==========================================
+// 【核心魔法】：抢占式打断机制 (彻底修复休眠返回 Bug 版)
+// ==========================================
 void PushNotify_Trigger_Random(bool keep_stack)
 {
     g_push_notify_mode = 0;
     g_push_notify_keep_stack = keep_stack;
     appManager.resetIdleTimer();
+
     if (keep_stack)
     {
-        // 如果当前已经在闪烁或解码，直接平滑替换，避免 pop 引起底层菜单闪烁
         if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)
         {
             appManager.replaceApp(appPushNotify);
+        }
+        else if (appManager.getCurrentApp() == appStandby) 
+        {
+            // 【核心修复】：如果是从息屏中被唤醒，绝对不要把“息屏状态”压入返回栈！
+            // 强行清空栈，并修改 keep_stack 为 false，保证解码结束后直接回到主菜单！
+            g_push_notify_keep_stack = false;
+            appManager.launchApp(appPushNotify);
         }
         else
         {
@@ -42,11 +50,18 @@ void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
     snprintf(g_push_notify_text, sizeof(g_push_notify_text), "%s", text);
     g_push_notify_keep_stack = keep_stack;
     appManager.resetIdleTimer();
+
     if (keep_stack)
     {
         if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)
         {
             appManager.replaceApp(appPushNotify);
+        }
+        else if (appManager.getCurrentApp() == appStandby)
+        {
+            // 【核心修复】：同上，打碎休眠梦境，强制开启新栈！
+            g_push_notify_keep_stack = false;
+            appManager.launchApp(appPushNotify);
         }
         else
         {
@@ -58,7 +73,6 @@ void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
         appManager.launchApp(appPushNotify);
     }
 }
-
 class AppPushNotify : public AppBase
 {
 private:
