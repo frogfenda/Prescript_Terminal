@@ -4,7 +4,7 @@
 class AppMainMenu : public AppMenuBase
 {
 protected:
-    int getMenuCount() override { return 9; } // 【修改 1】：增加到 8 个
+    int getMenuCount() override { return 10; } // 【修改 1】：增加到 10 个
 
     const char *getTitle() override
     {
@@ -15,20 +15,19 @@ protected:
     {
         if (appManager.getLanguage() == LANG_ZH)
         {
-            // 【修改 2】：在专注协议下面插入“指令档案”
-            const char *items[] = {"接受指令", "定时指令", "但丁", "专注协议","硬币决定器",  "指令档案", "指令推送配置", "系统高级设置", "进入待机模式"};
+            // 在但丁(闹钟)和专注协议之间插入了“倒计时”
+            const char *items[] = {"接受指令", "定时指令", "但丁", "倒计时", "专注协议", "硬币决定器", "指令档案", "指令推送配置", "系统高级设置", "进入待机模式"};
             return items[index];
         }
         else
         {
-            const char *items[] = {"RECEIVE PRESCRIPT", "SCHEDULES", "WAKEUP ALARM",  "POMODORO TIMER", "QUANTUM COIN","PRESCRIPT DB", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE"};
+            const char *items[] = {"RECEIVE PRESCRIPT", "SCHEDULES", "WAKEUP ALARM", "COUNTDOWN", "POMODORO TIMER", "QUANTUM COIN", "PRESCRIPT DB", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE"};
             return items[index];
         }
     }
 
     void onItemClicked(int index) override
     {
-        // 【修改 3】：重新映射所有指针的进入路由
         if (index == 0)
             appManager.pushApp(appPrescript);
         else if (index == 1)
@@ -36,18 +35,18 @@ protected:
         else if (index == 2)
             appManager.pushApp(appAlarm);
         else if (index == 3)
-            appManager.pushApp(appPomodoro);
+            appManager.pushApp(appCountdown); // <--- 我们刚写的倒计时！
         else if (index == 4)
-        {
-            appManager.pushApp(appCoinFlip);
-        }
+            appManager.pushApp(appPomodoro);
         else if (index == 5)
-            appManager.pushApp(appPrescriptList); // <--- 我们刚写的指令档案入口！
+            appManager.pushApp(appCoinFlip);
         else if (index == 6)
-            appManager.pushApp(appPushSetting);
+            appManager.pushApp(appPrescriptList);
         else if (index == 7)
-            appManager.pushApp(appSystemSettings);
+            appManager.pushApp(appPushSetting);
         else if (index == 8)
+            appManager.pushApp(appSystemSettings);
+        else if (index == 9)
             appManager.launchApp(appStandby);
     }
 

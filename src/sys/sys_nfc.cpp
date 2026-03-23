@@ -42,6 +42,14 @@ bool SysNfc_IsEmulating() {
     }
     return g_nfc_is_emulating;
 }
+void SysNfc_StopEmulation() {
+    if (g_nfc_is_emulating) {
+        // 【核心魔法】：直接把结束时间归零！
+        // 这样无论后台线程卡在哪个超时等待里，只要它一抬头看表，就会立刻退出循环并执行完美复位！
+        g_nfc_emu_end_time = 0; 
+        Serial.println("[NFC-硬件SPI] 收到战术撤退指令，提前终止靶卡伪装！");
+    }
+}
 
 uint8_t cc_file[] = { 0x00, 0x0F, 0x20, 0x00, 0x3B, 0x00, 0x34, 0x04, 0x06, 0xE1, 0x04, 0x00, 0xFF, 0x00, 0x00 };
 uint8_t ndef_file[] = {

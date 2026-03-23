@@ -72,6 +72,7 @@ void AppManager::begin()
     installApp(appAlarm);
     installApp(appPomodoro);
     installApp(appPrescriptList);
+    installApp(appCountdown);
     // (未来如果有新的 App，直接往这里加一行 installApp 即可，其他什么都不用管！)
     
     launchApp(appStandby);
@@ -221,9 +222,41 @@ void AppManager::run()
     }
     else if (b2_evt == BTN_SHORT) {
         resetIdleTimer();
-        currentApp->onBtn2Short();
+        
+        // ==========================================
+        // 【核心修复】：增加白名单判断！
+        // 只要在伪装，且【当前不在抽取指令界面】，短按才是“取消”！
+        // ==========================================
+        extern bool SysNfc_IsEmulating();
+        extern void SysNfc_StopEmulation();
+        
+        // 【修改】：加入了 && currentApp != appPrescript
+        if (SysNfc_IsEmulating() && currentApp != appPrescript) {
+            SysNfc_StopEmulation();         // 下发撤退指令
+            sysAudio.playTone(800, 100);    // 播放一声低频“滴”，确认打断
+        } else {
+            // 如果没在伪装，或者此时正处于指令抽取界面，按键正常下发给 UI！
+            currentApp->onBtn2Short();
+        }
+    }else if (b2_evt == BTN_SHORT) {
+        resetIdleTimer();
+        
+        // ==========================================
+        // 【核心修复】：增加白名单判断！
+        // 只要在伪装，且【当前不在抽取指令界面】，短按才是“取消”！
+        // ==========================================
+        extern bool SysNfc_IsEmulating();
+        extern void SysNfc_StopEmulation();
+        
+        // 【修改】：加入了 && currentApp != appPrescript
+        if (SysNfc_IsEmulating() && currentApp != appPrescript) {
+            SysNfc_StopEmulation();         // 下发撤退指令
+            sysAudio.playTone(800, 100);    // 播放一声低频“滴”，确认打断
+        } else {
+            // 如果没在伪装，或者此时正处于指令抽取界面，按键正常下发给 UI！
+            currentApp->onBtn2Short();
+        }
     }
-
     currentApp->onLoop(); // 继续执行 UI 刷新
 
     if (currentApp != appStandby)

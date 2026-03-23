@@ -10,6 +10,7 @@ public:
     
     // 【新增】：开启伪装模式
     void SysNfc_StartEmulation(); 
+    void SysNfc_StopEmulation(); // <--- 【新增】：提前终止接口
 };
 
 extern SysNFC sysNfc;

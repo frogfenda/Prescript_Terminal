@@ -61,6 +61,7 @@ extern AppBase *appNetworkSync;
 extern AppBase *appSystemSettings;
 extern AppBase *appWifiConnect;
 extern AppBase *appCoinFlip;
+extern AppBase *appCountdown;
 
 // 文件：src/sys/app_manager.h (仅替换文件最底部部分)
 
@@ -72,6 +73,7 @@ extern AppBase *appSchedule;
 extern AppBase *appAnimSetting;
 extern AppBase *appPrescriptList;
 extern AppBase *appVolumeSetting;
+
 
 void Prescript_Launch_PushNormal();
 void Prescript_Launch_PushDirect();
