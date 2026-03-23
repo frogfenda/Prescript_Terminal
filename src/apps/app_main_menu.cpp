@@ -16,12 +16,12 @@ protected:
         if (appManager.getLanguage() == LANG_ZH)
         {
             // 在但丁(闹钟)和专注协议之间插入了“倒计时”
-            const char *items[] = {"接受指令", "定时指令", "但丁", "倒计时", "专注协议", "硬币决定器", "指令档案", "指令推送配置", "系统高级设置", "进入待机模式"};
+            const char *items[] = {"接受指令", "定时指令", "但丁", "TT2协议", "专注协议", "硬币决定器", "指令档案", "指令推送配置", "系统高级设置", "进入待机模式"};
             return items[index];
         }
         else
         {
-            const char *items[] = {"RECEIVE PRESCRIPT", "SCHEDULES", "WAKEUP ALARM", "COUNTDOWN", "POMODORO TIMER", "QUANTUM COIN", "PRESCRIPT DB", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE"};
+            const char *items[] = {"RECEIVE PRESCRIPT", "SCHEDULES", "WAKEUP ALARM", "TT2 PROTOCOL", "POMODORO TIMER", "QUANTUM COIN", "PRESCRIPT DB", "PUSH SETTINGS", "SYSTEM SETTINGS", "STANDBY MODE"};
             return items[index];
         }
     }
