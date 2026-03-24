@@ -165,6 +165,34 @@ void SysRouter_ExecuteSingle(const String& msg) {
             Serial.printf("[路由中心] 收到开放网段授权: SSID=%s\n", ssid.c_str());
         }
     }
+
+  else if (msg.startsWith("COIN:")) {
+        int p1 = msg.indexOf(':', 5); 
+        int p2 = msg.indexOf(':', p1 + 1); 
+        int p3 = msg.indexOf(':', p2 + 1);
+        int p4 = msg.indexOf(':', p3 + 1);
+        if (p1 > 0 && p2 > 0 && p3 > 0 && p4 > 0) {
+            String name = msg.substring(p4 + 1);
+            String colors = msg.substring(p3 + 1, p4); // 提取多色字符串
+            Evt_CoinAdd_t payload = {
+                msg.substring(5, p1).toInt(),     
+                msg.substring(p1 + 1, p2).toInt(),
+                msg.substring(p2 + 1, p3).toInt(),
+                colors.c_str(),                   // 装入多色字符串
+                name.c_str()                      
+            };
+            SysEvent_Publish(EVT_COIN_PRESET_ADD, &payload); // 扔给邮局！
+            Serial.printf("[路由中心] 添加硬币技能: %s\n", name.c_str());
+        }
+    }
+    // 【新增】：12. 拦截删除硬币预设 (格式 COIN_DEL:name)
+    else if (msg.startsWith("COIN_DEL:")) {
+        String name = msg.substring(9);
+        Evt_CoinDel_t payload = {name.c_str()};
+        SysEvent_Publish(EVT_COIN_PRESET_DEL, &payload);
+        Serial.printf("[路由中心] 抹除硬币技能: %s\n", name.c_str());
+    }
+
 }
 
 // ==========================================

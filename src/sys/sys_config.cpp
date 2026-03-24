@@ -105,6 +105,22 @@ void SysConfig::load()
     // 【新增】：限制硬币型号只能是 0, 1, 2
     if (coin_data.coin_type < 0 || coin_data.coin_type > 2)
         coin_data.coin_type = 0;
+        // (在 load 函数内部，读取 coin_data 后面的位置加上这段)
+    
+    // 【新增】：读取硬币技能预设
+    coin_preset_count = 0;
+    if (doc.containsKey("coin_presets")) {
+        JsonArray cp_arr = doc["coin_presets"].as<JsonArray>();
+        for (JsonObject obj : cp_arr) {
+            if (coin_preset_count >= 10) break;
+            coin_presets[coin_preset_count].name = obj["n"].as<String>();
+            coin_presets[coin_preset_count].base_power = obj["bp"] | 4;
+            coin_presets[coin_preset_count].coin_power = obj["cp"] | 5;
+            coin_presets[coin_preset_count].coin_count = obj["cc"] | 3;
+            coin_presets[coin_preset_count].coin_colors = obj["cl"].as<String>();
+            coin_preset_count++;
+        }
+    }
 
     alarm_count = doc["alarm_count"] | 0;
     JsonArray al_arr = doc["alarms"];
@@ -197,6 +213,19 @@ void SysConfig::save()
     coin_node["sanity"] = coin_data.sanity;
     coin_node["coin_count"] = coin_data.coin_count;
     coin_node["coin_type"] = coin_data.coin_type; // 【新增写入】
+    // (在 save 函数内部，写入 coin_node 之后加上这段)
+    
+    // 【新增】：写入硬币技能预设
+    doc["coin_preset_count"] = coin_preset_count;
+    JsonArray cp_arr = doc["coin_presets"].to<JsonArray>();
+    for (int i = 0; i < coin_preset_count; i++) {
+        JsonObject obj = cp_arr.add<JsonObject>();
+        obj["n"] = coin_presets[i].name;
+        obj["bp"] = coin_presets[i].base_power;
+        obj["cp"] = coin_presets[i].coin_power;
+        obj["cc"] = coin_presets[i].coin_count;
+        obj["cl"] = coin_presets[i].coin_colors;
+    }
     // [大扫除]：彻底删除了所有跟 custom_p 写入硬盘相关的代码！
     // save() 里面加：
     doc["hap_en"] = haptic_enable;

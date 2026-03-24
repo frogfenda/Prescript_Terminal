@@ -14,6 +14,8 @@ enum SysEventID {
     EVT_NFC_SCANNED,
     EVT_PRESCRIPT_ADD,   // 【新增】：添加都市指令频道
     EVT_WIFI_SET,
+    EVT_COIN_PRESET_ADD, // 【新增】：添加或覆写硬币预设
+    EVT_COIN_PRESET_DEL,  // 【新增】：删除硬币预设
     EVT_PRESCRIPT_DEL   // 【新增】：删除都市指令频道
     
 };
@@ -41,6 +43,11 @@ struct Evt_NfcScanned_t {
     char uid[32];     // 卡片的物理 UID
     char payload[512]; // 解析出的文本指令 (如 "PRE:ZH:生成E.G.O侵蚀警告")
 };
+// 【新增】：硬币预设的数据包裹
+
+struct Evt_CoinAdd_t { int bp; int cp; int cc; const char* colors; const char* name; };
+struct Evt_CoinDel_t { const char* name; };
+
 struct Evt_WifiSet_t { 
     const char* ssid; 
     const char* pass; 

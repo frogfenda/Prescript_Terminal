@@ -39,7 +39,13 @@ struct CoinSaveData
     int coin_type;  // 【新增】：硬币型号 (0:经典金, 1:狂气红, 2:沉稳绿)
 };
 // 声明全局实例化对象
-
+struct CoinPreset {
+    String name;      // 技能名
+    int base_power;   // 基础点数
+    int coin_power;   // 硬币点数
+    int coin_count;   // 硬币数量
+    String coin_colors; // 【核心升级】：从单数字变成材质字符串序列，如 "1102"
+};
 class SysConfig
 {
 public:
@@ -54,7 +60,8 @@ public:
     CoinSaveData coin_data;
     uint8_t pomodoro_current_idx;
     PomodoroPreset pomodoro_presets[5];
-
+    CoinPreset coin_presets[10];
+    int coin_preset_count = 0;
     uint8_t alarm_count;
     AlarmPreset alarms[10];
     uint8_t decode_anim_style; // 【新增】：解码动画样式 (0:动画一, 1:动画二)

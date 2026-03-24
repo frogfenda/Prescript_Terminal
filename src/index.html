@@ -333,6 +333,32 @@
 
     <div class="panel">
         <div class="panel-title">
+            <span data-i18n="panel_coin">>> COIN PRESETS (硬币技能预设)</span>
+            <span onclick="sendRaw('GET:SYNC')" style="cursor:pointer; color:var(--main-color)"
+                data-i18n="btn_refresh">[ 刷新 ]</span>
+        </div>
+        <div id="coin_list_container"></div>
+        <div style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 10px;">
+            <div class="input-row"><label data-i18n="lbl_coin_name">技能名:</label><input type="text" class="input-box"
+                    id="coin_name" value="肆意劈砍"></div>
+            <div class="input-row"><label data-i18n="lbl_bp">基础点:</label><input type="number" class="input-box"
+                    id="coin_bp" value="4"></div>
+            <div class="input-row"><label data-i18n="lbl_cp">硬币点:</label><input type="number" class="input-box"
+                    id="coin_cp" value="5"></div>
+            <div class="input-row"><label data-i18n="lbl_cc">硬币数:</label>
+                <input type="number" class="input-box" id="coin_cc" value="3" min="1" max="9"
+                    onchange="generateColorSelects()">
+            </div>
+
+            <div id="coin_colors_container" style="margin-bottom: 10px; background: rgba(0,30,30,0.3); padding: 5px;">
+            </div>
+
+            <button class="btn" onclick="addCoin()" data-i18n="btn_coin_add">+ 覆写并同步到终端</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-title">
             <span data-i18n="panel_pre">>> PRESCRIPT LIBRARY (自定义指令池)</span>
         </div>
 
@@ -432,9 +458,16 @@
                 msg_no_pre: "( 终端目前无自定义指令 )",
                 lbl_submit: "提交指令请前往: index.dimension-404.cloud/submit",
                 btn_random10: "[ 随机注入 10 条 ]",
+                panel_coin: ">> COIN PRESETS (硬币技能预设)",
+                lbl_coin_name: "技能名:", lbl_bp: "基础点:", lbl_cp: "硬币点:", lbl_cc: "硬币数:", lbl_cl: "材质:",
+                btn_coin_add: "+ 覆写并同步到终端",
+                msg_no_coin: "( 终端目前无硬币预设 )",
+                opt_cl0: "经典金", opt_cl1: "狂气红", opt_cl2: "沉稳绿", opt_cl3: "深邃蓝",
                 status_connecting: "SYS_STATUS: CONNECTING...<br><span style='font-size: 12px; color: #ff0;'>[等待配对]</span>",
                 status_online: "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[同步完毕]</span>",
+
                 status_offline: "SYS_STATUS: OFFLINE<br><span style='font-size: 12px; color: #f03;'>[连接断开]</span>"
+
 
             },
             en: {
@@ -477,6 +510,12 @@
                 msg_no_alm: "( NO ALARMS IN TERMINAL )",
                 msg_no_sch: "( NO ACTIVE SCHEDULES IN TERMINAL )",
                 msg_no_pre: "( NO CUSTOM PRESCRIPTS )",
+                // 在 en: {} 内部追加：
+                panel_coin: ">> COIN PRESETS",
+                lbl_coin_name: "Name:", lbl_bp: "Base:", lbl_cp: "Coin:", lbl_cc: "Count:", lbl_cl: "Color:",
+                btn_coin_add: "+ OVERWRITE & SYNC",
+                msg_no_coin: "( NO COIN PRESETS )",
+                opt_cl0: "GOLD", opt_cl1: "RED", opt_cl2: "GREEN", opt_cl3: "BLUE",
                 status_connecting: "SYS_STATUS: CONNECTING...<br><span style='font-size: 12px; color: #ff0;'>[AWAITING PAIRING]</span>",
                 status_online: "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[SYNC COMPLETE]</span>",
                 status_offline: "SYS_STATUS: OFFLINE<br><span style='font-size: 12px; color: #f03;'>[CONNECTION LOST]</span>"
@@ -594,7 +633,7 @@
         const SERVICE_UUID = "0000dead-0000-1000-8000-00805f9b34fb";
         let globalCloudData = []; // 【新增】：用来在内存中缓存云端数据，供随机抽取使用
         const CHAR_UUID = "0000beef-0000-1000-8000-00805f9b34fb";
-        let terminalAlarms = []; let terminalSchedules = []; let terminalPrescripts = [];
+        let terminalAlarms = []; let terminalSchedules = []; let terminalPrescripts = []; let terminalCoins = [];
         // ==========================================
         // 利用浏览器本地存储 (LocalStorage) 赋予网页永久记忆
         // ==========================================
@@ -645,13 +684,18 @@
         function handleRX(event) {
             let val = new TextDecoder().decode(event.target.value);
             if (val === "SYNC:CLEAR") {
-                terminalAlarms = []; terminalSchedules = []; terminalPrescripts = []; renderUI();
+                // 【终极修复】：每次同步前，必须清空所有的数组！否则就会出现幽灵数据和无限堆叠！
+                terminalAlarms = []; terminalSchedules = []; terminalPrescripts = []; terminalCoins = [];
+                renderUI();
             } else if (val.startsWith("SYNC:ALM:")) {
                 try { terminalAlarms.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
             } else if (val.startsWith("SYNC:SCH:")) {
                 try { terminalSchedules.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
             } else if (val.startsWith("SYNC:PRE:")) {
                 try { terminalPrescripts.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
+            } else if (val.startsWith("SYNC:COIN:")) {
+                // 捕获并追加硬币数据
+                try { terminalCoins.push(JSON.parse(val.substring(10))); renderUI(); } catch (e) { }
             }
 
             clearTimeout(syncTimeout);
@@ -682,10 +726,48 @@
                 </div>`;
             });
             document.getElementById('sch_list_container').innerHTML = schHtml;
+            // 在 renderUI() 函数的末尾加上这段：
+            let coinHtml = terminalCoins.length === 0 ? `<div style='color:#555; text-align:center; font-size:12px;'>${i18n[currentLang].msg_no_coin}</div>` : "";
+            terminalCoins.forEach(c => {
+                let clStrDesc = "";
+                let clArray = c.cl.split(''); // 解析发回来的 "102"
+                let colorNames = ['金', '红', '绿'];
+                clArray.forEach(x => {
+                    let idx = parseInt(x);
+                    clStrDesc += (colorNames[idx] || '金');
+                });
+
+                coinHtml += `<div class="list-item">
+                <div class="item-info">
+                    <span style="color:#0ff; font-weight:bold;">[${c.n}]</span><br>
+                    <span style="color:#aaa; font-size:12px;">BP: ${c.bp} | CP: ${c.cp} | 材质: [${clStrDesc}]</span>
+                </div>
+                <button class="btn-danger" onclick="executeDelete('COIN_DEL:${c.n}')">✖</button>
+            </div>`;
+            });
+            document.getElementById('coin_list_container').innerHTML = coinHtml;
 
 
         }
+        function generateColorSelects() {
+            let count = parseInt(document.getElementById('coin_cc').value) || 3;
+            if (count < 1) count = 1; if (count > 9) count = 9;
+            let html = '';
+            for (let i = 0; i < count; i++) {
+                html += `<div class="input-row" style="padding-left:10px; border-left:2px solid #088; margin-top:4px;">
+                    <label style="font-size:12px; width:45%; color:#888;">硬币 ${i + 1} 材质:</label>
+                    <select class="input-box coin-color-select" style="width:55%; padding:4px;">
+                        <option value="0">经典金</option>
+                        <option value="1">狂气红</option>
+                        <option value="2">沉稳绿</option>
+                    </select>
+                </div>`;
+            }
+            document.getElementById('coin_colors_container').innerHTML = html;
+        }
 
+        // 网页一加载完毕，先执行一次生成
+        window.addEventListener('DOMContentLoaded', () => generateColorSelects());
         async function sendRaw(cmdStr) {
             if (!bleCharacteristic) return alert(i18n[currentLang].msg_conn_err);
             try {
@@ -768,6 +850,21 @@
             // 6. 通知终端更新状态
             setTimeout(() => sendRaw('GET:SYNC:' + langTag), 500);
             alert(currentLang === 'zh' ? `已成功从云端随机注入 ${picked.length} 条指令！` : `Successfully injected ${picked.length} random prescripts!`);
+        }
+        function addCoin() {
+            let n = document.getElementById('coin_name').value.replace(/:/g, "：");
+            let bp = document.getElementById('coin_bp').value;
+            let cp = document.getElementById('coin_cp').value;
+            let cc = document.getElementById('coin_cc').value;
+
+            // 【串联阵列】：把下方所有的小下拉框抓起来，拼接成字符串 "102..."
+            let colorSelects = document.querySelectorAll('.coin-color-select');
+            let cl_str = "";
+            colorSelects.forEach(sel => cl_str += sel.value);
+
+            if (!n) return alert(i18n[currentLang].msg_empty);
+            sendRaw(`COIN:${bp}:${cp}:${cc}:${cl_str}:${n}`);
+            setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
         }
     </script>
 </body>
