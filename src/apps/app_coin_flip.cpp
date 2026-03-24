@@ -112,8 +112,6 @@ const int REAL_SH = 76;
 
 class AppCoinCore : public AppBase {
 protected:
-    uint16_t *img_heads[3] = {nullptr, nullptr, nullptr};
-    uint16_t *img_tails[3] = {nullptr, nullptr, nullptr};
     uint16_t *coin_buffer = nullptr;
 
     CoinEntity coins[9]; 
@@ -130,23 +128,7 @@ protected:
     virtual void onCoinStop(int idx) {}
     virtual void onAllCoinsStopped() {}
 
-    void loadAllCoinData() {
-        if (!coin_buffer) coin_buffer = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
-        String prefixes[3] = {"/assets/coins/", "/assets/coins/r", "/assets/coins/g"};
-        for(int i = 0; i < 3; i++) {
-            if (!img_heads[i]) img_heads[i] = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
-            if (!img_tails[i]) img_tails[i] = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
-            
-            File f1 = LittleFS.open((prefixes[i] + "heads.bin").c_str(), "r");
-            if (!f1) f1 = LittleFS.open("/assets/coins/heads.bin", "r"); 
-            if (f1) { f1.read((uint8_t *)img_heads[i], SRC_COIN_SIZE * SRC_COIN_SIZE * 2); f1.close(); }
-
-            File f2 = LittleFS.open((prefixes[i] + "tails.bin").c_str(), "r");
-            if (!f2) f2 = LittleFS.open("/assets/coins/tails.bin", "r");
-            if (f2) { f2.read((uint8_t *)img_tails[i], SRC_COIN_SIZE * SRC_COIN_SIZE * 2); f2.close(); }
-        }
-    }
-
+   
     void eraseRect(int x, int y, int w, int h) {
         if (w * h > SRC_COIN_SIZE * SRC_COIN_SIZE) return; 
         memset(coin_buffer, 0, w * h * 2);
@@ -168,7 +150,7 @@ protected:
         }
         if (c_type < 0 || c_type > 2) c_type = 0;
 
-        uint16_t *img = (scaleX >= 0) ? img_heads[c_type] : img_tails[c_type];
+        uint16_t *img = (scaleX >= 0) ? g_img_heads[c_type] : g_img_tails[c_type];
         if (!img) return;
 
         bool is_spinning = coins[idx].is_flipping;
@@ -287,12 +269,9 @@ public:
         }
     }
 
-    void onDestroy() override {
+   void onDestroy() override {
         sysAudio.stopWAV();
-        for(int i=0; i<3; i++) {
-            if (img_heads[i]) { free(img_heads[i]); img_heads[i] = nullptr; }
-            if (img_tails[i]) { free(img_tails[i]); img_tails[i] = nullptr; }
-        }
+        // 退出时只释放橡皮擦缓存，不碰全局图片
         if (coin_buffer) { free(coin_buffer); coin_buffer = nullptr; }
     }
 };
@@ -329,8 +308,10 @@ protected:
     }
 
 public:
-    void onCreate() override {
-        loadAllCoinData(); 
+   void onCreate() override {
+        // 【新增】：仅仅在进入时申请一下屏幕橡皮擦缓存 (8KB)
+        if (!coin_buffer) coin_buffer = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
+        
         active_coins = sysConfig.coin_data.coin_count;
         if (active_coins < 1) active_coins = 1; if (active_coins > 9) active_coins = 9;
         global_is_animating = false;
@@ -435,9 +416,11 @@ protected:
     void onAllCoinsStopped() override { phase = 2; }
 
 public:
-    void onCreate() override {
+void onCreate() override {
+        // 【新增】：仅仅在进入时申请一下屏幕橡皮擦缓存 (8KB)
+        if (!coin_buffer) coin_buffer = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
+        
         CoinPreset& p = sysConfig.coin_presets[g_coin_run_idx];
-        loadAllCoinData(); 
         active_coins = p.coin_count; current_power = p.base_power;
         if (active_coins < 1) active_coins = 1; if (active_coins > 9) active_coins = 9; 
         
@@ -445,7 +428,6 @@ public:
         for(int i=0; i<active_coins; i++) { coins[i].current_angle = 0; coins[i].is_flipping = false; coins[i].flash_frames = 0; coins[i].needs_redraw = true; coins[i].target_face = 0; }
         HAL_Sprite_Clear(); drawActiveCoinsOnly(); drawStaticUI(); HAL_Screen_Update();
     }
-    
     void onResume() override { onCreate(); }
     void onKnob(int delta) override {}
 
