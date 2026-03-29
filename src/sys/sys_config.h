@@ -46,6 +46,14 @@ struct CoinPreset {
     int coin_count;   // 硬币数量
     String coin_colors; // 【核心升级】：从单数字变成材质字符串序列，如 "1102"
 };
+struct GachaStatsData {
+    uint32_t total;
+    uint32_t s3;
+    uint32_t s2;
+    uint32_t s1;
+    uint32_t w3;
+    uint32_t w2; // 严谨遵守设定：瓦夜无 1 星
+};
 class SysConfig
 {
 public:
@@ -60,6 +68,7 @@ public:
     CoinSaveData coin_data;
     uint8_t pomodoro_current_idx;
     PomodoroPreset pomodoro_presets[5];
+    GachaStatsData gacha_stats; // <--- 【新增】：抽卡统计数据全局接入口
     CoinPreset coin_presets[10];
     int coin_preset_count = 0;
     uint8_t alarm_count;

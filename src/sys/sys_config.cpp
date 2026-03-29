@@ -51,6 +51,8 @@ void SysConfig::load()
         haptic_enable = true;
         haptic_intensity = 3; // 默认拉满！
         nfc_mode = 0;
+        gacha_stats.total = 0; gacha_stats.s3 = 0; gacha_stats.s2 = 0;
+        gacha_stats.s1 = 0; gacha_stats.w3 = 0; gacha_stats.w2 = 0;
 
         // [大扫除]：删除了旧版 custom_prescript_count = 0; 的初始化
 
@@ -151,8 +153,18 @@ void SysConfig::load()
 
     nfc_mode = doc["nfc_m"] | 0;
 
-
-    // [大扫除]：彻底删除了所有跟 cp_arr 解析相关的代码！
+    JsonObject gs_node = doc["gacha_stats"];
+    if (!gs_node.isNull()) {
+        gacha_stats.total = gs_node["total"] | 0;
+        gacha_stats.s3 = gs_node["s3"] | 0;
+        gacha_stats.s2 = gs_node["s2"] | 0;
+        gacha_stats.s1 = gs_node["s1"] | 0;
+        gacha_stats.w3 = gs_node["w3"] | 0;
+        gacha_stats.w2 = gs_node["w2"] | 0;
+    } else {
+        gacha_stats.total = 0; gacha_stats.s3 = 0; gacha_stats.s2 = 0;
+        gacha_stats.s1 = 0; gacha_stats.w3 = 0; gacha_stats.w2 = 0;
+    }
 }
 
 void SysConfig::save()
@@ -226,6 +238,13 @@ void SysConfig::save()
         obj["cc"] = coin_presets[i].coin_count;
         obj["cl"] = coin_presets[i].coin_colors;
     }
+    JsonObject gs_node_out = doc["gacha_stats"].to<JsonObject>();
+    gs_node_out["total"] = gacha_stats.total;
+    gs_node_out["s3"] = gacha_stats.s3;
+    gs_node_out["s2"] = gacha_stats.s2;
+    gs_node_out["s1"] = gacha_stats.s1;
+    gs_node_out["w3"] = gacha_stats.w3;
+    gs_node_out["w2"] = gacha_stats.w2;
     // [大扫除]：彻底删除了所有跟 custom_p 写入硬盘相关的代码！
     // save() 里面加：
     doc["hap_en"] = haptic_enable;

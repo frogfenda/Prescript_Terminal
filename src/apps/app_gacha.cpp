@@ -5,6 +5,7 @@
 #include "sys/sys_audio.h"
 #include "sys_haptic.h"
 #include "sys/sys_res.h"
+#include "sys_config.h" // 【新增】：引入全能系统管家
 
 struct PullResult
 {
@@ -78,17 +79,29 @@ private:
             current_pulls[i].is_new = false;
             if (current_pulls[i].id_ptr)
             {
-                if (current_pulls[i].id_ptr->star > max_star_pulled)
-                {
-                    max_star_pulled = current_pulls[i].id_ptr->star;
-                }
-                if (current_pulls[i].id_ptr->walp == 1)
-                {
-                    has_walp_pulled = true;
+                int s = current_pulls[i].id_ptr->star;
+                int w = current_pulls[i].id_ptr->walp;
+
+                if (s > max_star_pulled) max_star_pulled = s;
+                if (w == 1) has_walp_pulled = true;
+
+                // ==========================================
+                // 【新增】：核心统计逻辑，直接存入系统管家的内存树
+                // ==========================================
+                sysConfig.gacha_stats.total++;
+                if (s == 3) sysConfig.gacha_stats.s3++;
+                else if (s == 2) sysConfig.gacha_stats.s2++;
+                else if (s == 1) sysConfig.gacha_stats.s1++;
+
+                if (w == 1) {
+                    if (s == 3) sysConfig.gacha_stats.w3++;
+                    else if (s == 2) sysConfig.gacha_stats.w2++;
                 }
             }
-            revealed[i] = false; // 初始状态全都不显示颜色
+            revealed[i] = false; 
         }
+        
+        sysConfig.save(); // 【新增】：十连结束瞬间，将 config.json 永久覆写至硬盘！
     }
 
     void skipToResult()

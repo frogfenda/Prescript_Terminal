@@ -73,7 +73,7 @@ extern AppBase *appSchedule;
 extern AppBase *appAnimSetting;
 extern AppBase *appPrescriptList;
 extern AppBase *appVolumeSetting;
-
+extern AppBase *appGachaStats;
 
 void Prescript_Launch_PushNormal();
 void Prescript_Launch_PushDirect();

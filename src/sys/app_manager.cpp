@@ -74,7 +74,8 @@ void AppManager::begin()
     installApp(appPrescriptList);
     installApp(appCountdown);
     // (未来如果有新的 App，直接往这里加一行 installApp 即可，其他什么都不用管！)
-    
+    installApp(appGacha);       
+    installApp(appGachaStats);
     launchApp(appStandby);
 }
 
