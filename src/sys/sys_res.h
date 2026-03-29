@@ -2,7 +2,6 @@
 #pragma once
 #include <Arduino.h>
 
-// 声明全局资源指针（只声明，不分配）
 extern uint8_t* g_wav_procedure;
 extern uint32_t g_wav_procedure_len;
 extern uint8_t* g_wav_final;
@@ -12,10 +11,24 @@ extern uint8_t* g_wav_heads;
 extern uint32_t g_wav_heads_len;
 extern uint8_t* g_wav_tails;
 extern uint32_t g_wav_tails_len;
-// 【新增】：3种颜色（金、红、绿）的硬币贴图全局指针
+
 extern uint16_t* g_img_heads[3];
 extern uint16_t* g_img_tails[3];
 
+// ==========================================
+// 【新增】：提取部数据结构与全局池指针
+// ==========================================
+struct IdentityData {
+    String sinner;
+    String id_name;
+    int star;
+    int walp;
+};
 
-// 资源初始化引擎
+extern IdentityData* g_gacha_pool;
+extern int g_gacha_pool_total;
+extern int* g_gacha_1star; extern int g_count_1star;
+extern int* g_gacha_2star; extern int g_count_2star;
+extern int* g_gacha_3star; extern int g_count_3star;
+
 void SysRes_Init();
