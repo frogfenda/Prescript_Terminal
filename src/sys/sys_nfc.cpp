@@ -344,7 +344,7 @@ void nfc_bg_task(void *pvParameters)
         // 【核心功耗压制】：只发波 40 毫秒！
         bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 40);
 
-       if (success) {
+        if (success) {
             // 【防抖魔法】：刚扫到卡时，强行等待 150ms 让手掌完全稳定在感应区！
             vTaskDelay(pdMS_TO_TICKS(150)); 
 
@@ -365,55 +365,60 @@ void nfc_bg_task(void *pvParameters)
                     int block = data_blocks[i];
                     bool auth_success = false;
 
-                    if (nfc.mifareclassic_AuthenticateBlock(uid, uidLength, block, 0, key_ndef)) auth_success = true;
-                    else if (nfc.mifareclassic_AuthenticateBlock(uid, uidLength, block, 0, key_factory)) auth_success = true;
+                    // 【修复1】：PN532如果第一次秘钥验证失败，会丢失目标！必须重新寻卡才能试第二把钥匙！
+                    if (nfc.mifareclassic_AuthenticateBlock(uid, uidLength, block, 0, key_ndef)) {
+                        auth_success = true;
+                    } else {
+                        nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 30);
+                        if (nfc.mifareclassic_AuthenticateBlock(uid, uidLength, block, 0, key_factory)) {
+                            auth_success = true;
+                        }
+                    }
 
                     if (auth_success) {
                         uint8_t data[16];
                         if (nfc.mifareclassic_ReadDataBlock(block, data)) {
                             for (int j = 0; j < 16; j++) {
                                 uint8_t b = data[j];
-                                if (b == 0xFE) { stop_reading = true; break; } // 完美读到了结束符！
+                                if (b == 0xFE) { stop_reading = true; break; } // 读到结束符
                                 if (b == 0xFF || b == 0x00) continue;
                                 if ((b >= 32 && b <= 126) || b >= 128) raw_text += (char)b;
                             }
                             i++; retry_count = 0; 
                         } else {
                             retry_count++;
-                            // 【复活魔法】：卡片瞬间断电，强制重新寻卡唤醒！
                             nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 30);
                             if (retry_count > 20) { Serial.println("[NFC] 读取数据块彻底超时..."); break; }                     
                         }
                     } else {
                         retry_count++;
-                        // 【复活魔法】：秘钥失效是因为卡片失忆了，强制重新寻卡！
                         nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 30);
                         if (retry_count > 20) { Serial.println("[NFC] 秘钥验证彻底超时，放弃..."); break; }
                     }
                 }
 
-                // 【核心完整性校验】：只有碰到了 0xFE，才允许执行！否则当作残次品丢弃！
-                if (stop_reading) {
-                    int min_idx = 9999; int idx;
-                    if ((idx = raw_text.indexOf("PRE:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("SCH:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("CMD:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("ALM:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("TXT:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("POM:")) != -1 && idx < min_idx) min_idx = idx;
-                    
-                    if (min_idx != 9999) {
-                        String clean_text = raw_text.substring(min_idx);
-                        Serial.printf("[NFC] 提取完整指令: %s\n", clean_text.c_str());
-                        snprintf(payload.payload, sizeof(payload.payload), "%s", clean_text.c_str());
-                        sysAudio.playTone(4000, 50); sysHaptic.playConfirm();     
-                        SysEvent_Publish(EVT_NFC_SCANNED, &payload);
-                    } else {
-                        Serial.println("[NFC] 读卡完成，但未发现有效都市指令标签！");
-                    }
+                // 【修复2】：不再死板地要求必须有 0xFE 结束符！
+                // 只要我们在提取出的文本中，找到了合法的指令前缀，就认为是完整/合法的指令卡！
+                int min_idx = 9999; int idx;
+                if ((idx = raw_text.indexOf("PRE:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("SCH:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("ALM:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("TXT:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("POM:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("COIN:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("COIN_DEL:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("WIFI:")) != -1 && idx < min_idx) min_idx = idx;
+                
+                if (min_idx != 9999) {
+                    String clean_text = raw_text.substring(min_idx);
+                    Serial.printf("[NFC] 提取有效指令: %s\n", clean_text.c_str());
+                    snprintf(payload.payload, sizeof(payload.payload), "%s", clean_text.c_str());
+                    sysAudio.playTone(4000, 50); sysHaptic.playConfirm();     
+                    SysEvent_Publish(EVT_NFC_SCANNED, &payload);
                 } else {
-                    Serial.println("[NFC-警告] 卡片过早移开，数据残缺，已拦截截断操作！");
-                    sysAudio.playTone(400, 150); // 播放一个难听的低频错误音，提示用户手别拿开太快
+                    if (raw_text.length() > 0) Serial.printf("[NFC-警告] 读取到不明数据: %s\n", raw_text.c_str());
+                    else Serial.println("[NFC-警告] 卡片为空或无有效都市指令！");
+                    sysAudio.playTone(400, 150); 
                 }
             }
             else if (uidLength == 7) {
@@ -437,42 +442,37 @@ void nfc_bg_task(void *pvParameters)
                         page++; retry_count = 0;
                     } else {
                         retry_count++;
-                        // 【复活魔法】：NTAG 同理，重新唤醒！
                         nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 30);
                         if (retry_count > 20) { Serial.println("[NFC] NTAG 页读取超时..."); break; }                     
                     }
                 }
 
-                // 【核心完整性校验】：NTAG 的残缺数据也要被拦在门外！
-                if (stop_reading) {
-                    int min_idx = 9999; int idx;
-                    if ((idx = raw_text.indexOf("PRE:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("SCH:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("CMD:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("ALM:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("TXT:")) != -1 && idx < min_idx) min_idx = idx;
-                    if ((idx = raw_text.indexOf("POM:")) != -1 && idx < min_idx) min_idx = idx;
-                    
-                    if (min_idx != 9999) {
-                        String clean_text = raw_text.substring(min_idx);
-                        Serial.printf("[NFC] 提取完整指令: %s\n", clean_text.c_str());
-                        snprintf(payload.payload, sizeof(payload.payload), "%s", clean_text.c_str());
-                        sysAudio.playTone(4000, 50); sysHaptic.playConfirm();     
-                        SysEvent_Publish(EVT_NFC_SCANNED, &payload);
-                    } else {
-                        Serial.println("[NFC] 读卡完成，但未发现有效都市指令标签！");
-                    }
+                // 【修复2】：同样放宽 NTAG 的 0xFE 限制
+                int min_idx = 9999; int idx;
+                if ((idx = raw_text.indexOf("PRE:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("SCH:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("ALM:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("TXT:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("POM:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("COIN:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("COIN_DEL:")) != -1 && idx < min_idx) min_idx = idx;
+                if ((idx = raw_text.indexOf("WIFI:")) != -1 && idx < min_idx) min_idx = idx;
+                
+                if (min_idx != 9999) {
+                    String clean_text = raw_text.substring(min_idx);
+                    Serial.printf("[NFC] 提取有效指令: %s\n", clean_text.c_str());
+                    snprintf(payload.payload, sizeof(payload.payload), "%s", clean_text.c_str());
+                    sysAudio.playTone(4000, 50); sysHaptic.playConfirm();     
+                    SysEvent_Publish(EVT_NFC_SCANNED, &payload);
                 } else {
-                    Serial.println("[NFC-警告] 卡片过早移开，数据残缺，已拦截截断操作！");
-                    sysAudio.playTone(400, 150); // 错误音反馈
+                    if (raw_text.length() > 0) Serial.printf("[NFC-警告] 读取到不明数据: %s\n", raw_text.c_str());
+                    else Serial.println("[NFC-警告] 卡片为空或无有效都市指令！");
+                    sysAudio.playTone(400, 150); 
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(1500));
-        }
-        // 【核心功耗压制】：每次没扫到卡，就去沉睡 400 毫秒！这句保留！
-        vTaskDelay(pdMS_TO_TICKS(400));
-    } // <--- 就是刚才丢了这个右大括号！
-}
+        }// <--- 就是刚才丢了这个右大括号！
+}}
 
 void SysNFC::begin()
 {
@@ -497,6 +497,6 @@ void SysNFC::begin()
                   (versiondata >> 8) & 0xFF);
                   
     nfc.SAMConfig();
-    xTaskCreate(nfc_bg_task, "NFC_Task", 4096, NULL, 2, &nfcTaskHandle);
+    xTaskCreate(nfc_bg_task, "NFC_Task", 10240, NULL, 2, &nfcTaskHandle);
     Serial.println("[NFC-硬件SPI] 纯血引擎已启动 (高速稳定读卡 + 硬件级穿透模拟).");
 }

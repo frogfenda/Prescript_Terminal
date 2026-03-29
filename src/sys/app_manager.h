@@ -64,7 +64,7 @@ extern AppBase *appCoinFlip;
 extern AppBase *appCountdown;
 
 // 文件：src/sys/app_manager.h (仅替换文件最底部部分)
-
+extern AppBase *appGacha;
 extern AppBase *appPushNotify;
 extern AppBase *appPushSetting;
 extern AppBase *appPomodoro;

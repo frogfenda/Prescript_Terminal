@@ -152,7 +152,7 @@ protected:
 
         uint16_t *img = (scaleX >= 0) ? g_img_heads[c_type] : g_img_tails[c_type];
         if (!img) return;
-
+ 
         bool is_spinning = coins[idx].is_flipping;
         bool is_flashing = (coins[idx].flash_frames > 0);
         bool is_dimmed = (!is_spinning && coins[idx].target_face == 1);
