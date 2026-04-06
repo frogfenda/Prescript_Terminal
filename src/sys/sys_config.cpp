@@ -51,8 +51,12 @@ void SysConfig::load()
         haptic_enable = true;
         haptic_intensity = 3; // 默认拉满！
         nfc_mode = 0;
-        gacha_stats.total = 0; gacha_stats.s3 = 0; gacha_stats.s2 = 0;
-        gacha_stats.s1 = 0; gacha_stats.w3 = 0; gacha_stats.w2 = 0;
+        gacha_stats.total = 0;
+        gacha_stats.s3 = 0;
+        gacha_stats.s2 = 0;
+        gacha_stats.s1 = 0;
+        gacha_stats.w3 = 0;
+        gacha_stats.w2 = 0;
 
         // [大扫除]：删除了旧版 custom_prescript_count = 0; 的初始化
 
@@ -107,14 +111,18 @@ void SysConfig::load()
     // 【新增】：限制硬币型号只能是 0, 1, 2
     if (coin_data.coin_type < 0 || coin_data.coin_type > 2)
         coin_data.coin_type = 0;
-        // (在 load 函数内部，读取 coin_data 后面的位置加上这段)
-    
+    // (在 load 函数内部，读取 coin_data 后面的位置加上这段)
+
     // 【新增】：读取硬币技能预设
     coin_preset_count = 0;
-    if (doc.containsKey("coin_presets")) {
+    // 【核心修复】：使用 V7 版本的新语法，安全判断它是否存在且为一个数组
+    if (doc["coin_presets"].is<JsonArray>())
+    {
         JsonArray cp_arr = doc["coin_presets"].as<JsonArray>();
-        for (JsonObject obj : cp_arr) {
-            if (coin_preset_count >= 10) break;
+        for (JsonObject obj : cp_arr)
+        {
+            if (coin_preset_count >= 10)
+                break;
             coin_presets[coin_preset_count].name = obj["n"].as<String>();
             coin_presets[coin_preset_count].base_power = obj["bp"] | 4;
             coin_presets[coin_preset_count].coin_power = obj["cp"] | 5;
@@ -154,16 +162,23 @@ void SysConfig::load()
     nfc_mode = doc["nfc_m"] | 0;
 
     JsonObject gs_node = doc["gacha_stats"];
-    if (!gs_node.isNull()) {
+    if (!gs_node.isNull())
+    {
         gacha_stats.total = gs_node["total"] | 0;
         gacha_stats.s3 = gs_node["s3"] | 0;
         gacha_stats.s2 = gs_node["s2"] | 0;
         gacha_stats.s1 = gs_node["s1"] | 0;
         gacha_stats.w3 = gs_node["w3"] | 0;
         gacha_stats.w2 = gs_node["w2"] | 0;
-    } else {
-        gacha_stats.total = 0; gacha_stats.s3 = 0; gacha_stats.s2 = 0;
-        gacha_stats.s1 = 0; gacha_stats.w3 = 0; gacha_stats.w2 = 0;
+    }
+    else
+    {
+        gacha_stats.total = 0;
+        gacha_stats.s3 = 0;
+        gacha_stats.s2 = 0;
+        gacha_stats.s1 = 0;
+        gacha_stats.w3 = 0;
+        gacha_stats.w2 = 0;
     }
 }
 
@@ -226,11 +241,12 @@ void SysConfig::save()
     coin_node["coin_count"] = coin_data.coin_count;
     coin_node["coin_type"] = coin_data.coin_type; // 【新增写入】
     // (在 save 函数内部，写入 coin_node 之后加上这段)
-    
+
     // 【新增】：写入硬币技能预设
     doc["coin_preset_count"] = coin_preset_count;
     JsonArray cp_arr = doc["coin_presets"].to<JsonArray>();
-    for (int i = 0; i < coin_preset_count; i++) {
+    for (int i = 0; i < coin_preset_count; i++)
+    {
         JsonObject obj = cp_arr.add<JsonObject>();
         obj["n"] = coin_presets[i].name;
         obj["bp"] = coin_presets[i].base_power;
