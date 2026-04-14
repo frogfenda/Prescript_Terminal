@@ -14,17 +14,24 @@ protected:
         return (appManager.getLanguage() == LANG_ZH) ? "系统设置菜单" : "SYSTEM SETTINGS";
     }
     
-    const char* getItemText(int index) override {
+   const char* getItemText(int index) override {
         NetworkState state = Network_GetState();
-        bool is_connected = (state == NET_SYNCING_NTP || state == NET_SYNC_SUCCESS || state == NET_SYNCING_NTP);
 
-       if (appManager.getLanguage() == LANG_ZH) {
-            if (index == 0) return is_connected ? "断开无线网络" : "连接无线网络"; 
-            // 【修改 2】：在 "同步网络时间" 后面插入 "提取部统计"
+        if (appManager.getLanguage() == LANG_ZH) {
+            if (index == 0) {
+                // 【核心修复】：根据真实状态精准显示
+                if (state == NET_SYNC_SUCCESS) return "断开无线网络";
+                if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API) return "网络运行中...";
+                return "连接无线网络"; // 断开或失败时显示这个
+            }
             const char* items[] = {"", "同步网络时间", "提取部统计", "切换系统语言", "设定休眠时间", "系统音量调节", "解码动画配置", "返回上一级"};
             return items[index];
         } else {
-            if (index == 0) return is_connected ? "DISCONNECT WIFI" : "CONNECT WIFI"; 
+            if (index == 0) {
+                if (state == NET_SYNC_SUCCESS) return "DISCONNECT WIFI";
+                if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API) return "WIFI BUSY...";
+                return "CONNECT WIFI";
+            }
             const char* items[] = {"", "SYNC NTP TIME", "GACHA STATS", "SWITCH LANGUAGE", "SLEEP SETTINGS", "MASTER VOLUME", "ANIMATION SETUP", "BACK TO MAIN"};
             return items[index];
         }

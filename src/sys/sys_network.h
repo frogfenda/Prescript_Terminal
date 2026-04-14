@@ -14,5 +14,6 @@ enum NetworkState {
 
 void Network_Init();
 // 【核心接口】：打个响指，在后台一气呵成完成（连网->NTP->API->断网保存）
-void Network_StartSync(); 
+// 将原来的 void Network_StartSync(); 修改为：
+void Network_StartSync(bool keep_alive = false);
 NetworkState Network_GetState();

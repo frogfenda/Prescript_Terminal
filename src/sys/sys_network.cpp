@@ -10,6 +10,7 @@
 
 volatile NetworkState g_state = NET_DISCONNECTED;
 TaskHandle_t g_netTaskHandle = NULL;
+volatile bool g_keep_wifi_alive = false; // 【新增】
 
 void _Cb_WifiSet(void* payload) {
     Evt_WifiSet_t* p = (Evt_WifiSet_t*)payload;
@@ -17,7 +18,7 @@ void _Cb_WifiSet(void* payload) {
         sysConfig.wifi_ssid = String(p->ssid);
         sysConfig.wifi_pass = String(p->pass);
         sysConfig.save();
-        Serial.printf("[网络中枢] 已截获新 WiFi 密钥: %s，立即在后台发起同步！\n", p->ssid);
+        Serial.printf("[网络中枢] 已截获新 WiFi 密钥: %s，立即在后台发起同步！\n", p->pass);
         
         // 收到密码后，自动打响指触发后台同步！
         Network_StartSync();
@@ -111,14 +112,19 @@ void network_daemon_task(void *pvParameters) {
         }
         http.end();
 
-        // 5. 完美收工：通报全员，并拔掉网线省电！
-        Serial.println("[网络守护神] 所有任务全线竣工！撤退并关闭射频...");
+        // 5. 完美收工：根据指令决定是否拔网线
+        Serial.println("[网络守护神] 所有任务全线竣工！");
         g_state = NET_SYNC_SUCCESS;
-        
-        // 故意停留 2 秒，让 UI 界面的玩家能看到“同步成功”的文字，再物理断电
         vTaskDelay(pdMS_TO_TICKS(2000)); 
-        WiFi.disconnect(true);
-        WiFi.mode(WIFI_OFF);
+        
+        if (!g_keep_wifi_alive) {
+            Serial.println("[网络守护神] 自动同步结束，关闭射频以省电...");
+            WiFi.disconnect(true);
+            WiFi.mode(WIFI_OFF);
+            g_state = NET_DISCONNECTED; // 【关键补丁】：之前拔了网线没重置状态，导致系统永远以为连着网！
+        } else {
+            Serial.println("[网络守护神] 手动连接模式，保持在线。");
+        }
     }
 }
 
@@ -131,18 +137,19 @@ void Network_Init() {
 }
 
 // 【系统级响指】：无论你在哪里，调用这句，守护神就会苏醒
-void Network_StartSync() {
-    // 只有在空闲状态才允许唤醒，防止重复发射
+// 【修改】：接收常驻参数
+// 3. 滑到文件最底下，修改启动函数
+void Network_StartSync(bool keep_alive) {
+    g_keep_wifi_alive = keep_alive; // 记录意图
     if (g_netTaskHandle != NULL && 
         g_state != NET_CONNECTING && 
         g_state != NET_SYNCING_NTP && 
         g_state != NET_FETCHING_API) 
     {
         g_state = NET_CONNECTING; 
-        xTaskNotifyGive(g_netTaskHandle); // 唤醒 Core 0 守护神！
+        xTaskNotifyGive(g_netTaskHandle); 
     }
 }
-
 NetworkState Network_GetState() {
     return g_state;
 }
