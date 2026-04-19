@@ -6,13 +6,13 @@
 #include <TFT_eSPI.h>
 #include "../sys/sys_audio.h"
 
-#define PIN_KNOB_A 4
-#define PIN_KNOB_B 5
+#define PIN_KNOB_A 5
+#define PIN_KNOB_B 4
 #define PIN_BTN    6   
 
 
 #define PIN_I2S_BCLK 18
-#define PIN_I2S_LRC  21
+#define PIN_I2S_LRC  13
 #define PIN_I2S_DOUT 17
 // ==========================================
 // 系统级 UI 布局尺寸定义
