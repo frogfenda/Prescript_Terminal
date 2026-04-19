@@ -14,6 +14,8 @@
 #define PIN_I2S_BCLK 18
 #define PIN_I2S_LRC  13
 #define PIN_I2S_DOUT 17
+#define PIN_AUDIO_SD 48 
+#define PIN_BLK      40
 // ==========================================
 // 系统级 UI 布局尺寸定义
 // ==========================================
@@ -69,8 +71,9 @@ void HAL_Fill_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color);
 void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color);
 void HAL_Sprite_Clear(void); 
-void HAL_Sleep_Enter();
-void HAL_Sleep_Exit();
+void HAL_Sleep_Enter_Prepare();
+void HAL_Sleep_Start();
+void HAL_Sleep_Wakeup_Post();
 void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h);
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* data);
 uint16_t HAL_Get_Screen_Width(void);

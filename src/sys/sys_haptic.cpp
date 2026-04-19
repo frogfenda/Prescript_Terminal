@@ -62,3 +62,18 @@ void SysHaptic::playDecodeSuccess() {
     drv_write(0x0B, 0x00);        
     drv_write(0x0C, 0x01);        
 }
+void SysHaptic_Sleep() {
+    // 0x5A是震动芯片地址，0x01是模式寄存器，0x40代表Standby(待机)
+    Wire1.beginTransmission(0x5A);
+    Wire1.write(0x01);
+    Wire1.write(0x40);
+    Wire1.endTransmission();
+}
+
+void SysHaptic_Wakeup() {
+    // 唤醒恢复到正常模式(0x00)
+    Wire1.beginTransmission(0x5A);
+    Wire1.write(0x01);
+    Wire1.write(0x00);
+    Wire1.endTransmission();
+}
