@@ -6,6 +6,7 @@
 #include "sys_audio.h"
 #include <SPI.h>
 #include <Adafruit_PN532.h>
+#include "driver/gpio.h" // 【新增】：必须引入底层 GPIO 驱动库
 
 // ==========================================
 // 硬件 SPI 引脚
@@ -207,18 +208,32 @@ void raw_reset()
 // ==========================================
 // 【低功耗控制接口】：随时物理断电
 // ==========================================
+// ==========================================
+// 【低功耗控制接口】：随时物理断电 + 锁死引脚防漏电
+// ==========================================
 void SysNfc_Sleep()
 {
     if (nfcTaskHandle != NULL)
     {
         vTaskSuspend(nfcTaskHandle);
     }
+
     digitalWrite(PIN_NFC_RESET, LOW);
-    Serial.println("[NFC-电源管理] 模块已进入深度休眠，射频天线关闭 (1µA)。");
+
+    // 【核心补丁：加上物理锁】
+    // 强制保持该引脚在休眠期间维持 LOW 电平，绝不放开，切断 PN532 一切耗电！
+    gpio_hold_en((gpio_num_t)PIN_NFC_RESET);
+    gpio_deep_sleep_hold_en(); // 如果系统以后升级成 Deep Sleep 也一样防漏电
+
+    Serial.println("[NFC-电源管理] 模块已进入休眠，射频天线关闭并锁定引脚 (1µA)。");
 }
 
 void SysNfc_Wakeup()
 {
+    // 【核心补丁：解除物理锁】
+    // 唤醒后的第一件事，必须先解除引脚锁定，否则后面的 HIGH 无法生效！
+    gpio_hold_dis((gpio_num_t)PIN_NFC_RESET);
+
     digitalWrite(PIN_NFC_RESET, HIGH);
     vTaskDelay(pdMS_TO_TICKS(50));
     nfc.begin();
@@ -229,7 +244,6 @@ void SysNfc_Wakeup()
     }
     Serial.println("[NFC-电源管理] 模块已唤醒，恢复主动雷达扫描。");
 }
-
 void nfc_bg_task(void *pvParameters)
 {
     while (true)
