@@ -218,7 +218,7 @@ public:
         float R = 160.0f; 
         float angle_step = 0.40f; 
         int safe_margin = 16;
-
+        
         for (int i = -4; i <= 4; i++) {
             float item_offset = i + offset;
             float angle = item_offset * angle_step;
@@ -260,7 +260,7 @@ private:
     float offset = 0.0f; 
     uint32_t last_tick = 0; // 【新增】帧率锁
 
-    // ... (保留内部私有函数 getCharLen, getCharWidth, getWordWidth, drawClippedText) ...
+
     int getCharLen(unsigned char c) {
         if ((c & 0x80) == 0) return 1;
         if ((c & 0xE0) == 0xC0) return 2;

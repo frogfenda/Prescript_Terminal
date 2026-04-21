@@ -4,11 +4,11 @@
 #include <string.h>
 #include "sys_haptic.h"
 
-int g_push_notify_mode = 0; 
+int g_push_notify_mode = 0;
 char g_push_notify_text[512] = {0};
 bool g_push_notify_keep_stack = false;
 
-extern AppBase *appPrescript; 
+extern AppBase *appPrescript;
 extern AppBase *appStandby; // 【核心新增】：引入待机应用进行状态拦截！
 
 // ==========================================
@@ -26,7 +26,7 @@ void PushNotify_Trigger_Random(bool keep_stack)
         {
             appManager.replaceApp(appPushNotify);
         }
-        else if (appManager.getCurrentApp() == appStandby) 
+        else if (appManager.getCurrentApp() == appStandby)
         {
             // 【核心修复】：如果是从息屏中被唤醒，绝对不要把“息屏状态”压入返回栈！
             // 强行清空栈，并修改 keep_stack 为 false，保证解码结束后直接回到主菜单！
@@ -98,8 +98,11 @@ public:
             blink_timer = millis();
             show_text = !show_text;
             if (show_text)
-                sysAudio.playTone(2500, 50);
+            {
                 SYS_HAPTIC_ALERT();
+                sysAudio.playTone(2500, 50);
+            }
+
             HAL_Sprite_Clear();
             if (show_text)
             {

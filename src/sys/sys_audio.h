@@ -54,7 +54,7 @@ extern SysAudio sysAudio;
     do                         \
     {                          \
         sysAudio.playGlitch(); \
-        sysHaptic.playAlert(); \
+        sysHaptic.playTick(); \
     } while (0)
 
 // 6. 兜底的解码成功四连发 (对应找不到 wav 文件的替补方案)

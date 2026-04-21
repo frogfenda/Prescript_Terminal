@@ -15,7 +15,7 @@
 #define PIN_NFC_MISO 2
 #define PIN_NFC_MOSI 47
 #define PIN_NFC_SS 15
-#define PIN_NFC_RESET 39
+#define PIN_NFC_RESET 21
 
 SPIClass nfc_spi(HSPI);
 Adafruit_PN532 nfc(PIN_NFC_SS, &nfc_spi);
@@ -770,7 +770,7 @@ void SysNFC::begin()
     xTaskCreatePinnedToCore(
         nfc_bg_task,
         "nfc_task",
-        4096,
+        8192,
         NULL,
         5, // 优先级
         &nfcTaskHandle,

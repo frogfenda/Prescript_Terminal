@@ -24,7 +24,7 @@ protected:
                 if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API) return "网络运行中...";
                 return "连接无线网络"; // 断开或失败时显示这个
             }
-            const char* items[] = {"", "同步网络时间", "提取部统计", "切换系统语言", "设定休眠时间", "系统音量调节", "解码动画配置", "返回上一级"};
+            const char* items[] = {"", "同步网络时间", "提取部统计", "切换系统语言", "设定休眠时间", "音量与振动", "解码动画配置", "返回上一级"};
             return items[index];
         } else {
             if (index == 0) {
@@ -32,7 +32,7 @@ protected:
                 if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API) return "WIFI BUSY...";
                 return "CONNECT WIFI";
             }
-            const char* items[] = {"", "SYNC NTP TIME", "GACHA STATS", "SWITCH LANGUAGE", "SLEEP SETTINGS", "MASTER VOLUME", "ANIMATION SETUP", "BACK TO MAIN"};
+            const char* items[] = {"", "SYNC NTP TIME", "GACHA STATS", "SWITCH LANGUAGE", "SLEEP SETTINGS", "VOL&HAPTIC", "ANIMATION SETUP", "BACK TO MAIN"};
             return items[index];
         }
     }
