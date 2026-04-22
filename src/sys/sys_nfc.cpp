@@ -722,15 +722,14 @@ void SysNFC::begin()
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    if (!versiondata)
+ if (!versiondata)
     {
-        Serial.println("[NFC-致命错误] 找不到 PN532 模块，强制挂起！");
-        while (1)
-        {
-            vTaskDelay(10);
-        }
+        Serial.println("[NFC-警告] 找不到 PN532 模块，NFC服务将离线...");
+        
+        // 【核心修复】：直接 return 退出 begin() 初始化函数。
+        // 这样既保住了主线程继续去连 WiFi，又完美避开了下方创建 NFC 后台任务的代码！
+        return; 
     }
-
     Serial.printf("[NFC-硬件SPI] 成功连接 PN532 固件版本 %d.%d\n", (versiondata >> 16) & 0xFF, (versiondata >> 8) & 0xFF);
 
     // ==========================================
