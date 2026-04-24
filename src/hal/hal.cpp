@@ -386,6 +386,18 @@ BtnEvent HAL_Get_Btn2_Event()
     return evt;
 }
 
+void HAL_Screen_ShowChineseLine_Color(int32_t x, int32_t y, const char* str, uint16_t color) {
+    u8f.setForegroundColor(color);
+    u8f.setCursor(x, y + 12);
+    u8f.print(str);
+}
+void HAL_Screen_ShowTextLine_Color(int32_t x, int32_t y, const char* str, uint16_t color) {
+    textSprite.setTextColor(color, TFT_BLACK);
+    textSprite.setTextSize(1);
+    textSprite.setCursor(x, y);
+    textSprite.print(str);
+}
+
 void HAL_Sprite_Clear() { textSprite.fillSprite(TFT_BLACK); }
 uint16_t HAL_Get_Screen_Width(void) { return 284; }
 uint16_t HAL_Get_Screen_Height(void) { return 76; }

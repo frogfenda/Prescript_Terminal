@@ -9,7 +9,13 @@
 #include "sys/sys_audio.h"
 #include "sys/sys_res.h"
 #include "sys_haptic.h"
+#include "sys_specials.h"
+bool g_prescript_needs_roll = true;
 
+void Prescript_Prepare_PreRolled()
+{
+    g_prescript_needs_roll = false; // 被推送唤醒时调用，告诉自己不要重新摇号
+}
 class AppPrescript : public AppBase
 {
 private:
@@ -227,7 +233,7 @@ private:
                     }
                 }
                 row_buf[buf_idx] = '\0';
-                HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + row * UI_CH_ROW_HEIGHT, row_buf);
+                HAL_Screen_ShowChineseLine_Color(UI_CH_MARGIN_X, UI_CH_START_Y + row * UI_CH_ROW_HEIGHT, row_buf,sysSpecials.getResult().color);
             }
         }
         else
@@ -259,7 +265,7 @@ private:
             int r = m_scroll_offset + i;
             if (current_lang == LANG_ZH)
             {
-                HAL_Screen_ShowChineseLine(margin_x, start_y + i * row_h, m_lines[r]);
+                HAL_Screen_ShowChineseLine_Color(margin_x, start_y + i * row_h, m_lines[r], sysSpecials.getResult().color);
             }
             else
             {
@@ -284,33 +290,10 @@ private:
         SystemLang_t current_lang = appManager.getLanguage();
         extern int __internal_prescript_mode;
         extern char __internal_custom_prescript[512];
-        const char *rule;
         static String fs_rule_str;
 
-        if (__internal_prescript_mode == 3 || __internal_prescript_mode == 4)
-        {
-            rule = __internal_custom_prescript;
-        }
-        else
-        {
-            if (current_lang == LANG_ZH)
-            {
-                int sz = sys_prescripts_zh.size();
-                if (sz > 0)
-                    fs_rule_str = sys_prescripts_zh[random(sz)];
-                else
-                    fs_rule_str = "错误：中文指令库为空。";
-            }
-            else
-            {
-                int sz = sys_prescripts_en.size();
-                if (sz > 0)
-                    fs_rule_str = sys_prescripts_en[random(sz)];
-                else
-                    fs_rule_str = "ERR: prescripts_en.txt EMPTY.";
-            }
-            rule = fs_rule_str.c_str();
-        }
+        DrawResult res = sysSpecials.getResult();
+        const char *rule = res.text.c_str();
 
         static char raw_prescript[1024];
         static char formatted_buf[2048];
@@ -364,7 +347,7 @@ private:
                             else if (current_char == frame)
                             {
                                 print_buf[buf_idx] = '\0';
-                                HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf);
+                                HAL_Screen_ShowChineseLine_Color(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf, sysSpecials.getResult().color);
                                 int cursor_x = UI_CH_MARGIN_X + HAL_Get_Text_Width(print_buf);
                                 HAL_Fill_Rect(cursor_x, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT + 2, clen > 1 ? 12 : 6, 12, 1);
                             }
@@ -374,7 +357,7 @@ private:
                         if (buf_idx > 0 && current_char <= frame)
                         {
                             print_buf[buf_idx] = '\0';
-                            HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf);
+                            HAL_Screen_ShowChineseLine_Color(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf, sysSpecials.getResult().color);
                         }
                     }
                     HAL_Screen_Update();
@@ -474,7 +457,7 @@ private:
                             if (buf_idx > 0)
                             {
                                 print_buf[buf_idx] = '\0';
-                                HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf);
+                                HAL_Screen_ShowChineseLine_Color(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf, sysSpecials.getResult().color);
                             }
                         }
                         HAL_Screen_Update();
@@ -552,7 +535,7 @@ private:
                         if (buf_idx > 0)
                         {
                             print_buf[buf_idx] = '\0';
-                            HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf);
+                            HAL_Screen_ShowChineseLine_Color(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, print_buf, sysSpecials.getResult().color);
                         }
                     }
                     HAL_Screen_Update();
@@ -642,7 +625,7 @@ private:
                         }
                         row_buf[buf_idx] = '\0';
                         if (buf_idx > 0)
-                            HAL_Screen_ShowChineseLine(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, row_buf);
+                            HAL_Screen_ShowChineseLine_Color(UI_CH_MARGIN_X, UI_CH_START_Y + r * UI_CH_ROW_HEIGHT, row_buf, sysSpecials.getResult().color);
                     }
                     HAL_Screen_Update();
                     if (!all_locked)
@@ -928,9 +911,8 @@ public:
         Init_Glitch_Pool();
         m_scroll_offset = 0;
 
-       
-        extern int __internal_prescript_mode;
-        if (__internal_prescript_mode != 2 && __internal_prescript_mode != 3)
+        // 核心跳转：如果命运已定(弹窗进来的)，直接看结果；如果是手动进的，排队抽卡
+        if (g_prescript_needs_roll)
         {
             m_state = S_WAIT_RELEASE;
         }
@@ -945,7 +927,22 @@ public:
         if (m_state == S_WAIT_RELEASE)
         {
             if (!HAL_Is_Key_Pressed())
+            {
+                // 1. 摇号
+                sysSpecials.rollRandom();
+
+                // 2. 【核心拦截】：如果抽中了特殊指令，立刻跳回弹窗界面！
+                if (sysSpecials.getResult().is_special)
+                {
+                    extern void Prescript_Prepare_PreRolled();
+                    Prescript_Prepare_PreRolled();        // 锁定命运
+                    appManager.replaceApp(appPushNotify); // 强制替换成弹窗 App
+                    return;
+                }
+
+                // 3. 如果是普通指令，才继续走自己的乱码流程
                 m_state = S_CHAOS;
+            }
         }
         else if (m_state == S_CHAOS)
         {
@@ -961,12 +958,9 @@ public:
 
     void onDestroy() override
     {
-        // 【修改】：直接调用停止接口，不再判断指针
         sysAudio.stopWAV();
         delay(5);
-
-        extern int __internal_prescript_mode;
-        __internal_prescript_mode = 0;
+        g_prescript_needs_roll = true; // 退出时重置状态，保证下次手动进能正常抽卡
     }
 
     void onKnob(int delta) override
@@ -1002,14 +996,25 @@ public:
         else if (m_state == S_DONE)
         {
             SYS_SOUND_NAV();
-            extern int __internal_prescript_mode;
-            if (__internal_prescript_mode == 0)
+            if (g_prescript_needs_roll)
+            {
+                // 重新抽取时也要检测拦截
+                sysSpecials.rollRandom();
+                if (sysSpecials.getResult().is_special)
+                {
+                    extern void Prescript_Prepare_PreRolled();
+                    Prescript_Prepare_PreRolled();
+                    appManager.replaceApp(appPushNotify);
+                    return;
+                }
                 m_state = S_WAIT_RELEASE;
+            }
             else
+            {
                 appManager.popApp();
+            }
         }
     }
-
     void onKeyLong() override
     {
         if (m_state == S_DONE || m_state == S_CHAOS)
@@ -1018,32 +1023,19 @@ public:
     // ==========================================
     // 【新增】：新侧边按键 (Btn2) 的专属逻辑
     // ==========================================
-    void onBtn2Short() override {
+    void onBtn2Short() override
+    {
         // 短按逻辑与旋钮按下完全一致：触发解码 / 抽取下一条
-        onKeyShort(); 
+        onKeyShort();
     }
 
-    void onBtn2Long() override {
+    void onBtn2Long() override
+    {
         // 长按逻辑：清脆退出，返回上一级
         SYS_SOUND_NAV();
         appManager.popApp();
     }
 };
-
-int __internal_prescript_mode = 0;
-char __internal_custom_prescript[512] = {0};
-void Prescript_Launch_PushNormal() { __internal_prescript_mode = 1; }
-void Prescript_Launch_PushDirect() { __internal_prescript_mode = 2; }
-void Prescript_Launch_Custom(const char *custom_text)
-{
-    __internal_prescript_mode = 3;
-    snprintf(__internal_custom_prescript, sizeof(__internal_custom_prescript), "%s", custom_text);
-}
-void Prescript_Launch_Custom_Wait(const char *custom_text)
-{
-    __internal_prescript_mode = 4;
-    snprintf(__internal_custom_prescript, sizeof(__internal_custom_prescript), "%s", custom_text);
-}
 
 AppPrescript instancePrescript;
 AppBase *appPrescript = &instancePrescript;

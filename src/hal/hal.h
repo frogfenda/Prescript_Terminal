@@ -78,4 +78,6 @@ void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h);
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* data);
 uint16_t HAL_Get_Screen_Width(void);
 uint16_t HAL_Get_Screen_Height(void);
+void HAL_Screen_ShowChineseLine_Color(int32_t x, int32_t y, const char* str, uint16_t color);
+void HAL_Screen_ShowTextLine_Color(int32_t x, int32_t y, const char* str, uint16_t color);
 #endif

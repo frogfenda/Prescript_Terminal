@@ -1,0 +1,44 @@
+{
+  "pure_specials": [
+    {
+      "id": "ABN_01",
+      "color": "0xF800",
+      "prob": 50,
+      "popup_title": "[ WARNING: ABNORMALITY ]",
+      "text": "Gears grind in flesh. The City's will is absolute."
+    },
+    {
+      "id": "ABN_02",
+      "color": "0x7800",
+      "prob": 30,
+      "popup_title": "[ LOG: SILENT ANOMALY ]",
+      "text": "Do not show that you remember this melody."
+    }
+  ],
+  "character_chains": [
+    {
+      "char_id": "ishmael",
+      "name": "Ishmael",
+      "color": "0xFC00",
+      "prob": 150,
+      "popup_title": "[ LOG: ISHMAEL ]",
+      "texts": [
+        "The compass is still spinning, pointing towards that name.",
+        "Is even this better than sailing without direction?",
+        "I'm sick of blind obedience, but... I can't stop yet."
+      ]
+    },
+    {
+      "char_id": "faust",
+      "name": "Faust",
+      "color": "0xFBE4",
+      "prob": 100,
+      "popup_title": "[ LOG: FAUST ]",
+      "texts": [
+        "Faust knows all.",
+        "The logic of this prescript falls within Faust's calculations.",
+        "Mephistopheles' engine requires more pride."
+      ]
+    }
+  ]
+}

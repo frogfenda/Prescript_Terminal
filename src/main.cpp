@@ -11,6 +11,7 @@
 #include "sys/sys_audio.h"
 #include "sys_haptic.h"
 #include "sys_nfc.h"
+#include "sys_specials.h"
 
 void setup()
 {
@@ -26,6 +27,7 @@ void setup()
     SysFS_Init();
     SysFS_Load_Prescripts();
     sysConfig.load();
+    sysSpecials.begin();
     SysTime_Init();
     sysAudio.begin();
     HAL_Init();
@@ -37,7 +39,6 @@ void setup()
     SysBLE_Init();
     sysNfc.begin();
     Network_Init();
-
     Network_StartSync();
 }
 

@@ -35,7 +35,9 @@ void SysConfig::load()
         coin_data.mode = 0;
         coin_data.sanity = 0;
         pomodoro_current_idx = 0;
-        volume = 40; // 【新增】：默认音量设为 7
+        volume = 40; // 【新增】：默认音量设为 40
+        special_toggles = 0xFFFFFFFF; // 默认所有特殊指令拦截全开
+        for (int i = 0; i < 8; i++) char_progress[i] = 0; // 进度全部归零
         const char *def_names[5] = {"常规专注", "深度工作", "短时冲刺", "阅读模式", "冥想休息"};
         uint32_t def_w[5] = {25, 60, 15, 45, 10};
         uint32_t def_r[5] = {5, 10, 3, 10, 5};
@@ -180,6 +182,21 @@ void SysConfig::load()
         gacha_stats.w3 = 0;
         gacha_stats.w2 = 0;
     }
+    special_toggles = doc["spec_tog"] | 0xFFFFFFFF;
+    
+    if (doc["char_prog"].is<JsonArray>())
+    {
+        JsonArray prog_arr = doc["char_prog"].as<JsonArray>();
+        for (int i = 0; i < 8 && i < prog_arr.size(); i++)
+        {
+            char_progress[i] = prog_arr[i] | 0;
+        }
+    }
+    else
+    {
+        // 防呆保护：如果硬盘里没有这个数组，强制清零
+        for (int i = 0; i < 8; i++) char_progress[i] = 0;
+    }
 }
 
 void SysConfig::save()
@@ -266,6 +283,15 @@ void SysConfig::save()
     doc["hap_en"] = haptic_enable;
     doc["hap_in"] = haptic_intensity;
     doc["nfc_m"] = nfc_mode;
+    
+    // 【新增】：保存特异点引擎数据
+    doc["spec_tog"] = special_toggles;
+    JsonArray prog_arr = doc["char_prog"].to<JsonArray>();
+    for (int i = 0; i < 8; i++)
+    {
+        prog_arr.add(char_progress[i]);
+    }
+
     // ==========================================
     // 序列化并写入硬盘
     // ==========================================

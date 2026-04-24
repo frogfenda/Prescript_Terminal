@@ -81,6 +81,8 @@ public:
     bool haptic_enable;         // 震动总开关
     uint8_t haptic_intensity;   // 震动强度 (1=弱, 2=中, 3=强)
     uint8_t nfc_mode;
+    uint32_t special_toggles; // 开关位掩码 (默认 0xFFFFFFFF 全开)
+    uint8_t char_progress[8]; // 人物链条进度表 (最多支持 8 个特殊人物)
     void load();
     void save();
 };
