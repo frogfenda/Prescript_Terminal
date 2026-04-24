@@ -7,6 +7,7 @@
 #include "sys/sys_specials.h" // 引入特异点引擎
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
+#include "sys/sys_event.h"
 
 bool g_push_notify_keep_stack = false;
 
@@ -74,6 +75,38 @@ void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
     }
 }
 
+void PushNotify_Trigger_Special_Forced(bool keep_stack)
+{
+    // 注意：这里【不调用】 sysSpecials.rollRandom()
+    // 而是直接利用 sysSpecials 缓冲区里已经通过 forceDrawByID 定好的数据
+
+    g_push_notify_keep_stack = keep_stack;
+    appManager.resetIdleTimer();
+
+    // 压栈逻辑与之前完全一致
+    if (keep_stack)
+    {
+        appManager.pushApp(appPushNotify);
+    }
+    else
+    {
+        appManager.launchApp(appPushNotify);
+    }
+}
+// ==========================================
+// 邮局回调：收到强制触发电报时的处理动作
+// ==========================================
+void _Cb_SpcForce(void *payload)
+{
+    Evt_SpcForce_t *p = (Evt_SpcForce_t *)payload;
+    String id = String(p->id);
+
+    // 1. 召唤命运枢纽，强行装载指定人物的第一条剧情（进度归 0 并设为 1）
+    sysSpecials.forceDrawByID(id);
+
+    // 2. 拉起警报弹窗（使用你在前两步里写好的“不摇号”弹窗接口）
+    PushNotify_Trigger_Special_Forced(false);
+}
 class AppPushNotify : public AppBase
 {
 private:
@@ -81,6 +114,12 @@ private:
     bool show_text;
 
 public:
+    // 【新增】：利用系统初始化钩子自动摆摊收信
+    void onSystemInit() override
+    {
+        SysEvent_Subscribe(EVT_SPECIAL_FORCE, _Cb_SpcForce);
+    }
+
     void onCreate() override
     {
         blink_timer = millis();

@@ -16,8 +16,8 @@ enum SysEventID {
     EVT_WIFI_SET,
     EVT_COIN_PRESET_ADD, // 【新增】：添加或覆写硬币预设
     EVT_COIN_PRESET_DEL,  // 【新增】：删除硬币预设
-    EVT_PRESCRIPT_DEL   // 【新增】：删除都市指令频道
-    
+    EVT_PRESCRIPT_DEL,   // 【新增】：删除都市指令频道
+    EVT_SPECIAL_FORCE    // 【新增】：特异点/人物剧情强制触发频道
 };
 
 
@@ -52,6 +52,10 @@ struct Evt_WifiSet_t {
     const char* ssid; 
     const char* pass; 
 };
+
+// 【新增】：特异点强推的数据包裹
+struct Evt_SpcForce_t { const char* id; };
+
 // 3. 邮局接口声明
 typedef void (*SysEventCallback)(void* payload);
 

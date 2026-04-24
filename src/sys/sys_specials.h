@@ -22,6 +22,10 @@ public:
     // 在类定义中增加：
     void forceDrawByID(const String &id);
     DrawResult getResult() { return current_draw; }
+    // 【新增】：向蓝牙同步所有特异点元数据 (不包含庞大文本)
+    void syncMetaData();
+    // 【新增】：按需索取具体的文本指令
+    void syncTextByID(const String &id);
 };
 
 extern SysSpecials sysSpecials;

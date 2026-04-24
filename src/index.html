@@ -295,6 +295,21 @@
             data-i18n="btn_txt">传递指令</button>
     </div>
 
+
+    <div class="panel">
+        <div class="panel-title"><span data-i18n="panel_spc">>> SPECIAL DIRECTIVE (特异点强制介入)</span></div>
+        <input type="text" class="input-box" id="spc_id" style="width: 100%; margin-bottom: 10px;"
+            placeholder="输入编号 (例: ishmael)" data-i18n-ph="ph_spc">
+        <button class="btn" onclick="forceSpecial()" ssdata-i18n="btn_spc">强行启动剧本链条</button>
+    </div>
+
+    <div class="panel">
+        <div class="panel-title">>> SPECIAL DIRECTIVE DATABASE (特异点监视树)</div>
+        <div id="spc_list_container">
+            <div style="color: #666; font-size: 0.8em; text-align: center;">[ CONNECT TO SYNC METADATA ]</div>
+        </div>
+    </div>
+
     <div class="panel">
         <div class="panel-title">
             <span data-i18n="panel_alm">>> ALARM MATRIX (唤醒调度)</span>
@@ -416,7 +431,7 @@
         // 多语言字典与动态引擎 (i18n Engine)
         // ==========================================
         let currentLang = 'zh';
-
+        let specialDirectives = {}; // 存储元数据字典
         const i18n = {
             zh: {
                 title: "Terminal Uplink",
@@ -466,7 +481,11 @@
                 status_connecting: "SYS_STATUS: CONNECTING...<br><span style='font-size: 12px; color: #ff0;'>[等待配对]</span>",
                 status_online: "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[同步完毕]</span>",
 
-                status_offline: "SYS_STATUS: OFFLINE<br><span style='font-size: 12px; color: #f03;'>[连接断开]</span>"
+                status_offline: "SYS_STATUS: OFFLINE<br><span style='font-size: 12px; color: #f03;'>[连接断开]</span>",
+                // ... 其他中文翻译 ...
+                panel_spc: ">> SPECIAL DIRECTIVE (特异点强制介入)",
+                ph_spc: "输入人物或异想体编号 (例: ishmael)",
+                btn_spc: "强行启动剧本链条",
 
 
             },
@@ -514,7 +533,10 @@
                 panel_coin: ">> COIN PRESETS",
                 lbl_coin_name: "Name:", lbl_bp: "Base:", lbl_cp: "Coin:", lbl_cc: "Count:", lbl_cl: "Color:",
                 btn_coin_add: "+ OVERWRITE & SYNC",
-                msg_no_coin: "( NO COIN PRESETS )",
+                msg_no_coin: "( NO COIN PRESETS )",// ... 其他英文翻译 ...
+                panel_spc: ">> SPECIAL DIRECTIVE",
+                ph_spc: "Enter Character/Abno ID (e.g., ishmael)",
+                btn_spc: "FORCE TRIGGER CHAIN",
                 opt_cl0: "GOLD", opt_cl1: "RED", opt_cl2: "GREEN", opt_cl3: "BLUE",
                 status_connecting: "SYS_STATUS: CONNECTING...<br><span style='font-size: 12px; color: #ff0;'>[AWAITING PAIRING]</span>",
                 status_online: "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: #0f0;'>[SYNC COMPLETE]</span>",
@@ -697,7 +719,33 @@
                 // 捕获并追加硬币数据
                 try { terminalCoins.push(JSON.parse(val.substring(10))); renderUI(); } catch (e) { }
             }
-
+            // ==========================================
+            // 【新增】：捕获特异点元数据
+            // ==========================================
+            else if (val.startsWith("SPC_META:")) {
+                let parts = val.substring(9).split('|');
+                if (parts.length >= 8) {
+                    specialDirectives[parts[1]] = {
+                        type: parts[0], id: parts[1], name: parts[2],
+                        prob: parts[3], progress: parts[4], color: parts[5],
+                        title: parts[6], enabled: parts[7]
+                    };
+                    renderUI(); // 调用你现成的 UI 刷新中心
+                }
+            }
+            // ==========================================
+            // 【新增】：捕获被点名索要的具体文本
+            // ==========================================
+            else if (val.startsWith("SPC_TXT:")) {
+                let idx = val.indexOf('|');
+                if (idx !== -1) {
+                    let id = val.substring(8, idx);
+                    if (specialDirectives[id]) {
+                        specialDirectives[id].fetchedText = val.substring(idx + 1); // 将文本存入字典
+                        renderUI(); // 再次刷新 UI 显示文本
+                    }
+                }
+            }
             clearTimeout(syncTimeout);
             syncTimeout = setTimeout(() => {
                 document.getElementById('statusBox').innerHTML = currentLang === 'zh' ?
@@ -747,7 +795,59 @@
             });
             document.getElementById('coin_list_container').innerHTML = coinHtml;
 
+            // （接在 coinHtml 赋值的下方）
 
+            // ==========================================
+            // 【新增】：动态渲染特异点监视树
+            // ==========================================
+            let spcHtml = Object.keys(specialDirectives).length === 0
+                ? `<div style='color:#555; text-align:center; font-size:12px;'>[ DATABASE EMPTY ]</div>`
+                : "";
+
+            for (let id in specialDirectives) {
+                let item = specialDirectives[id];
+
+                // RGB565 解码为网页 HEX 颜色
+                let cInt = parseInt(item.color, 16) || 0;
+                let r = Math.round(((cInt >> 11) & 0x1F) * 255 / 31);
+                let g = Math.round(((cInt >> 5) & 0x3F) * 255 / 63);
+                let b = Math.round((cInt & 0x1F) * 255 / 31);
+                let cssColor = `rgb(${r},${g},${b})`;
+
+                let typeLabel = item.type === 'C' ? '[人物链条]' : '[异想体]';
+                let statusColor = item.enabled === '1' ? '#0f0' : '#f03';
+                let statusText = item.enabled === '1' ? 'ACTIVE' : 'LOCKED';
+
+                // 如果 fetchedText 有值，说明玩家按了拉取按钮，把它渲染出来
+                let fetchedContentHtml = item.fetchedText
+                    ? `<div style="margin-top: 8px; padding: 8px; border-left: 2px dashed ${cssColor}; background: #111; color: #ddd; font-size: 0.9em; word-wrap: break-word;">${item.fetchedText}</div>`
+                    : "";
+
+                spcHtml += `<div class="list-item" style="flex-direction: column; align-items: stretch; border-left: 3px solid ${cssColor};">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                        <div>
+                            <strong style="color: ${cssColor};">${item.name}</strong> 
+                            <span style="font-size: 0.8em; color: #888;">${typeLabel}</span>
+                        </div>
+                        <div style="font-size: 0.7em; color: ${statusColor}; border: 1px solid ${statusColor}; padding: 1px 4px;">${statusText}</div>
+                    </div>
+                    
+                    <div style="font-size: 0.8em; color: #aaa; margin-top: 2px; margin-bottom: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                        <span>ID: ${item.id}</span>
+                        <span>概率: ${item.prob}‱</span>
+                        <span>进度: ${item.progress}</span>
+                        <span>弹窗: ${item.title}</span>
+                    </div>
+
+                    <button class="btn" style="padding: 4px 8px; font-size: 0.8em; width: auto; align-self: flex-start; border-color: #088; color: #0ff;" 
+                        onclick="sendRaw('GET:SPC_TXT:${item.id}')">
+                        >> FETCH PAYLOAD (获取具体文本)
+                    </button>
+                    ${fetchedContentHtml}
+                </div>`;
+            }
+            // 写入你在 HTML 里写好的容器
+            document.getElementById('spc_list_container').innerHTML = spcHtml;
         }
         function generateColorSelects() {
             let count = parseInt(document.getElementById('coin_cc').value) || 3;
@@ -865,6 +965,19 @@
             if (!n) return alert(i18n[currentLang].msg_empty);
             sendRaw(`COIN:${bp}:${cp}:${cc}:${cl_str}:${n}`);
             setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
+        }
+        // ==========================================
+        // 【新增】：一键强行触发特异点或人物链条
+        // ==========================================
+        function forceSpecial() {
+            let id = document.getElementById('spc_id').value.trim();
+            if (!id) return alert(i18n[currentLang].msg_empty);
+
+            // 发送 SPC: 协议
+            sendRaw(`SPC:${id}`);
+
+            // 选填：触发后清空输入框
+            // document.getElementById('spc_id').value = "";
         }
     </script>
 </body>

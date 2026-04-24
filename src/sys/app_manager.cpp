@@ -77,6 +77,7 @@ void AppManager::begin()
     installApp(appGacha);       
     installApp(appGachaStats);
     launchApp(appStandby);
+    installApp(appPushNotify);
 }
 
 void AppManager::launchApp(AppBase *newApp)
