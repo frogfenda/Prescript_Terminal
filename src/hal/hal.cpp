@@ -211,10 +211,9 @@ private:
 
     uint32_t long_press_ms;
     uint32_t double_gap_ms;
-    bool enable_double_click; // 【新增】：双击使能开关
+    bool enable_double_click;
 
 public:
-    // 构造函数：默认开启双击。如果传 false，则松手瞬间立刻判定短按！
     ButtonEngine(uint32_t lp_ms = 800, uint32_t dg_ms = 250, bool enable_dbl = true)
     {
         long_press_ms = lp_ms;
@@ -222,7 +221,6 @@ public:
         enable_double_click = enable_dbl;
     }
 
-    // 【新增】：强制重置状态机，用于吞掉休眠唤醒时的残余按键
     void reset()
     {
         is_pressed = false;
@@ -235,56 +233,58 @@ public:
         uint32_t now = millis();
         BtnEvent result = BTN_NONE;
 
+        // 【事件 1】：按键被按下的瞬间
         if (current_state && !is_pressed)
         {
             is_pressed = true;
             press_time = now;
             long_triggered = false;
+
+            // 🚀 【极速响应核心】：如果是等待双击的状态，第二次按下的瞬间立刻引爆！绝不等待松手！
+            if (enable_double_click && wait_double)
+            {
+                wait_double = false;
+                long_triggered = true; // 借用这个标志位，屏蔽掉后续的松手判断
+                return BTN_DOUBLE;
+            }
         }
+        // 【事件 2】：按键被松开的瞬间
         else if (!current_state && is_pressed)
         {
             is_pressed = false;
             uint32_t duration = now - press_time;
 
-            if (!long_triggered && duration > 20)
-            { // 20ms 硬件防抖
+            if (!long_triggered && duration > 20) // 20ms 防抖
+            {
                 if (enable_double_click)
                 {
-                    // 如果开启了双击，就挂起等待
-                    if (wait_double)
-                    {
-                        wait_double = false;
-                        result = BTN_DOUBLE;
-                    }
-                    else
-                    {
-                        wait_double = true;
-                        release_time = now;
-                    }
+                    wait_double = true;
+                    release_time = now;
                 }
                 else
                 {
-                    // 【核心修复】：如果不需要双击，松手的瞬间立刻开火！零延迟！
-                    result = BTN_SHORT;
+                    return BTN_SHORT; // 不开双击，松手瞬间极速开火
                 }
             }
         }
+        // 【事件 3】：按键持续按压中
         else if (current_state && is_pressed)
         {
             if (!long_triggered && (now - press_time > long_press_ms))
             {
                 long_triggered = true;
                 wait_double = false;
-                result = BTN_LONG;
+                return BTN_LONG; // 时间一到，精准开火
             }
         }
+        // 【事件 4】：按键处于空闲状态
         else if (!current_state && !is_pressed)
         {
-            // 只有开启双击的情况下，才会走到这个超时判定的逻辑
+            // ⏳ 如果开启了双击，只能在这里乖乖等 250ms 超时，才能判定为单击
             if (enable_double_click && wait_double && (now - release_time > double_gap_ms))
             {
                 wait_double = false;
-                result = BTN_SHORT;
+                return BTN_SHORT;
             }
         }
         return result;
@@ -386,17 +386,20 @@ BtnEvent HAL_Get_Btn2_Event()
     return evt;
 }
 
-void HAL_Screen_ShowChineseLine_Color(int32_t x, int32_t y, const char* str, uint16_t color) {
+void HAL_Screen_ShowChineseLine_Color(int32_t x, int32_t y, const char *str, uint16_t color)
+{
     u8f.setForegroundColor(color);
     u8f.setCursor(x, y + 12);
     u8f.print(str);
 }
-void HAL_Screen_ShowTextLine_Color(int32_t x, int32_t y, const char* str, uint16_t color) {
+void HAL_Screen_ShowTextLine_Color(int32_t x, int32_t y, const char *str, uint16_t color)
+{
     textSprite.setTextColor(color, TFT_BLACK);
     textSprite.setTextSize(1);
     textSprite.setCursor(x, y);
     textSprite.print(str);
 }
+
 
 void HAL_Sprite_Clear() { textSprite.fillSprite(TFT_BLACK); }
 uint16_t HAL_Get_Screen_Width(void) { return 284; }

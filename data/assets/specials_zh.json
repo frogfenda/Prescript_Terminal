@@ -31,7 +31,7 @@
     {
       "char_id": "Rien",
       "name": "里恩",
-      "color": "0xFC00",
+      "color": "0x07FF",
       "prob": 150,
       "popup_title": "赫尔墨斯",
       "texts": [
@@ -49,7 +49,7 @@
     {
       "char_id": "faust",
       "name": "浮士德",
-      "color": "0xFBE4",
+      "color": "0xFE19",
       "prob": 100,
       "popup_title": "【 观测日志：浮士德 】",
       "texts": [

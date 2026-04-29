@@ -5,6 +5,7 @@
 #include "app_base.h"
 #include "app_manager.h"
 #include <time.h>
+#include "sys_power.h"
 
 class AppMenuBase : public AppBase
 {
@@ -32,7 +33,7 @@ protected:
     void drawMenuUI(float v_pos)
     {
         HAL_Sprite_Clear();
-
+        sysPower.drawBatteryIcon(4, 4);
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
 
@@ -298,7 +299,12 @@ public:
             last_tmr_sec = -1;
             needs_redraw = true;
         }
+        extern bool HAL_Power_NeedsRedraw();
 
+        if (sysPower.needsRedraw())
+        {
+            needs_redraw = true;
+        }
         // ==========================================
         // 最终统一推屏
         if (needs_redraw)

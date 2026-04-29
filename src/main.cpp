@@ -12,6 +12,7 @@
 #include "sys_haptic.h"
 #include "sys_nfc.h"
 #include "sys_specials.h"
+#include "sys_power.h"
 
 void setup()
 {
@@ -30,6 +31,7 @@ void setup()
     sysSpecials.begin();
     SysTime_Init();
     sysAudio.begin();
+    sysPower.begin();
     HAL_Init();
     appManager.begin();
     extern void SysRouter_Init();
