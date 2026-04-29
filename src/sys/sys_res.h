@@ -11,6 +11,8 @@ extern uint8_t* g_wav_heads;
 extern uint32_t g_wav_heads_len;
 extern uint8_t* g_wav_tails;
 extern uint32_t g_wav_tails_len;
+extern uint8_t* g_ahab_sound;
+extern uint32_t g_ahab_sound_len;
 
 extern uint16_t* g_img_heads[3];
 extern uint16_t* g_img_tails[3];

@@ -22,6 +22,7 @@ struct PureSpecial
     int prob;
     String popup_title;
     String text;
+    String audio_bind; // 【新增】
 };
 
 struct CharChain
@@ -32,6 +33,7 @@ struct CharChain
     int prob;
     String popup_title;
     std::vector<String> texts;
+    String audio_bind; // 【新增】
 };
 
 // --- 常驻内存池 ---
@@ -78,6 +80,7 @@ void SysSpecials::begin()
         ps.prob = obj["prob"].as<int>();
         ps.popup_title = obj["popup_title"].as<String>();
         ps.text = obj["text"].as<String>();
+        ps.audio_bind = obj["audio"] | ""; // 【新增】：如果没有配置，默认为空
         pool_pure_specials.push_back(ps);
     }
 
@@ -91,6 +94,7 @@ void SysSpecials::begin()
         cc.color = (uint16_t)strtol(obj["color"].as<const char *>(), NULL, 16);
         cc.prob = obj["prob"].as<int>();
         cc.popup_title = obj["popup_title"].as<String>();
+        cc.audio_bind = obj["audio"] | ""; // 【新增】
 
         JsonArray texts_arr = obj["texts"];
         for (const char *txt : texts_arr)
@@ -157,7 +161,7 @@ void SysSpecials::rollRandom()
                 current_draw.color = pool_char_chains[i].color;
                 current_draw.title = pool_char_chains[i].popup_title;
                 current_draw.text = pool_char_chains[i].texts[sysConfig.char_progress[i]];
-
+                current_draw.audio_bind = pool_char_chains[i].audio_bind; // <--- 【补上这句】
                 sysConfig.char_progress[i]++;
                 sysConfig.save();
                 return;
@@ -178,6 +182,7 @@ void SysSpecials::rollRandom()
             current_draw.color = pool_pure_specials[i].color;
             current_draw.title = pool_pure_specials[i].popup_title;
             current_draw.text = pool_pure_specials[i].text;
+            current_draw.audio_bind = pool_pure_specials[i].audio_bind; // <--- 【补上这句】
             return;
         }
     }
@@ -185,6 +190,7 @@ void SysSpecials::rollRandom()
     // ==========================================
     // 兜底方案：啥也没拦截到，老老实实抽普通的
     // ==========================================
+    current_draw.audio_bind = ""; // <--- 【清理缓存，防止幽灵音效】
     if (current_lang == LANG_ZH)
     {
         int sz = sys_prescripts_zh.size();
@@ -218,6 +224,7 @@ void SysSpecials::forceDrawByID(const String &id)
             current_draw.color = ps.color;
             current_draw.title = ps.popup_title;
             current_draw.text = ps.text;
+            current_draw.audio_bind = ps.audio_bind;
             return;
         }
     }
@@ -234,7 +241,7 @@ void SysSpecials::forceDrawByID(const String &id)
             current_draw.color = pool_char_chains[i].color;
             current_draw.title = pool_char_chains[i].popup_title;
             current_draw.text = pool_char_chains[i].texts[0]; // 强行触发第一条
-
+            current_draw.audio_bind = pool_char_chains[i].audio_bind;
             // 推进进度到 1，这样后续通过 rollRandom 随机抽取的“意志共鸣”就能接上后面的剧情
             sysConfig.char_progress[i] = 1;
             sysConfig.save();

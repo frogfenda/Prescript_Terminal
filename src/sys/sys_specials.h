@@ -8,6 +8,7 @@ struct DrawResult
     String text;     // 实际文字
     uint16_t color;  // 专属颜色
     bool is_special; // 是否为特殊人物拦截
+    String audio_bind; // 【新增】：绑定的音频标识符
 };
 
 class SysSpecials

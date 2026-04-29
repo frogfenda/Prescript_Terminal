@@ -233,7 +233,7 @@ private:
                     }
                 }
                 row_buf[buf_idx] = '\0';
-                HAL_Screen_ShowChineseLine_Color(UI_CH_MARGIN_X, UI_CH_START_Y + row * UI_CH_ROW_HEIGHT, row_buf,sysSpecials.getResult().color);
+                HAL_Screen_ShowChineseLine_Color(UI_CH_MARGIN_X, UI_CH_START_Y + row * UI_CH_ROW_HEIGHT, row_buf, sysSpecials.getResult().color);
             }
         }
         else
@@ -890,16 +890,40 @@ private:
         // 【终极打断】：强行解除硬件无限循环，并切歌！
         // ==========================================
         sysAudio.stopWAV(); // 【修改】：一键优雅停止
-        if (g_wav_final)
+        String bind = res.audio_bind;
+
+        if (bind == "heads" && g_wav_heads)
         {
-            // 参数3为 false，代表这声极具压迫感的解码音效只播放一次
-            sysAudio.playWAV(g_wav_final, g_wav_final_len, false);
+            sysAudio.playWAV(g_wav_heads, g_wav_heads_len, false);
             SYS_HAPTIC_DECODE();
+        }
+        else if (bind == "tails" && g_wav_tails)
+        {
+            sysAudio.playWAV(g_wav_tails, g_wav_tails_len, false);
+            SYS_HAPTIC_DECODE();
+        }
+        else if (bind == "Ahab" && g_ahab_sound)
+        {
+            sysAudio.playWAV(g_ahab_sound, g_ahab_sound_len, false);
+            SYS_HAPTIC_DECODE(); // 也可以换成 SYS_HAPTIC_ALERT() 等其他震感
+        }
+
+        else if (bind == "none")
+        {
+            // 静默模式：不播放任何结尾音效
         }
         else
         {
-            // 文件没读到的兜底保护
-            SYS_SOUND_SUCCESS_4BEEPS();
+            // 兜底默认：如果没有绑定，或者找不到对应的，播放默认的 final
+            if (g_wav_final)
+            {
+                sysAudio.playWAV(g_wav_final, g_wav_final_len, false);
+                SYS_HAPTIC_DECODE();
+            }
+            else
+            {
+                SYS_SOUND_SUCCESS_4BEEPS();
+            }
         }
 
         SysAutoPush_ResetTimer();

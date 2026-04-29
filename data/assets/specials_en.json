@@ -13,6 +13,14 @@
       "prob": 30,
       "popup_title": "[ LOG: SILENT ANOMALY ]",
       "text": "Do not show that you remember this melody."
+    },
+    {
+      "id": "Ahab",
+      "color": "0xFFFF",
+      "prob": 50,
+      "popup_title": "【 STRONG WISH DETECTED 】",
+      "text": "It's all your fault Ishmael!!",
+      "audio": "Ahab"
     }
   ],
   "character_chains": [

@@ -13,6 +13,14 @@
       "prob": 30,
       "popup_title": "【 观测日志：静默异常 】",
       "text": "不要表现出你记住了这个旋律。"
+    },
+    {
+      "id": "Ahab",
+      "color": "0xFFFF",
+      "prob": 50,
+      "popup_title": "【 侦测到强烈愿望 】",
+      "text": "都是你的错,以实玛丽!!",
+      "audio": "Ahab"
     }
   ],
   "character_chains": [

@@ -13,6 +13,9 @@ uint8_t *g_wav_heads = nullptr;
 uint32_t g_wav_heads_len = 0;
 uint8_t *g_wav_tails = nullptr;
 uint32_t g_wav_tails_len = 0;
+// 在文件顶部和其他指针放在一起
+uint8_t* g_ahab_sound = nullptr;
+uint32_t g_ahab_sound_len = 0;
 // 【新增】：实体化抽卡全局池
 IdentityData *g_gacha_pool = nullptr;
 int g_gacha_pool_total = 0;
@@ -81,6 +84,17 @@ void SysRes_Init()
             f4.read(g_wav_tails, g_wav_tails_len);
         }
         f4.close();
+    }
+    
+    File f_new = LittleFS.open("/assets/Ahab.wav", "r");
+    if (f_new) {
+        g_ahab_sound_len = f_new.size() - 44;
+        g_ahab_sound = (uint8_t *)ps_malloc(g_ahab_sound_len);
+        if (g_ahab_sound) {
+            f_new.seek(44);
+            f_new.read(g_ahab_sound, g_ahab_sound_len);
+        }
+        f_new.close();
     }
 
     // 2. 【新增】：吸入所有 6 张硬币材质 (64*64*2 = 8KB，共 48KB)
