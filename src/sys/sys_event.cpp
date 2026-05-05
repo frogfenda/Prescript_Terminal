@@ -1,7 +1,6 @@
 // 文件：src/sys/sys_event.cpp
 #include "sys_event.h"
-
-#define MAX_SUBSCRIBERS 20
+#include "sys_constants.h"
 
 // 订阅者花名册
 struct Subscriber {
@@ -9,12 +8,12 @@ struct Subscriber {
     SysEventCallback cb;
 };
 
-static Subscriber g_subscribers[MAX_SUBSCRIBERS];
+static Subscriber g_subscribers[PrescriptConst::MAX_EVENT_SUBSCRIBERS];
 static int g_sub_count = 0;
 
 // 登记订阅
 void SysEvent_Subscribe(SysEventID evt, SysEventCallback cb) {
-    if (g_sub_count < MAX_SUBSCRIBERS) {
+    if (g_sub_count < PrescriptConst::MAX_EVENT_SUBSCRIBERS) {
         g_subscribers[g_sub_count].evt = evt;
         g_subscribers[g_sub_count].cb = cb;
         g_sub_count++;

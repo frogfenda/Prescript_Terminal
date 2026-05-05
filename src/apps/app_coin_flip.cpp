@@ -12,7 +12,6 @@
 
 int g_coin_run_idx = -1;  // 告诉动画引擎当前在跑哪个技能 (-1代表快速推演)
 int g_coin_edit_idx = -1; // 告诉编辑界面当前在改哪个技能
-extern AppBase* appCoinPresetEdit; 
 const int SRC_COIN_SIZE = 64;
 
 namespace CoinAnimParams
@@ -614,6 +613,7 @@ protected:
     }
 };
 AppCoinSettings instanceCoinSettings;
+AppBase *appCoinSettings = &instanceCoinSettings;
 
 // ==========================================
 // 【终端本地操作】：量子技能录入与编辑终端
@@ -803,20 +803,20 @@ protected:
     {
         if (index == 0) {
             g_coin_run_idx = -1;
-            appManager.pushApp(appCoinQuick); 
+            appManager.push(AppId::CoinQuick); 
         } 
         else if (index == sysConfig.coin_preset_count + 1) {
             if (sysConfig.coin_preset_count < 10) {
                 g_coin_edit_idx = -1; 
-                appManager.pushApp(appCoinPresetEdit);
+                appManager.push(AppId::CoinPresetEdit);
             }
         } 
         else if (index == sysConfig.coin_preset_count + 2) {
-            appManager.pushApp(&instanceCoinSettings);
+            appManager.push(AppId::CoinSettings);
         } 
         else {
             g_coin_run_idx = index - 1; 
-            appManager.pushApp(appCoinSkill); 
+            appManager.push(AppId::CoinSkill); 
         }
     }
 
@@ -824,7 +824,7 @@ protected:
     {
         if (current_selection > 0 && current_selection <= sysConfig.coin_preset_count) {
             g_coin_edit_idx = current_selection - 1;
-            appManager.pushApp(appCoinPresetEdit); 
+            appManager.push(AppId::CoinPresetEdit); 
         } else {
             SYS_SOUND_NAV();
             appManager.popApp();

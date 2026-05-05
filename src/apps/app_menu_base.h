@@ -6,6 +6,7 @@
 #include "app_manager.h"
 #include <time.h>
 #include "sys_power.h"
+#include "../ui/ui_hud.h"
 
 class AppMenuBase : public AppBase
 {
@@ -33,7 +34,6 @@ protected:
     void drawMenuUI(float v_pos)
     {
         HAL_Sprite_Clear();
-        sysPower.drawBatteryIcon(4, 4);
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
 
@@ -51,64 +51,9 @@ protected:
         const float UI_3D_CURVE_FACTOR = 12.0f;
 
         // ==========================================
-        // 1. 左侧：动态自适应 HUD 信息面板
+        // 1. 左侧 HUD 面板
         // ==========================================
-        const char *title_text = getTitle();
-        int title_w = HAL_Get_Text_Width(title_text);
-
-        char time_str[10];
-        SysTime_GetTimeString(time_str);
-        int time_w = HAL_Get_Text_Width(time_str);
-
-        int max_content_w = (title_w > time_w) ? title_w : time_w;
-        int left_panel_w = max_content_w + (UI_PADDING_X * 2);
-
-        int title_x = (left_panel_w - title_w) / 2;
-        int title_y = (sh / 2) - 20;
-        HAL_Screen_ShowChineseLine(title_x, title_y, title_text);
-
-        int time_x = (left_panel_w - time_w) / 2;
-        int time_y = (sh / 2) + 4;
-        HAL_Screen_ShowTextLine(time_x, time_y, time_str);
-
-        HAL_Draw_Line(left_panel_w, UI_LINE_MARGIN_Y, left_panel_w, sh - UI_LINE_MARGIN_Y, 1);
-
-        // ==========================================
-        // 【新增】：动态倒计时 HUD (支持 NFC 与 TMR 堆叠摆放)
-        // ==========================================
-        extern bool g_nfc_is_emulating;
-        extern uint32_t g_nfc_emu_end_time;
-        extern volatile bool g_countdown_active;
-        extern uint32_t g_countdown_end_time;
-
-        int hud_y_offset = sh - 14; // 从左下角开始往上堆叠
-
-        if (g_nfc_is_emulating)
-        {
-            uint32_t now = millis();
-            int remain_sec = 0;
-            if (g_nfc_emu_end_time > now)
-                remain_sec = (g_nfc_emu_end_time - now) / 1000;
-
-            char bus_str[16];
-            sprintf(bus_str, "[BUS %02d]", remain_sec);
-            int bus_w = HAL_Get_Text_Width(bus_str);
-            HAL_Screen_ShowTextLine((left_panel_w - bus_w) / 2, hud_y_offset, bus_str);
-            hud_y_offset -= 14; // 把坐标往上顶，给下一个留位置
-        }
-
-        if (g_countdown_active)
-        {
-            uint32_t now = millis();
-            int remain_sec = 0;
-            if (g_countdown_end_time > now)
-                remain_sec = (g_countdown_end_time - now) / 1000;
-
-            char tmr_str[16];
-            sprintf(tmr_str, "[TMR %02d:%02d]", remain_sec / 60, remain_sec % 60);
-            int tmr_w = HAL_Get_Text_Width(tmr_str);
-            HAL_Screen_ShowTextLine((left_panel_w - tmr_w) / 2, hud_y_offset, tmr_str);
-        }
+        int left_panel_w = UIHud_DrawLeftPanel(getTitle());
         // ==========================================
         // 2. 右侧：3D 滚轴核心阵列 (方向与视觉反转版)
         // ==========================================
@@ -251,55 +196,11 @@ public:
             needs_redraw = true;
         }
 
-        // ==========================================
-        // 【核心新增】：HUD 倒计时自动心跳刷新引擎 (NFC + TMR)
-        // ==========================================
-        extern bool g_nfc_is_emulating;
-        extern uint32_t g_nfc_emu_end_time;
-        extern volatile bool g_countdown_active;
-        extern uint32_t g_countdown_end_time;
-
-        static int last_nfc_sec = -1;
-        static int last_tmr_sec = -1;
-
-        uint32_t now = millis();
-
-        // --- NFC 刷新判定 ---
-        if (g_nfc_is_emulating)
+        // HUD 的 NFC / TT2 / 时间刷新由运行状态聚合层判断，AppMenuBase 不再直接 extern 其他模块全局变量。
+        if (UIHud_NeedsRedraw())
         {
-            int remain_sec = 0;
-            if (g_nfc_emu_end_time > now)
-                remain_sec = (g_nfc_emu_end_time - now) / 1000;
-            if (remain_sec != last_nfc_sec)
-            {
-                last_nfc_sec = remain_sec;
-                needs_redraw = true;
-            }
-        }
-        else if (last_nfc_sec != -1)
-        {
-            last_nfc_sec = -1;
             needs_redraw = true;
         }
-
-        // --- 普通倒计时刷新判定 ---
-        if (g_countdown_active)
-        {
-            int remain_sec = 0;
-            if (g_countdown_end_time > now)
-                remain_sec = (g_countdown_end_time - now) / 1000;
-            if (remain_sec != last_tmr_sec)
-            {
-                last_tmr_sec = remain_sec;
-                needs_redraw = true;
-            }
-        }
-        else if (last_tmr_sec != -1)
-        {
-            last_tmr_sec = -1;
-            needs_redraw = true;
-        }
-        extern bool HAL_Power_NeedsRedraw();
 
         if (sysPower.needsRedraw())
         {

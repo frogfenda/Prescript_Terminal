@@ -23,6 +23,9 @@ public:
 
 extern SysHaptic sysHaptic;
 
+void SysHaptic_Sleep();
+void SysHaptic_Wakeup();
+
 // 全局宏定义 (以后在各个 App 里就直接调用这些宏！)
 #define SYS_HAPTIC_NAV() sysHaptic.playTick()
 #define SYS_HAPTIC_CONFIRM() sysHaptic.playConfirm()

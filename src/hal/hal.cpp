@@ -6,6 +6,9 @@
 #include "driver/gpio.h"       // 【新增】：为了使用 gpio_hold_en 和 gpio_hold_dis
 #include <driver/i2s.h>        // 【核心新增】：ESP32 I2S 底层驱动
 #include "../sys/sys_config.h" // 【新增】：引入全局配置
+#include "../sys/sys_haptic.h"
+#include "../sys/sys_audio.h"
+#include "../sys/sys_nfc.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -67,9 +70,14 @@ void HAL_Init()
 
 int HAL_Get_Knob_Delta(void)
 {
-    int delta = raw_knob_counter / 4;
-    if (delta != 0)
+    int raw;
+    noInterrupts();
+    raw = raw_knob_counter;
+    int delta = raw / 4;
+    if (delta != 0) {
         raw_knob_counter -= delta * 4;
+    }
+    interrupts();
     return delta;
 }
 bool HAL_Is_Key_Pressed() { return digitalRead(PIN_BTN) == LOW; }
@@ -91,7 +99,7 @@ void HAL_Screen_DrawHeader()
 void HAL_Screen_DrawStandbyImage()
 {
     textSprite.fillSprite(TFT_BLACK);
-    File file = LittleFS.open("/assets/standby.bin", "r");
+    File file = LittleFS.open(PrescriptConst::STANDBY_IMAGE_BIN, "r");
     if (!file)
     {
         textSprite.drawRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_RED);
@@ -155,30 +163,30 @@ void HAL_Screen_Scroll_Up(uint8_t scroll_pixels) { textSprite.scroll(0, -scroll_
 
 void HAL_Screen_Update()
 {
-    textSprite.pushSprite(18, 82);
+    textSprite.pushSprite(PrescriptConst::UI_PUSH_X, PrescriptConst::UI_PUSH_Y);
 }
 
 void HAL_Draw_Line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color)
 {
-    if (color == 1)
+    if (color == PrescriptConst::UI_ACCENT_SENTINEL)
         color = TFT_CYAN;
     textSprite.drawLine(x0, y0, x1, y1, color);
 }
 void HAL_Draw_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color)
 {
-    if (color == 1)
+    if (color == PrescriptConst::UI_ACCENT_SENTINEL)
         color = TFT_CYAN;
     textSprite.drawRect(x, y, w, h, color);
 }
 void HAL_Fill_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color)
 {
-    if (color == 1)
+    if (color == PrescriptConst::UI_ACCENT_SENTINEL)
         color = TFT_CYAN;
     textSprite.fillRect(x, y, w, h, color);
 }
 void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color)
 {
-    if (color == 1)
+    if (color == PrescriptConst::UI_ACCENT_SENTINEL)
         color = TFT_CYAN;
     textSprite.fillTriangle(x0, y0, x1, y1, x2, y2, color);
 }
@@ -188,7 +196,7 @@ void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color)
 }
 void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h)
 {
-    textSprite.pushSprite(x + 18, y + 82, x, y, w, h);
+    textSprite.pushSprite(x + PrescriptConst::UI_PUSH_X, y + PrescriptConst::UI_PUSH_Y, x, y, w, h);
 }
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data)
 {
@@ -254,7 +262,7 @@ public:
             is_pressed = false;
             uint32_t duration = now - press_time;
 
-            if (!long_triggered && duration > 20) // 20ms 防抖
+            if (!long_triggered && duration > PrescriptConst::BUTTON_DEBOUNCE_MS) // 20ms 防抖
             {
                 if (enable_double_click)
                 {
@@ -295,10 +303,10 @@ public:
 // 【完美实例化】：各司其职的按键配置
 // ==========================================
 // 旋钮主按键：关闭双击 (传入 false)，恢复绝对丝滑的零延迟响应！
-ButtonEngine engineMainBtn(800, 250, false);
+ButtonEngine engineMainBtn(PrescriptConst::BUTTON_LONG_MS, PrescriptConst::BUTTON_DOUBLE_GAP_MS, false);
 
 // 副按键 (7号引脚)：开启双击 (传入 true)，承担复杂的宏指令调度！
-ButtonEngine engineBtn2(800, 250, true);
+ButtonEngine engineBtn2(PrescriptConst::BUTTON_LONG_MS, PrescriptConst::BUTTON_DOUBLE_GAP_MS, true);
 
 // ==========================================
 // 【休眠系统原子化】：将休眠拆解，供 AppStandby 统一调度
@@ -343,11 +351,8 @@ void HAL_Sleep_Wakeup_Post()
     digitalWrite(PIN_BLK, LOW); // 灯亮，画面瞬间浮现
 
     // 5. 唤醒外设
-    extern void SysHaptic_Wakeup();
     SysHaptic_Wakeup();
-    extern void SysAudio_Wakeup();
     SysAudio_Wakeup();
-    extern void SysNfc_Wakeup();
     SysNfc_Wakeup();
 
     // 6. 防误触：吞掉唤醒时的那次点击
@@ -400,7 +405,6 @@ void HAL_Screen_ShowTextLine_Color(int32_t x, int32_t y, const char *str, uint16
     textSprite.print(str);
 }
 
-
 void HAL_Sprite_Clear() { textSprite.fillSprite(TFT_BLACK); }
-uint16_t HAL_Get_Screen_Width(void) { return 284; }
-uint16_t HAL_Get_Screen_Height(void) { return 76; }
+uint16_t HAL_Get_Screen_Width(void) { return PrescriptConst::UI_SCREEN_WIDTH; }
+uint16_t HAL_Get_Screen_Height(void) { return PrescriptConst::UI_SCREEN_HEIGHT; }

@@ -8,8 +8,6 @@
 #include "sys_ble.h"
 
 int g_schedule_edit_idx = -1;
-extern AppBase *appScheduleEdit;
-extern AppBase *appScheduleExpired;
 void _Cb_SchAdd(void* payload);
 void _Cb_SchDel(void* payload);
 void _Cb_SchSync(void* payload);
@@ -76,7 +74,7 @@ void Schedule_AddMobile(uint32_t target_time, const char *title, const char *tex
     }
 
     // 【核心修复 2：容量保护与强制清理】
-    if (sysConfig.schedule_count >= 15) {
+    if (sysConfig.schedule_count >= PrescriptConst::MAX_SCHEDULES) {
         bool freed = false;
         // 如果 15 个槽位满了，强行找一个已经过期的常规日程清理掉，给新指令腾位置
         for (int i = 0; i < sysConfig.schedule_count; i++) {
@@ -421,7 +419,7 @@ protected:
         if (index < expired_count)
         {
             g_schedule_edit_idx = expired_indices[index];
-            appManager.pushApp(appScheduleEdit);
+            appManager.push(AppId::ScheduleEdit);
         }
         else
             appManager.popApp();
@@ -489,17 +487,17 @@ protected:
     {
         if (index == 0)
         {
-            appManager.pushApp(appScheduleExpired);
+            appManager.push(AppId::ScheduleExpired);
         }
         else if (index > 0 && index <= active_count)
         {
             g_schedule_edit_idx = active_indices[index - 1];
-            appManager.pushApp(appScheduleEdit);
+            appManager.push(AppId::ScheduleEdit);
         }
         else if (index == active_count + 1)
         {
             g_schedule_edit_idx = -1;
-            appManager.pushApp(appScheduleEdit);
+            appManager.push(AppId::ScheduleEdit);
         }
         else if (index == active_count + 2)
         {

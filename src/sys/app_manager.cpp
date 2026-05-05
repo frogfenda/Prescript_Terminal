@@ -10,12 +10,8 @@
 #include "sys_event.h"
 #include "sys_auto_push.h"
 #include "sys_nfc.h"
-#include <queue>
-#include <mutex>
-std::queue<String> g_ble_msg_queue; // 无限容量的动态队列
-std::mutex g_ble_mutex;             // 线程安全锁
-
-volatile bool g_cross_core_trigger_push = false;
+#include "sys_ble_queue.h"
+#include "sys_runtime_status.h"
 
 void _Cb_SysNotify(void *payload)
 {
@@ -35,12 +31,12 @@ AppManager::AppManager()
     btn_is_holding = false;
     long_press_handled = false;
     current_lang = LANG_ZH;
-    config_sleep_time_ms = 30000;
+    config_sleep_time_ms = PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
 }
 
 void AppManager::registerBackgroundApp(AppBase *app)
 {
-    if (bg_app_count < 10 && app != nullptr)
+    if (bg_app_count < PrescriptConst::MAX_BG_APPS && app != nullptr)
     {
         bg_apps[bg_app_count++] = app;
     }
@@ -65,23 +61,35 @@ void AppManager::begin()
     // 系统级的特殊拦截保留在这里
     SysEvent_Subscribe(EVT_NOTIFY_CUSTOM, _Cb_SysNotify);
     
-    // ==========================================
-    // 【终极清爽的 App 挂载流水线】
-    // ==========================================
-    installApp(appSchedule);
-    installApp(appAlarm);
-    installApp(appPomodoro);
-    installApp(appPrescriptList);
-    installApp(appCountdown);
-    // (未来如果有新的 App，直接往这里加一行 installApp 即可，其他什么都不用管！)
-    installApp(appGacha);       
-    installApp(appGachaStats);
-    launchApp(appStandby);
-    installApp(appPushNotify);
+    // App 注册集中在 AppRegistry，AppManager 不再维护零散 install 清单。
+    AppRegistry_InstallSystemApps();
+    launch(AppId::Standby);
+}
+
+void AppManager::launch(AppId id)
+{
+    launchApp(AppRegistry_Get(id));
+}
+
+void AppManager::push(AppId id)
+{
+    pushApp(AppRegistry_Get(id));
+}
+
+void AppManager::replace(AppId id)
+{
+    replaceApp(AppRegistry_Get(id));
+}
+
+void AppManager::installApp(AppId id)
+{
+    installApp(AppRegistry_Get(id));
 }
 
 void AppManager::launchApp(AppBase *newApp)
 {
+    if (newApp == nullptr)
+        return;
     stackTop = 0;
     if (currentApp)
         currentApp->onDestroy();
@@ -92,6 +100,8 @@ void AppManager::launchApp(AppBase *newApp)
 
 void AppManager::pushApp(AppBase *newApp)
 {
+    if (newApp == nullptr)
+        return;
     if (stackTop < MAX_NAV_STACK)
     {
         if (currentApp)
@@ -116,12 +126,14 @@ void AppManager::popApp()
     }
     else
     {
-        launchApp(appMainMenu);
+        launch(AppId::MainMenu);
     }
 }
 
 void AppManager::replaceApp(AppBase *newApp)
 {
+    if (newApp == nullptr)
+        return;
     if (currentApp)
     {
         currentApp->onDestroy();
@@ -133,6 +145,12 @@ void AppManager::replaceApp(AppBase *newApp)
 
 void AppManager::resetIdleTimer() { idle_timer = millis(); }
 
+bool AppManager::isCurrent(AppId id)
+{
+    return currentApp == AppRegistry_Get(id);
+}
+
+
 void AppManager::run()
 {
 
@@ -141,26 +159,16 @@ void AppManager::run()
         bg_apps[i]->onBackgroundTick();
     }
 
-    if (g_cross_core_trigger_push)
+    if (SysRuntime_ConsumePushNotifyRequest())
     {
-        g_cross_core_trigger_push = false;
         PushNotify_Trigger_Random(true);
     }
 
     // ==========================================
     // 【核心修复】：在绝对安全的主线程 (Core 1) 拆快递！
     // ==========================================
-    String pending_ble_msg = "";
-    {
-        // 锁住邮筒，拿出一封信就跑
-        std::lock_guard<std::mutex> lock(g_ble_mutex);
-        if (!g_ble_msg_queue.empty()) {
-            pending_ble_msg = g_ble_msg_queue.front();
-            g_ble_msg_queue.pop();
-        }
-    }
-    // 把信交给路由器（此时写硬盘绝对不会和 UI 冲突！）
-    if (pending_ble_msg.length() > 0) {
+    String pending_ble_msg;
+    if (SysBleQueue_Pop(pending_ble_msg)) {
         SysRouter_ProcessBLE(pending_ble_msg);
     }
     // ==========================================
@@ -199,14 +207,13 @@ void AppManager::run()
     // ==========================================
     // 2. 副按键 (Btn2) 全局拦截分发
     // ==========================================
-    extern AppBase* appPrescript; 
     BtnEvent b2_evt = HAL_Get_Btn2_Event();
 
     if (b2_evt == BTN_DOUBLE) {
         resetIdleTimer();
         SYS_SOUND_CONFIRM();
-        if (currentApp != appPrescript) {
-            launchApp(appPrescript); // 全局双击拉起都市指令
+        if (!isCurrent(AppId::Prescript)) {
+            launch(AppId::Prescript); // 全局双击拉起都市指令
         } else {
             currentApp->onBtn2Double(); 
         }
@@ -214,11 +221,10 @@ void AppManager::run()
     else if (b2_evt == BTN_LONG) {
         resetIdleTimer();
         SYS_SOUND_LONG();
-        if (currentApp == appPrescript) {
+        if (isCurrent(AppId::Prescript)) {
             currentApp->onBtn2Long();
         } else {
             // 【核心连线】：在其他界面长按，瞬间引爆 60 秒伪装！
-            extern void SysNfc_StartEmulation();
             SysNfc_StartEmulation();
         }
     }
@@ -229,29 +235,8 @@ void AppManager::run()
         // 【核心修复】：增加白名单判断！
         // 只要在伪装，且【当前不在抽取指令界面】，短按才是“取消”！
         // ==========================================
-        extern bool SysNfc_IsEmulating();
-        extern void SysNfc_StopEmulation();
-        
-        // 【修改】：加入了 && currentApp != appPrescript
-        if (SysNfc_IsEmulating() && currentApp != appPrescript) {
-            SysNfc_StopEmulation();         // 下发撤退指令
-            sysAudio.playTone(800, 100);    // 播放一声低频“滴”，确认打断
-        } else {
-            // 如果没在伪装，或者此时正处于指令抽取界面，按键正常下发给 UI！
-            currentApp->onBtn2Short();
-        }
-    }else if (b2_evt == BTN_SHORT) {
-        resetIdleTimer();
-        
-        // ==========================================
-        // 【核心修复】：增加白名单判断！
-        // 只要在伪装，且【当前不在抽取指令界面】，短按才是“取消”！
-        // ==========================================
-        extern bool SysNfc_IsEmulating();
-        extern void SysNfc_StopEmulation();
-        
-        // 【修改】：加入了 && currentApp != appPrescript
-        if (SysNfc_IsEmulating() && currentApp != appPrescript) {
+        // 【修改】：加入了 && currentApp != prescriptApp
+        if (SysNfc_IsEmulating() && !isCurrent(AppId::Prescript)) {
             SysNfc_StopEmulation();         // 下发撤退指令
             sysAudio.playTone(800, 100);    // 播放一声低频“滴”，确认打断
         } else {
@@ -261,11 +246,11 @@ void AppManager::run()
     }
     currentApp->onLoop(); // 继续执行 UI 刷新
 
-    if (currentApp != appStandby)
+    if (!isCurrent(AppId::Standby))
     {
-        if (config_sleep_time_ms != 0xFFFFFFFF && (millis() - idle_timer > config_sleep_time_ms))
+        if (config_sleep_time_ms != PrescriptConst::NEVER_SLEEP_MS && (millis() - idle_timer > config_sleep_time_ms))
         {
-            launchApp(appStandby);
+            launch(AppId::Standby);
         }
     }
 }

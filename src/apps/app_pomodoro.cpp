@@ -13,9 +13,6 @@ void Pomodoro_UpdatePreset(int index, const char* name, int work_m, int rest_m) 
     sysConfig.save();
 }
 
-extern AppBase* appPomodoroRun;
-extern AppBase* appPomodoroPresets;
-extern AppBase* appPomodoroEdit;
 void _Cb_PomUpd(void* payload);
 
 class AppPomodoroRun : public AppBase {
@@ -273,9 +270,9 @@ protected:
         return "";
     }
     void onItemClicked(int index) override {
-        if (index == 0) appManager.pushApp(appPomodoroRun);
-        if (index == 1) appManager.pushApp(appPomodoroPresets);
-        if (index == 2) appManager.pushApp(appPomodoroEdit);
+        if (index == 0) appManager.push(AppId::PomodoroRun);
+        if (index == 1) appManager.push(AppId::PomodoroPresets);
+        if (index == 2) appManager.push(AppId::PomodoroEdit);
     }
     void onLongPressed() override { appManager.popApp(); }
 public:

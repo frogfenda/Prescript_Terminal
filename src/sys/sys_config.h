@@ -2,6 +2,7 @@
 #ifndef __SYS_CONFIG_H
 #define __SYS_CONFIG_H
 #include <Arduino.h>
+#include "sys_constants.h"
 
 struct PomodoroPreset
 {
@@ -67,22 +68,22 @@ public:
     uint32_t auto_push_max_min;
     CoinSaveData coin_data;
     uint8_t pomodoro_current_idx;
-    PomodoroPreset pomodoro_presets[5];
+    PomodoroPreset pomodoro_presets[PrescriptConst::MAX_POMODORO_PRESETS];
     GachaStatsData gacha_stats; // <--- 【新增】：抽卡统计数据全局接入口
-    CoinPreset coin_presets[10];
+    CoinPreset coin_presets[PrescriptConst::MAX_COIN_PRESETS];
     int coin_preset_count = 0;
     uint8_t alarm_count;
-    AlarmPreset alarms[10];
+    AlarmPreset alarms[PrescriptConst::MAX_ALARMS];
     uint8_t decode_anim_style; // 【新增】：解码动画样式 (0:动画一, 1:动画二)
     // 【新增】：日程表硬盘数据
     uint8_t schedule_count;
-    ScheduleItem schedules[15]; // 最多 15 个日程
+    ScheduleItem schedules[PrescriptConst::MAX_SCHEDULES]; // 最多日程数由 sys_constants.h 统一定义
     uint8_t volume;             // 【新增】：系统全局音量 (0~10)
     bool haptic_enable;         // 震动总开关
     uint8_t haptic_intensity;   // 震动强度 (1=弱, 2=中, 3=强)
     uint8_t nfc_mode;
     uint32_t special_toggles; // 开关位掩码 (默认 0xFFFFFFFF 全开)
-    uint8_t char_progress[8]; // 人物链条进度表 (最多支持 8 个特殊人物)
+    uint8_t char_progress[PrescriptConst::MAX_CHAR_CHAINS]; // 人物链条进度表 (最多支持 8 个特殊人物)
     void load();
     void save();
 };

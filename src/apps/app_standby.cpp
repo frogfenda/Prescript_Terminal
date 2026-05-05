@@ -3,6 +3,9 @@
 #include "app_manager.h"
 #include "sys_config.h"
 #include "hal.h"
+#include "sys_haptic.h"
+#include "sys_audio.h"
+#include "sys_nfc.h"
 
 class AppStandby : public AppBase
 {
@@ -23,7 +26,7 @@ public:
     void onLoop() override
     {
         // 【防呆检查】：如果设置为“永不休眠”，直接退出，不计时！
-        if (sysConfig.true_sleep_time_ms == 0xFFFFFFFF)
+        if (sysConfig.true_sleep_time_ms == PrescriptConst::NEVER_SLEEP_MS)
             return;
 
         // 【核心休眠触发逻辑】：精准使用你原本的变量
@@ -36,11 +39,8 @@ public:
             HAL_Screen_Update();
 
             // --- 2. 模块级休眠：App 管家下发指令 ---
-            extern void SysHaptic_Sleep();
             SysHaptic_Sleep();
-            extern void SysAudio_Sleep();
             SysAudio_Sleep();
-            extern void SysNfc_Sleep();
             SysNfc_Sleep();
 
             // --- 3. 硬件级休眠：调用最新拆分的 HAL 底层 ---
@@ -51,20 +51,11 @@ public:
             // CPU 停转，直到用户物理按压旋钮唤醒
             // ==========================================
 
-            // --- 4. 硬件级唤醒：防白屏与防按键误触护盾 ---
+            // --- 4. 唤醒：HAL_Sleep_Wakeup_Post() 统一恢复屏幕、背光、功放、震动、音频、NFC，并吞掉唤醒按键 ---
             HAL_Sleep_Wakeup_Post();
 
-            // --- 5. 模块级唤醒 ---
-            extern void SysHaptic_Wakeup();
-            SysHaptic_Wakeup();
-            extern void SysAudio_Wakeup();
-            SysAudio_Wakeup();
-            extern void SysNfc_Wakeup();
-            SysNfc_Wakeup();
-
-            // --- 6. 业务逻辑恢复 ---
-            // 重新绘制待机画面，重置计时器，确保醒来后依然停留在待机页面
-            HAL_Sleep_Wakeup_Post();
+            // --- 5. 业务逻辑恢复 ---
+            // 唤醒后仍停留在待机页面，避免重复调用各模块 wakeup。
             HAL_Screen_Update();
 
             enter_time = millis();
@@ -82,7 +73,7 @@ public:
         // 因为底层的 HAL_Sleep_Wakeup_Post 已经吞掉了“唤醒那一下”的按键
         // 所以当代码走到这里，说明是用户真正在亮屏待机状态下，短按了旋钮
         sysAudio.playTone(2000, 40);
-        appManager.launchApp(appMainMenu);
+        appManager.launch(AppId::MainMenu);
     }
     // 【新增】：如果你想手动“点一下”就进待机（休眠），可以加长按逻辑
 

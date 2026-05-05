@@ -7,6 +7,7 @@
 #include <ArduinoJson.h>
 #include "sys_router.h"
 #include "sys_event.h"
+#include "sys_constants.h"
 
 volatile NetworkState g_state = NET_DISCONNECTED;
 TaskHandle_t g_netTaskHandle = NULL;
@@ -18,7 +19,7 @@ void _Cb_WifiSet(void* payload) {
         sysConfig.wifi_ssid = String(p->ssid);
         sysConfig.wifi_pass = String(p->pass);
         sysConfig.save();
-        Serial.printf("[网络中枢] 已截获新 WiFi 密钥: %s，立即在后台发起同步！\n", p->pass);
+        Serial.printf("[网络中枢] 已接收 WiFi 配置，SSID=%s，立即在后台发起同步！\n", p->ssid);
         
         // 收到密码后，自动打响指触发后台同步！
         Network_StartSync();
@@ -84,7 +85,7 @@ void network_daemon_task(void *pvParameters) {
 
         WiFiClient client;
         HTTPClient http;
-        http.begin(client, "http://index.dimension-404.cloud/api/schedule/sync");
+        http.begin(client, PrescriptConst::NETWORK_SYNC_URL);
         http.setTimeout(4000);
 
         int httpCode = http.GET();

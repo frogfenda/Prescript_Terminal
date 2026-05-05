@@ -7,14 +7,13 @@ class SysNFC
 public:
     void begin();
     void triggerManualScan();
-    
-    // 【新增】：开启伪装模式
-    void SysNfc_StartEmulation(); 
-    void SysNfc_StopEmulation(); // <--- 【新增】：提前终止接口
 };
 
 extern SysNFC sysNfc;
 
-// 【新增】：向全系统暴露的倒计时状态
-extern bool g_nfc_is_emulating;
-extern uint32_t g_nfc_emu_end_time;
+bool SysNfc_IsEmulating();
+void SysNfc_StartEmulation();
+void SysNfc_StopEmulation();
+int SysNfc_GetEmulationRemainingSeconds();
+void SysNfc_Sleep();
+void SysNfc_Wakeup();

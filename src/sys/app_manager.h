@@ -3,13 +3,15 @@
 #define __APP_MANAGER_H
 
 #include "app_base.h"
+#include "sys_constants.h"
+#include "app_registry.h"
 
 // ==========================================
 // 交互与调度参数宏定义
 // ==========================================
-#define MAX_NAV_STACK 5       // 最大支持的页面返回层级
-#define BTN_LONG_PRESS_MS 600 // 长按触发阈值(毫秒)
-#define BTN_DEBOUNCE_MS 50    // 短按防抖阈值(毫秒)
+#define MAX_NAV_STACK PrescriptConst::MAX_NAV_STACK       // 最大支持的页面返回层级
+#define BTN_LONG_PRESS_MS PrescriptConst::BUTTON_LONG_MS // 长按触发阈值(毫秒)
+#define BTN_DEBOUNCE_MS PrescriptConst::BUTTON_DEBOUNCE_MS    // 短按防抖阈值(毫秒)
 
 typedef enum
 {
@@ -28,7 +30,7 @@ private:
     uint32_t last_tick;
 
     SystemLang_t current_lang;
-    AppBase* bg_apps[10]; 
+    AppBase* bg_apps[PrescriptConst::MAX_BG_APPS]; 
     uint8_t bg_app_count = 0;
     AppBase *navStack[MAX_NAV_STACK];
     int stackTop;
@@ -38,6 +40,14 @@ public:
 
     AppManager();
     void begin();
+
+    // Preferred navigation API: AppId keeps cross-app dependencies centralized in AppRegistry.
+    void launch(AppId id);
+    void push(AppId id);
+    void replace(AppId id);
+    void installApp(AppId id);
+
+    // Low-level navigation API retained for rare local/private pages and compatibility.
     void launchApp(AppBase *newApp);
     void pushApp(AppBase *newApp);
     void popApp();
@@ -50,30 +60,10 @@ public:
     SystemLang_t getLanguage() { return current_lang; }
     void toggleLanguage() { current_lang = (current_lang == LANG_EN) ? LANG_ZH : LANG_EN; }
     AppBase *getCurrentApp() { return currentApp; }
+    bool isCurrent(AppId id);
 };
 
 extern AppManager appManager;
-extern AppBase *appStandby;
-extern AppBase *appMainMenu;
-extern AppBase *appPrescript;
-extern AppBase *appSleepSetting;
-extern AppBase *appNetworkSync;
-extern AppBase *appSystemSettings;
-extern AppBase *appWifiConnect;
-extern AppBase *appCoinFlip;
-extern AppBase *appCountdown;
-
-// 文件：src/sys/app_manager.h (仅替换文件最底部部分)
-extern AppBase *appGacha;
-extern AppBase *appPushNotify;
-extern AppBase *appPushSetting;
-extern AppBase *appPomodoro;
-extern AppBase *appAlarm;
-extern AppBase *appSchedule;
-extern AppBase *appAnimSetting;
-extern AppBase *appPrescriptList;
-extern AppBase *appVolumeSetting;
-extern AppBase *appGachaStats;
 
 void Prescript_Launch_PushNormal();
 void Prescript_Launch_PushDirect();
@@ -86,11 +76,6 @@ void Alarm_DeleteMobile(const char *name);
 void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text);
 void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden = false);
 void Schedule_DeleteMobile(const char *title);
-// ==========================================
-// 【全新引擎】：并发锁与跨核信箱
-// ==========================================
-extern volatile bool g_cross_core_trigger_push;
-extern volatile bool g_ble_has_msg; // 蓝牙信箱标志
-extern char g_ble_msg_buf[512];     // 蓝牙信件内容
+// BLE RX and cross-core push requests are routed through sys_ble_queue / sys_runtime_status.
 
 #endif

@@ -1,5 +1,6 @@
 // 文件：src/sys/sys_nfc.cpp
 #include "sys_nfc.h"
+#include "sys_constants.h"
 #include "sys_config.h"
 #include "sys_event.h"
 #include "sys_haptic.h"
@@ -11,14 +12,9 @@
 // ==========================================
 // 硬件 SPI 引脚
 // ==========================================
-#define PIN_NFC_SCK 1
-#define PIN_NFC_MISO 2
-#define PIN_NFC_MOSI 47
-#define PIN_NFC_SS 15
-#define PIN_NFC_RESET 21
 
 SPIClass nfc_spi(HSPI);
-Adafruit_PN532 nfc(PIN_NFC_SS, &nfc_spi);
+Adafruit_PN532 nfc(PrescriptConst::PIN_NFC_SS, &nfc_spi);
 
 static const SPISettings pn532_spi_settings(1000000, LSBFIRST, SPI_MODE0);
 
@@ -57,6 +53,14 @@ void SysNfc_StopEmulation()
     }
 }
 
+int SysNfc_GetEmulationRemainingSeconds()
+{
+    if (!SysNfc_IsEmulating()) return 0;
+    uint32_t now = millis();
+    if (g_nfc_emu_end_time <= now) return 0;
+    return (int)((g_nfc_emu_end_time - now) / 1000);
+}
+
 uint8_t cc_file[] = {0x00, 0x0F, 0x20, 0x00, 0x3B, 0x00, 0x34, 0x04, 0x06, 0xE1, 0x04, 0x00, 0xFF, 0x00, 0x00};
 uint8_t ndef_file[] = {
     0x00, 0x2F, 0xD4, 0x0F, 0x1D,
@@ -67,7 +71,7 @@ bool raw_sendCommand(uint8_t *cmd, uint8_t cmdlen)
 {
     nfc_spi.beginTransaction(pn532_spi_settings);
 
-    digitalWrite(PIN_NFC_SS, LOW);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, LOW);
     delay(2);
     nfc_spi.transfer(0x01);
     nfc_spi.transfer(0x00);
@@ -87,17 +91,17 @@ bool raw_sendCommand(uint8_t *cmd, uint8_t cmdlen)
     }
     nfc_spi.transfer(~sum + 1);
     nfc_spi.transfer(0x00);
-    digitalWrite(PIN_NFC_SS, HIGH);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
 
     uint16_t t = 1000;
     bool isReady = false;
     while (t > 0)
     {
-        digitalWrite(PIN_NFC_SS, LOW);
+        digitalWrite(PrescriptConst::PIN_NFC_SS, LOW);
         delay(2);
         nfc_spi.transfer(0x02);
         uint8_t status = nfc_spi.transfer(0x00);
-        digitalWrite(PIN_NFC_SS, HIGH);
+        digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
 
         if (status == 0x01)
         {
@@ -114,12 +118,12 @@ bool raw_sendCommand(uint8_t *cmd, uint8_t cmdlen)
         return false;
     }
 
-    digitalWrite(PIN_NFC_SS, LOW);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, LOW);
     delay(1);
     nfc_spi.transfer(0x03);
     for (int i = 0; i < 6; i++)
         nfc_spi.transfer(0x00);
-    digitalWrite(PIN_NFC_SS, HIGH);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
 
     nfc_spi.endTransaction();
     return true;
@@ -133,11 +137,11 @@ int raw_readResponse(uint8_t *buf, uint8_t maxlen, uint16_t timeout)
     bool isReady = false;
     while (t > 0)
     {
-        digitalWrite(PIN_NFC_SS, LOW);
+        digitalWrite(PrescriptConst::PIN_NFC_SS, LOW);
         delay(2);
         nfc_spi.transfer(0x02);
         uint8_t status = nfc_spi.transfer(0x00);
-        digitalWrite(PIN_NFC_SS, HIGH);
+        digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
 
         if (status == 0x01)
         {
@@ -154,13 +158,13 @@ int raw_readResponse(uint8_t *buf, uint8_t maxlen, uint16_t timeout)
         return -1;
     }
 
-    digitalWrite(PIN_NFC_SS, LOW);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, LOW);
     delay(1);
     nfc_spi.transfer(0x03);
 
     if (nfc_spi.transfer(0x00) != 0x00 || nfc_spi.transfer(0x00) != 0x00 || nfc_spi.transfer(0x00) != 0xFF)
     {
-        digitalWrite(PIN_NFC_SS, HIGH);
+        digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
         nfc_spi.endTransaction();
         return -1;
     }
@@ -168,7 +172,7 @@ int raw_readResponse(uint8_t *buf, uint8_t maxlen, uint16_t timeout)
     uint8_t len = nfc_spi.transfer(0x00);
     if ((uint8_t)(len + nfc_spi.transfer(0x00)) != 0)
     {
-        digitalWrite(PIN_NFC_SS, HIGH);
+        digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
         nfc_spi.endTransaction();
         return -1;
     }
@@ -186,7 +190,7 @@ int raw_readResponse(uint8_t *buf, uint8_t maxlen, uint16_t timeout)
 
     nfc_spi.transfer(0x00);
     nfc_spi.transfer(0x00);
-    digitalWrite(PIN_NFC_SS, HIGH);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
 
     nfc_spi.endTransaction();
     return actual_len;
@@ -194,14 +198,14 @@ int raw_readResponse(uint8_t *buf, uint8_t maxlen, uint16_t timeout)
 
 void raw_reset()
 {
-    digitalWrite(PIN_NFC_RESET, LOW);
+    digitalWrite(PrescriptConst::PIN_NFC_RESET, LOW);
     vTaskDelay(pdMS_TO_TICKS(50));
-    digitalWrite(PIN_NFC_RESET, HIGH);
+    digitalWrite(PrescriptConst::PIN_NFC_RESET, HIGH);
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    digitalWrite(PIN_NFC_SS, LOW);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, LOW);
     vTaskDelay(pdMS_TO_TICKS(2));
-    digitalWrite(PIN_NFC_SS, HIGH);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
@@ -218,11 +222,11 @@ void SysNfc_Sleep()
         vTaskSuspend(nfcTaskHandle);
     }
 
-    digitalWrite(PIN_NFC_RESET, LOW);
+    digitalWrite(PrescriptConst::PIN_NFC_RESET, LOW);
 
     // 【核心补丁：加上物理锁】
     // 强制保持该引脚在休眠期间维持 LOW 电平，绝不放开，切断 PN532 一切耗电！
-    gpio_hold_en((gpio_num_t)PIN_NFC_RESET);
+    gpio_hold_en((gpio_num_t)PrescriptConst::PIN_NFC_RESET);
     gpio_deep_sleep_hold_en(); // 如果系统以后升级成 Deep Sleep 也一样防漏电
 
     Serial.println("[NFC-电源管理] 模块已进入休眠，射频天线关闭并锁定引脚 (1µA)。");
@@ -232,9 +236,9 @@ void SysNfc_Wakeup()
 {
     // 【核心补丁：解除物理锁】
     // 唤醒后的第一件事，必须先解除引脚锁定，否则后面的 HIGH 无法生效！
-    gpio_hold_dis((gpio_num_t)PIN_NFC_RESET);
+    gpio_hold_dis((gpio_num_t)PrescriptConst::PIN_NFC_RESET);
 
-    digitalWrite(PIN_NFC_RESET, HIGH);
+    digitalWrite(PrescriptConst::PIN_NFC_RESET, HIGH);
     vTaskDelay(pdMS_TO_TICKS(50));
     nfc.begin();
     nfc.SAMConfig();
@@ -262,9 +266,9 @@ void nfc_bg_task(void *pvParameters)
                 sysHaptic.playTick();
                 g_nfc_is_emulating = false;
 
-                digitalWrite(PIN_NFC_RESET, LOW);
+                digitalWrite(PrescriptConst::PIN_NFC_RESET, LOW);
                 vTaskDelay(pdMS_TO_TICKS(50));
-                digitalWrite(PIN_NFC_RESET, HIGH);
+                digitalWrite(PrescriptConst::PIN_NFC_RESET, HIGH);
                 vTaskDelay(pdMS_TO_TICKS(50));
                 nfc.begin();
                 nfc.SAMConfig();
@@ -702,13 +706,13 @@ void nfc_bg_task(void *pvParameters)
 void SysNFC::begin()
 {
     // 1. 硬件级强制复位
-    pinMode(PIN_NFC_RESET, OUTPUT);
-    digitalWrite(PIN_NFC_RESET, LOW);
+    pinMode(PrescriptConst::PIN_NFC_RESET, OUTPUT);
+    digitalWrite(PrescriptConst::PIN_NFC_RESET, LOW);
     vTaskDelay(pdMS_TO_TICKS(50)); // 保持拉低，彻底放电
-    digitalWrite(PIN_NFC_RESET, HIGH);
+    digitalWrite(PrescriptConst::PIN_NFC_RESET, HIGH);
     vTaskDelay(pdMS_TO_TICKS(200)); // 【修复1】给足 200ms 等待芯片数字核心完全启动！
 
-    nfc_spi.begin(PIN_NFC_SCK, PIN_NFC_MISO, PIN_NFC_MOSI, -1);
+    nfc_spi.begin(PrescriptConst::PIN_NFC_SCK, PrescriptConst::PIN_NFC_MISO, PrescriptConst::PIN_NFC_MOSI, -1);
     nfc.begin();
 
     // 2. 唤醒数字大脑（带重试机制，防止 SPI 拥堵）

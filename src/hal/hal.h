@@ -5,38 +5,27 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 #include "../sys/sys_audio.h"
+#include "../sys/sys_constants.h"
 
-#define PIN_KNOB_A 5
-#define PIN_KNOB_B 4
-#define PIN_BTN    6   
+// Hardware/UI aliases kept for compatibility with the existing codebase.
+// The source of truth is sys/sys_constants.h.
+#define PIN_KNOB_A      PrescriptConst::PIN_KNOB_A
+#define PIN_KNOB_B      PrescriptConst::PIN_KNOB_B
+#define PIN_BTN         PrescriptConst::PIN_BTN_MAIN
+#define PIN_BTN2        PrescriptConst::PIN_BTN_SIDE
+#define PIN_I2S_BCLK    PrescriptConst::PIN_I2S_BCLK
+#define PIN_I2S_LRC     PrescriptConst::PIN_I2S_LRC
+#define PIN_I2S_DOUT    PrescriptConst::PIN_I2S_DOUT
+#define PIN_AUDIO_SD    PrescriptConst::PIN_AUDIO_SD
+#define PIN_BLK         PrescriptConst::PIN_BACKLIGHT
+#define PIN_BAT_ADC     PrescriptConst::PIN_BAT_ADC
+#define PIN_CHRG        PrescriptConst::PIN_CHRG
 
-
-#define PIN_I2S_BCLK 18
-#define PIN_I2S_LRC  13
-#define PIN_I2S_DOUT 17
-#define PIN_AUDIO_SD 48 
-#define PIN_BLK      40
-// ==========================================
-// 系统级 UI 布局尺寸定义
-// ==========================================
-#define UI_HEADER_HEIGHT   38  
-#define UI_MARGIN_LEFT     20  
-#define UI_MARGIN_RIGHT    20  
-#define UI_TEXT_Y_TOP      16  
-#define UI_TIME_SAFE_PAD   28  
-
-
-
-// ==========================================
-// 【新增】：通用按键事件枚举
-// ==========================================
-#define PIN_BTN2 7
-
-// ==========================================
-// 【新增】：电源与电池管理模块
-// ==========================================
-#define PIN_BAT_ADC 8
-#define PIN_CHRG    16
+#define UI_HEADER_HEIGHT PrescriptConst::UI_HEADER_HEIGHT
+#define UI_MARGIN_LEFT   PrescriptConst::UI_MARGIN_LEFT
+#define UI_MARGIN_RIGHT  PrescriptConst::UI_MARGIN_RIGHT
+#define UI_TEXT_Y_TOP    PrescriptConst::UI_TEXT_Y_TOP
+#define UI_TIME_SAFE_PAD PrescriptConst::UI_TIME_SAFE_PAD
 
 
 enum BtnEvent {

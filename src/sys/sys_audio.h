@@ -18,6 +18,9 @@ public:
 
 extern SysAudio sysAudio;
 
+void SysAudio_Sleep();
+void SysAudio_Wakeup();
+
 #define SYS_SOUND_CONFIRM()          \
     do                               \
     {                                \

@@ -5,12 +5,12 @@
 
 SysConfig sysConfig;
 
-const char *CONFIG_FILE = "/assets/config.json"; // 配置文件在硬盘上的绝对路径
+// 配置文件路径在 sys_constants.h 中统一定义。
 
 void SysConfig::load()
 {
     // 1. 从 LittleFS 硬盘读取 JSON 文本
-    String json = SysFS_Read_File(CONFIG_FILE);
+    String json = SysFS_Read_File(PrescriptConst::CONFIG_FILE);
 
     // 2. 准备 JSON 解析引擎
     JsonDocument doc;
@@ -26,8 +26,8 @@ void SysConfig::load()
         wifi_ssid = "Your_WiFi_Name";
         wifi_pass = "12345678";
         language = 1;
-        sleep_time_ms = 30000;
-        true_sleep_time_ms = 0xFFFFFFFF;
+        sleep_time_ms = PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
+        true_sleep_time_ms = PrescriptConst::NEVER_SLEEP_MS;
         decode_anim_style = 0;
         auto_push_enable = false;
         auto_push_min_min = 30;
@@ -37,11 +37,11 @@ void SysConfig::load()
         pomodoro_current_idx = 0;
         volume = 40; // 【新增】：默认音量设为 40
         special_toggles = 0xFFFFFFFF; // 默认所有特殊指令拦截全开
-        for (int i = 0; i < 8; i++) char_progress[i] = 0; // 进度全部归零
-        const char *def_names[5] = {"常规专注", "深度工作", "短时冲刺", "阅读模式", "冥想休息"};
-        uint32_t def_w[5] = {25, 60, 15, 45, 10};
-        uint32_t def_r[5] = {5, 10, 3, 10, 5};
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++) char_progress[i] = 0; // 进度全部归零
+        const char *def_names[PrescriptConst::MAX_POMODORO_PRESETS] = {"常规专注", "深度工作", "短时冲刺", "阅读模式", "冥想休息"};
+        uint32_t def_w[PrescriptConst::MAX_POMODORO_PRESETS] = {25, 60, 15, 45, 10};
+        uint32_t def_r[PrescriptConst::MAX_POMODORO_PRESETS] = {5, 10, 3, 10, 5};
+        for (int i = 0; i < PrescriptConst::MAX_POMODORO_PRESETS; i++)
         {
             pomodoro_presets[i].name = def_names[i];
             pomodoro_presets[i].work_min = def_w[i];
@@ -73,8 +73,8 @@ void SysConfig::load()
     wifi_ssid = doc["wifi_ssid"] | "Your_WiFi_Name";
     wifi_pass = doc["wifi_pass"] | "12345678";
     language = doc["language"] | 1;
-    sleep_time_ms = doc["sleep_time_ms"] | 30000;
-    true_sleep_time_ms = doc["true_sleep_time_ms"] | 0xFFFFFFFF;
+    sleep_time_ms = doc["sleep_time_ms"] | PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
+    true_sleep_time_ms = doc["true_sleep_time_ms"] | PrescriptConst::NEVER_SLEEP_MS;
     decode_anim_style = doc["decode_anim_style"] | 0;
     auto_push_enable = doc["auto_push_enable"] | false;
     auto_push_min_min = doc["auto_push_min_min"] | 30;
@@ -84,7 +84,7 @@ void SysConfig::load()
         volume = 100;
     pomodoro_current_idx = doc["pom_idx"] | 0;
     JsonArray pm_arr = doc["pom_presets"];
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < PrescriptConst::MAX_POMODORO_PRESETS; i++)
     {
         pomodoro_presets[i].name = pm_arr[i]["n"] | "预设";
         pomodoro_presets[i].work_min = pm_arr[i]["w"] | 25;
@@ -123,7 +123,7 @@ void SysConfig::load()
         JsonArray cp_arr = doc["coin_presets"].as<JsonArray>();
         for (JsonObject obj : cp_arr)
         {
-            if (coin_preset_count >= 10)
+            if (coin_preset_count >= PrescriptConst::MAX_COIN_PRESETS)
                 break;
             coin_presets[coin_preset_count].name = obj["n"].as<String>();
             coin_presets[coin_preset_count].base_power = obj["bp"] | 4;
@@ -135,6 +135,7 @@ void SysConfig::load()
     }
 
     alarm_count = doc["alarm_count"] | 0;
+    if (alarm_count > PrescriptConst::MAX_ALARMS) alarm_count = PrescriptConst::MAX_ALARMS;
     JsonArray al_arr = doc["alarms"];
     for (int i = 0; i < alarm_count; i++)
     {
@@ -146,6 +147,7 @@ void SysConfig::load()
     }
 
     schedule_count = doc["schedule_count"] | 0;
+    if (schedule_count > PrescriptConst::MAX_SCHEDULES) schedule_count = PrescriptConst::MAX_SCHEDULES;
     JsonArray sc_arr = doc["schedules"];
     for (int i = 0; i < schedule_count; i++)
     {
@@ -184,10 +186,11 @@ void SysConfig::load()
     }
     special_toggles = doc["spec_tog"] | 0xFFFFFFFF;
     
+    for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++) char_progress[i] = 0;
     if (doc["char_prog"].is<JsonArray>())
     {
         JsonArray prog_arr = doc["char_prog"].as<JsonArray>();
-        for (int i = 0; i < 8 && i < prog_arr.size(); i++)
+        for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS && i < prog_arr.size(); i++)
         {
             char_progress[i] = prog_arr[i] | 0;
         }
@@ -195,7 +198,7 @@ void SysConfig::load()
     else
     {
         // 防呆保护：如果硬盘里没有这个数组，强制清零
-        for (int i = 0; i < 8; i++) char_progress[i] = 0;
+        for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++) char_progress[i] = 0;
     }
 }
 
@@ -219,7 +222,7 @@ void SysConfig::save()
     doc["volume"] = volume; // 【新增】：打包音量数据
     doc["pom_idx"] = pomodoro_current_idx;
     JsonArray pm_arr = doc["pom_presets"].to<JsonArray>();
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < PrescriptConst::MAX_POMODORO_PRESETS; i++)
     {
         JsonObject obj = pm_arr.add<JsonObject>();
         obj["n"] = pomodoro_presets[i].name;
@@ -287,7 +290,7 @@ void SysConfig::save()
     // 【新增】：保存特异点引擎数据
     doc["spec_tog"] = special_toggles;
     JsonArray prog_arr = doc["char_prog"].to<JsonArray>();
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++)
     {
         prog_arr.add(char_progress[i]);
     }
@@ -297,7 +300,7 @@ void SysConfig::save()
     // ==========================================
     String json_output;
     serializeJson(doc, json_output);
-    SysFS_Write_File(CONFIG_FILE, json_output.c_str());
+    SysFS_Write_File(PrescriptConst::CONFIG_FILE, json_output.c_str());
 
     Serial.println("[CONFIG] 系统协议已覆写至 /config.json");
 }

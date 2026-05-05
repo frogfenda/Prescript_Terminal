@@ -3,6 +3,7 @@
 #include "app_manager.h"
 #include "sys/sys_audio.h"
 #include "hal/hal.h"
+#include "app_countdown.h"
 
 // ==========================================
 // 暴露给 HUD 的全局变量与通信信道
@@ -20,7 +21,7 @@ int g_countdown_set_sec = 0;
 // 调用方法：Countdown_Start(5, 0, "面条已经泡好了");
 // 如果 custom_cmd 传 nullptr 或 ""，则默认走 TT2 协议文案
 // ==========================================
-void Countdown_Start(int min, int sec, const char* custom_cmd = nullptr) {
+void Countdown_Start(int min, int sec, const char* custom_cmd) {
     g_countdown_set_min = min;
     g_countdown_set_sec = sec;
     g_countdown_end_time = millis() + (min * 60 + sec) * 1000;
@@ -31,6 +32,17 @@ void Countdown_Start(int min, int sec, const char* custom_cmd = nullptr) {
         g_countdown_cmd = "";
     }
     g_countdown_active = true;
+}
+
+bool Countdown_IsActive() {
+    return g_countdown_active;
+}
+
+int Countdown_GetRemainingSeconds() {
+    if (!g_countdown_active) return 0;
+    uint32_t now = millis();
+    if (g_countdown_end_time <= now) return 0;
+    return (int)((g_countdown_end_time - now) / 1000);
 }
 
 class AppCountdown : public AppBase {

@@ -1,6 +1,6 @@
 #include "sys_auto_push.h"
+#include "sys_runtime_status.h"
 #include "sys_config.h"
-#include "app_manager.h"
 
 static uint32_t timer_start = 0;
 static uint32_t current_interval_ms = 0;
@@ -35,8 +35,7 @@ void SysAutoPush_Update() {
         SysAutoPush_ResetTimer(); // 立刻重新抽签决定下一次的触发时间
         
         // 【核心解耦】：直接竖起跨核旗帜，让主干管家去拉起那个极其震撼的闪烁警报！
-        extern volatile bool g_cross_core_trigger_push;
-        g_cross_core_trigger_push = true; 
+        SysRuntime_RequestPushNotify();
     }
 }
 

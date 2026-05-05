@@ -960,7 +960,7 @@ public:
                 {
                     extern void Prescript_Prepare_PreRolled();
                     Prescript_Prepare_PreRolled();        // 锁定命运
-                    appManager.replaceApp(appPushNotify); // 强制替换成弹窗 App
+                    appManager.replace(AppId::PushNotify); // 强制替换成弹窗 App
                     return;
                 }
 
@@ -1028,7 +1028,7 @@ public:
                 {
                     extern void Prescript_Prepare_PreRolled();
                     Prescript_Prepare_PreRolled();
-                    appManager.replaceApp(appPushNotify);
+                    appManager.replace(AppId::PushNotify);
                     return;
                 }
                 m_state = S_WAIT_RELEASE;

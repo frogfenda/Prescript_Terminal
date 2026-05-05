@@ -7,14 +7,13 @@
 #include "sys_ble.h"
 
 int g_alarm_edit_idx = -1;
-extern AppBase *appAlarmEdit;
 void _Cb_AlmAdd(void* payload);
 void _Cb_AlmDel(void* payload);
 void _Cb_AlmSync(void* payload);
 
 void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text)
 {
-    if (sysConfig.alarm_count >= 10)
+    if (sysConfig.alarm_count >= PrescriptConst::MAX_ALARMS)
         return;
     int idx = sysConfig.alarm_count;
     sysConfig.alarms[idx].hour = hour;
@@ -280,7 +279,7 @@ protected:
             if (sysConfig.alarm_count < 10)
             {
                 g_alarm_edit_idx = -1;
-                appManager.pushApp(appAlarmEdit);
+                appManager.push(AppId::AlarmEdit);
             }
         }
         else if (index == sysConfig.alarm_count + 1)
@@ -299,7 +298,7 @@ protected:
         if (current_selection < sysConfig.alarm_count)
         {
             g_alarm_edit_idx = current_selection;
-            appManager.pushApp(appAlarmEdit);
+            appManager.push(AppId::AlarmEdit);
         }
         else
             appManager.popApp();

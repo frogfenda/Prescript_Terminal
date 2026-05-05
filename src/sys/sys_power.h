@@ -1,9 +1,14 @@
 #pragma once
 #include <Arduino.h>
+#include "sys_constants.h"
 
-// 把原本在 hal.h 里的引脚定义搬过来
-#define PIN_BAT_ADC 8
-#define PIN_CHRG    16
+// Compatibility aliases. The source of truth is sys_constants.h.
+#ifndef PIN_BAT_ADC
+#define PIN_BAT_ADC PrescriptConst::PIN_BAT_ADC
+#endif
+#ifndef PIN_CHRG
+#define PIN_CHRG    PrescriptConst::PIN_CHRG
+#endif
 
 class SysPower {
 private:

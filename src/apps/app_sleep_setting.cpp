@@ -1,5 +1,6 @@
 // 文件：src/apps/app_sleep_setting.cpp
 #include "app_menu_base.h"
+#include "sys_constants.h"
 #include "sys_config.h" 
 
 class AppSleepSetting : public AppMenuBase {
@@ -61,13 +62,13 @@ protected:
                 uint32_t t = sysConfig.sleep_time_ms;
                 if (t == 60000) current_selection = 1;
                 else if (t == 300000) current_selection = 2;
-                else if (t == 0xFFFFFFFF) current_selection = 3;
+                else if (t == PrescriptConst::NEVER_SLEEP_MS) current_selection = 3;
                 else current_selection = 0;
             } else {
                 uint32_t t = sysConfig.true_sleep_time_ms;
                 if (t == 30000) current_selection = 1;
                 else if (t == 60000) current_selection = 2;
-                else if (t == 0xFFFFFFFF) current_selection = 3;
+                else if (t == PrescriptConst::NEVER_SLEEP_MS) current_selection = 3;
                 else current_selection = 0;
             }
             visual_selection = (float)current_selection;
@@ -78,7 +79,7 @@ protected:
                 case 0: appManager.config_sleep_time_ms = 30000; break;
                 case 1: appManager.config_sleep_time_ms = 60000; break;
                 case 2: appManager.config_sleep_time_ms = 300000; break;
-                case 3: appManager.config_sleep_time_ms = 0xFFFFFFFF; break;
+                case 3: appManager.config_sleep_time_ms = PrescriptConst::NEVER_SLEEP_MS; break;
             }
             sysConfig.sleep_time_ms = appManager.config_sleep_time_ms;
             sysConfig.save();
@@ -90,7 +91,7 @@ protected:
                 case 0: sysConfig.true_sleep_time_ms = 3000; break;
                 case 1: sysConfig.true_sleep_time_ms = 30000; break;
                 case 2: sysConfig.true_sleep_time_ms = 60000; break;
-                case 3: sysConfig.true_sleep_time_ms = 0xFFFFFFFF; break;
+                case 3: sysConfig.true_sleep_time_ms = PrescriptConst::NEVER_SLEEP_MS; break;
             }
             sysConfig.save();
             

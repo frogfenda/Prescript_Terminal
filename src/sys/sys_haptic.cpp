@@ -1,16 +1,14 @@
 #include "sys_haptic.h"
 #include "sys_config.h"
+#include "sys_constants.h"
 #include <Wire.h>
 
-#define DRV2605_ADDR 0x5A
-#define PIN_I2C_SDA 41
-#define PIN_I2C_SCL 42
 
 SysHaptic sysHaptic;
 
 void drv_write(uint8_t reg, uint8_t val)
 {
-    Wire1.beginTransmission(DRV2605_ADDR);
+    Wire1.beginTransmission(PrescriptConst::DRV2605_ADDR);
     Wire1.write(reg);
     Wire1.write(val);
     Wire1.endTransmission();
@@ -18,7 +16,7 @@ void drv_write(uint8_t reg, uint8_t val)
 
 void SysHaptic::begin()
 {
-    Wire1.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    Wire1.begin(PrescriptConst::PIN_I2C_SDA, PrescriptConst::PIN_I2C_SCL);
     Wire1.setTimeOut(20);
 
     drv_write(0x01, 0x00);

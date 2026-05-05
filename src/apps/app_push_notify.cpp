@@ -11,9 +11,6 @@
 
 bool g_push_notify_keep_stack = false;
 
-extern AppBase *appPrescript;
-extern AppBase *appStandby;
-
 void PushNotify_Trigger_Random(bool keep_stack)
 {
     // 【核心 1】：提前摇骰子，此时已经决定了是不是以实玛利！
@@ -24,23 +21,23 @@ void PushNotify_Trigger_Random(bool keep_stack)
 
     if (keep_stack)
     {
-        if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)
+        if (appManager.isCurrent(AppId::PushNotify) || appManager.isCurrent(AppId::Prescript))
         {
-            appManager.replaceApp(appPushNotify);
+            appManager.replace(AppId::PushNotify);
         }
-        else if (appManager.getCurrentApp() == appStandby)
+        else if (appManager.isCurrent(AppId::Standby))
         {
             g_push_notify_keep_stack = false;
-            appManager.launchApp(appPushNotify);
+            appManager.launch(AppId::PushNotify);
         }
         else
         {
-            appManager.pushApp(appPushNotify);
+            appManager.push(AppId::PushNotify);
         }
     }
     else
     {
-        appManager.launchApp(appPushNotify);
+        appManager.launch(AppId::PushNotify);
     }
 }
 
@@ -55,23 +52,23 @@ void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
     // 压栈逻辑同上
     if (keep_stack)
     {
-        if (appManager.getCurrentApp() == appPushNotify || appManager.getCurrentApp() == appPrescript)
+        if (appManager.isCurrent(AppId::PushNotify) || appManager.isCurrent(AppId::Prescript))
         {
-            appManager.replaceApp(appPushNotify);
+            appManager.replace(AppId::PushNotify);
         }
-        else if (appManager.getCurrentApp() == appStandby)
+        else if (appManager.isCurrent(AppId::Standby))
         {
             g_push_notify_keep_stack = false;
-            appManager.launchApp(appPushNotify);
+            appManager.launch(AppId::PushNotify);
         }
         else
         {
-            appManager.pushApp(appPushNotify);
+            appManager.push(AppId::PushNotify);
         }
     }
     else
     {
-        appManager.launchApp(appPushNotify);
+        appManager.launch(AppId::PushNotify);
     }
 }
 
@@ -86,11 +83,11 @@ void PushNotify_Trigger_Special_Forced(bool keep_stack)
     // 压栈逻辑与之前完全一致
     if (keep_stack)
     {
-        appManager.pushApp(appPushNotify);
+        appManager.push(AppId::PushNotify);
     }
     else
     {
-        appManager.launchApp(appPushNotify);
+        appManager.launch(AppId::PushNotify);
     }
 }
 // ==========================================
@@ -168,9 +165,9 @@ public:
         Prescript_Prepare_PreRolled();
 
         if (g_push_notify_keep_stack)
-            appManager.replaceApp(appPrescript);
+            appManager.replace(AppId::Prescript);
         else
-            appManager.launchApp(appPrescript);
+            appManager.launch(AppId::Prescript);
     }
     void onKeyLong() override { onKeyShort(); }
 };

@@ -3,9 +3,6 @@
 #include "sys_config.h" 
 #include "sys_network.h" 
 
-extern AppBase* appAnimSetting; 
-extern AppBase* appVolumeSetting; // 【新增】：引入独立的音量设置应用
-
 class AppSystemSettings : public AppMenuBase {
 protected:
     int getMenuCount() override { return 8; } // 增加到 7 个
@@ -39,18 +36,18 @@ protected:
     
 void onItemClicked(int index) override {
         // 【修改 3】：重新调整跳转路由（所有的 index 顺延）
-        if (index == 0) appManager.pushApp(appWifiConnect);   
-        else if (index == 1) appManager.pushApp(appNetworkSync); 
-        else if (index == 2) appManager.pushApp(appGachaStats); // <--- 【新增】：索引 2 跳转到统计面板
+        if (index == 0) appManager.push(AppId::WifiConnect);   
+        else if (index == 1) appManager.push(AppId::NetworkSync); 
+        else if (index == 2) appManager.push(AppId::GachaStats); // <--- 【新增】：索引 2 跳转到统计面板
         else if (index == 3) {
             appManager.toggleLanguage();
             sysConfig.language = (uint8_t)appManager.getLanguage();
             sysConfig.save();
             drawMenuUI(visual_selection); 
         }
-        else if (index == 4) appManager.pushApp(appSleepSetting); 
-        else if (index == 5) appManager.pushApp(appVolumeSetting); 
-        else if (index == 6) appManager.pushApp(appAnimSetting); 
+        else if (index == 4) appManager.push(AppId::SleepSetting); 
+        else if (index == 5) appManager.push(AppId::VolumeSetting); 
+        else if (index == 6) appManager.push(AppId::AnimSetting); 
         else if (index == 7) appManager.popApp();             
     }
     

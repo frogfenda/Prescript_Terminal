@@ -13,10 +13,11 @@
 #include "sys_nfc.h"
 #include "sys_specials.h"
 #include "sys_power.h"
+#include "sys_constants.h"
 
 void setup()
 {
-    setCpuFrequencyMhz(80);
+    setCpuFrequencyMhz(PrescriptConst::CPU_RUNTIME_MHZ);
 
     Serial.begin(115200);
     Serial.println("[Main] System Booting...");

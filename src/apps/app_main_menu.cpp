@@ -4,7 +4,7 @@
 class AppMainMenu : public AppMenuBase
 {
 protected:
-    int getMenuCount() override { return 10; } // 【修改 1】：增加到 10 个
+    int getMenuCount() override { return 11; } // 菜单数组有 11 项，避免最后一项滚不到
 
     const char *getTitle() override
     {
@@ -29,30 +29,30 @@ protected:
 void onItemClicked(int index) override
     {
         if (index == 0)
-            appManager.pushApp(appPrescript);
+            appManager.push(AppId::Prescript);
         else if (index == 1)
-            appManager.pushApp(appSchedule);
+            appManager.push(AppId::Schedule);
         else if (index == 2)
-            appManager.pushApp(appAlarm);
+            appManager.push(AppId::Alarm);
         else if (index == 3)
-            appManager.pushApp(appCountdown); 
+            appManager.push(AppId::Countdown); 
         else if (index == 4)
-            appManager.pushApp(appPomodoro);
+            appManager.push(AppId::Pomodoro);
         else if (index == 5)
-            appManager.pushApp(appCoinFlip);
+            appManager.push(AppId::CoinFlip);
         else if (index == 6)
-            appManager.pushApp(appGacha); // <--- 【修改 3】：路由到抽卡模拟器
+            appManager.push(AppId::Gacha); // <--- 【修改 3】：路由到抽卡模拟器
         else if (index == 7)
-            appManager.pushApp(appPrescriptList);
+            appManager.push(AppId::PrescriptList);
         else if (index == 8)
-            appManager.pushApp(appPushSetting);
+            appManager.push(AppId::PushSetting);
         else if (index == 9)
-            appManager.pushApp(appSystemSettings);
+            appManager.push(AppId::SystemSettings);
         else if (index == 10)
-            appManager.launchApp(appStandby);
+            appManager.launch(AppId::Standby);
     }
 
-    void onLongPressed() override { appManager.launchApp(appStandby); }
+    void onLongPressed() override { appManager.launch(AppId::Standby); }
 };
 
 AppMainMenu instanceMainMenu;
