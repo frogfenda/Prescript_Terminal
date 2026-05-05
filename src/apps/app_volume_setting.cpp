@@ -5,6 +5,9 @@
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_haptic.h"
+#include <math.h>
+#include "../ui/ui_clock.h"
+#include "../ui/ui_theme.h"
 
 // 外部引用系统硬件对象
 extern SysHaptic sysHaptic;
@@ -17,6 +20,8 @@ private:
     float display_vol;
     float display_haptic;
     uint8_t focus_idx = 0;
+    uint32_t frame_last = 0;
+    bool force_redraw = true;
 
     // ==========================================
     // 【战术进度条引擎】
@@ -97,6 +102,8 @@ public:
         display_vol = target_vol;
         display_haptic = target_haptic;
         focus_idx = 0;
+        frame_last = 0;
+        force_redraw = true;
     }
 
     void onResume() override {}
@@ -114,6 +121,7 @@ public:
                 target_vol = 100;
 
             sysConfig.volume = (int)target_vol;
+            force_redraw = true;
             SYS_SOUND_NAV();
         }
         else
@@ -147,6 +155,7 @@ public:
 
             // 5. 立即给予声震反馈，让用户体验新档位的力度
             SYS_SOUND_NAV();
+            force_redraw = true;
             sysHaptic.playConfirm();
         }
     }
@@ -155,6 +164,7 @@ public:
     {
         // 切换焦点
         focus_idx = (focus_idx + 1) % 2;
+        force_redraw = true;
         SYS_SOUND_NAV();
         sysHaptic.playTick();
     }
@@ -169,22 +179,37 @@ public:
 
     void onLoop() override
     {
-        // 核心动画：每帧向目标逼近 20%
+        bool animating = (fabs(target_vol - display_vol) > UITheme::Volume::SnapEpsilon) ||
+                         (fabs(target_haptic - display_haptic) > UITheme::Volume::SnapEpsilon);
+
+        if (!force_redraw && !animating)
+            return;
+
+        if (!force_redraw && !UIClock_Due(frame_last, UITheme::Volume::FrameMs))
+            return;
+
+        // 核心动画：锁帧后向目标逼近，避免主循环跑多快就刷多快。
         display_vol += (target_vol - display_vol) * 0.2f;
         display_haptic += (target_haptic - display_haptic) * 0.2f;
+
+        if (fabs(target_vol - display_vol) <= UITheme::Volume::SnapEpsilon) display_vol = target_vol;
+        if (fabs(target_haptic - display_haptic) <= UITheme::Volume::SnapEpsilon) display_haptic = target_haptic;
 
         HAL_Sprite_Clear();
         bool zh = appManager.getLanguage() == LANG_ZH;
 
         // 绘制屏幕中线
-        HAL_Draw_Line(142, 15, 142, 63, 0x2104);
+        HAL_Draw_Line(UITheme::Volume::DividerX, UITheme::Volume::DividerTopY,
+                      UITheme::Volume::DividerX, UITheme::Volume::DividerBottomY, UITheme::COLOR_DARK);
 
-        // 渲染进度条 (统一锚点在 Y=42，实现居中对齐)
-        int base_y = 42;
-        drawTacticalSlider(10, base_y, 100, 10, display_vol, focus_idx == 0, zh ? "音量输出" : "VOLUME", true);
-        drawTacticalSlider(155, base_y, 100, 10, display_haptic, focus_idx == 1, zh ? "触感反馈" : "HAPTIC", false);
+        // 渲染进度条
+        drawTacticalSlider(UITheme::Volume::LeftX, UITheme::Volume::SliderY, UITheme::Volume::SliderW, UITheme::Volume::SliderH,
+                           display_vol, focus_idx == 0, zh ? "音量输出" : "VOLUME", true);
+        drawTacticalSlider(UITheme::Volume::RightX, UITheme::Volume::SliderY, UITheme::Volume::SliderW, UITheme::Volume::SliderH,
+                           display_haptic, focus_idx == 1, zh ? "触感反馈" : "HAPTIC", false);
 
         HAL_Screen_Update();
+        force_redraw = false;
     }
 };
 

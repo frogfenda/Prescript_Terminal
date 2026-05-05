@@ -2,6 +2,7 @@
 #include "app_base.h"
 #include "app_menu_base.h"
 #include "app_manager.h"
+#include "../ui/ui_frame.h"
 #include "sys_config.h"
 #include "sys_event.h"
 
@@ -151,23 +152,18 @@ private:
         const char* names_en[] = {"WORK MIN", "REST MIN"};
         const char** names = zh ? names_zh : names_en;
         
-        linkAnim.draw(2, names, 2, phase, 120);
+        linkAnim.draw(UITheme::EditFlow::LinkY, names, 2, phase, 120);
 
         // 2. 中间机甲分隔线
-        int line_y = 18;
-        HAL_Draw_Line(0, line_y, sw/2 - 30, line_y, 1);
-        HAL_Draw_Line(sw/2 - 30, line_y, sw/2 - 25, line_y + 3, 1);
-        HAL_Draw_Line(sw/2 - 25, line_y + 3, sw/2 + 25, line_y + 3, 1);
-        HAL_Draw_Line(sw/2 + 25, line_y + 3, sw/2 + 30, line_y, 1);
-        HAL_Draw_Line(sw/2 + 30, line_y, sw, line_y, 1);
+        UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
 
         // 3. 底部动态机械刻度盘
-        if (phase == 0) dialAnim.drawNumberDial(28, t_work, 1, 120, "");
-        else dialAnim.drawNumberDial(28, t_rest, 1, 60, "");
+        if (phase == 0) dialAnim.drawNumberDial(UITheme::EditFlow::DialY, t_work, 1, 120, "");
+        else dialAnim.drawNumberDial(UITheme::EditFlow::DialY, t_rest, 1, 60, "");
 
         // 4. 底部状态与操作指引
         const char* tip = zh ? "长按取消 / 单击确认" : "LONG: CANCEL / CLICK: OK";
-        HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip))/2, 56, tip, 0.6f);
+        UIFrame::DrawTip(tip);
         
         HAL_Screen_Update();
     }

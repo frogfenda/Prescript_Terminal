@@ -2,6 +2,7 @@
 #include "app_menu_base.h"
 #include "app_manager.h"
 #include "hal/hal.h"
+#include "../ui/ui_frame.h"
 #include <LittleFS.h>
 #include "sys/sys_config.h"
 #include "sys/sys_audio.h"
@@ -9,6 +10,7 @@
 #include "sys_haptic.h"
 #include "sys/sys_event.h" 
 #include "sys/sys_ble.h"   
+#include "sys/sys_constants.h"
 
 int g_coin_run_idx = -1;  // 告诉动画引擎当前在跑哪个技能 (-1代表快速推演)
 int g_coin_edit_idx = -1; // 告诉编辑界面当前在改哪个技能
@@ -106,8 +108,8 @@ CoinEventReceiver g_coinEventReceiver;
 // ==========================================
 // 核心物理引擎 (基类)：解锁 48KB 显存，多通道材质并发加载
 // ==========================================
-const int REAL_SW = 284; 
-const int REAL_SH = 76;  
+constexpr int REAL_SW = PrescriptConst::UI_SCREEN_WIDTH;
+constexpr int REAL_SH = PrescriptConst::UI_SCREEN_HEIGHT;
 
 class AppCoinCore : public AppBase {
 protected:
@@ -630,47 +632,36 @@ private:
         bool zh = appManager.getLanguage() == LANG_ZH;
 
         if (phase == 4) {
-            const char *title = zh ? "战术覆写" : "OVERRIDE";
-            HAL_Screen_ShowChineseLine(10, 26, title);
-
             char buf[64];
             if (g_coin_edit_idx >= 0) {
                 sprintf(buf, zh ? "覆写 [%s]?" : "OVERRIDE [%s]?", sysConfig.coin_presets[g_coin_edit_idx].name.c_str());
             } else {
                 sprintf(buf, zh ? "录入为新技能?" : "SAVE AS NEW?");
             }
-            int txt_w = HAL_Get_Text_Width(buf);
-            HAL_Screen_ShowChineseLine(sw - txt_w - 10, 26, buf);
-
             const char *tip = zh ? "长按取消 / 单击确认" : "LONG: CANCEL / CLICK: CONFIRM";
             if (g_coin_edit_idx >= 0) tip = zh ? "长按抹除 / 单击确认" : "LONG: DELETE / CLICK: CONFIRM";
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip)) / 2, 56, tip, 0.6f);
+            UIFrame::DrawDangerConfirm(zh ? "战术覆写" : "OVERRIDE", buf, tip);
         } else {
             const char *names_zh[] = {"基础点", "硬币点", "抛掷数", "材质"};
             const char *names_en[] = {"BASE", "COIN", "COUNT", "MAT"};
             const char **names = zh ? names_zh : names_en;
 
-            linkAnim.draw(2, names, 4, phase, 58);
+            linkAnim.draw(UITheme::EditFlow::LinkY, names, 4, phase, 58);
 
-            int line_y = 18;
-            HAL_Draw_Line(0, line_y, sw / 2 - 30, line_y, 1);
-            HAL_Draw_Line(sw / 2 - 30, line_y, sw / 2 - 25, line_y + 3, 1);
-            HAL_Draw_Line(sw / 2 - 25, line_y + 3, sw / 2 + 25, line_y + 3, 1);
-            HAL_Draw_Line(sw / 2 + 25, line_y + 3, sw / 2 + 30, line_y, 1);
-            HAL_Draw_Line(sw / 2 + 30, line_y, sw, line_y, 1);
+            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
 
-            if (phase == 0) dialAnim.drawNumberDial(28, bp, 0, 99, "");
-            else if (phase == 1) dialAnim.drawNumberDial(28, cp, -20, 99, "");
-            else if (phase == 2) dialAnim.drawNumberDial(28, cc, 1, 9, "");
+            if (phase == 0) dialAnim.drawNumberDial(UITheme::EditFlow::DialY, bp, 0, 99, "");
+            else if (phase == 1) dialAnim.drawNumberDial(UITheme::EditFlow::DialY, cp, -20, 99, "");
+            else if (phase == 2) dialAnim.drawNumberDial(UITheme::EditFlow::DialY, cc, 1, 9, "");
             else if (phase == 3) {
                 const char *c_zh[] = {"经典金", "狂气红", "沉稳绿"};
                 const char *c_en[] = {"GOLD", "RED", "GREEN"};
-                dialAnim.drawStringDial(28, cl, zh ? c_zh : c_en, 3); 
+                dialAnim.drawStringDial(UITheme::EditFlow::DialY, cl, zh ? c_zh : c_en, 3); 
             }
 
             const char *tip = zh ? "长按返回 / 单击下一步" : "LONG: BACK / CLICK: NEXT";
             if (phase == 0 && g_coin_edit_idx < 0) tip = zh ? "长按取消 / 单击下一步" : "LONG: CANCEL / CLICK: NEXT";
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip)) / 2, 56, tip, 0.6f);
+            UIFrame::DrawTip(tip);
         }
         HAL_Screen_Update();
     }

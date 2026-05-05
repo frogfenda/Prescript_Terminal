@@ -7,6 +7,7 @@
 #include <time.h>
 #include "sys_power.h"
 #include "../ui/ui_hud.h"
+#include "../ui/ui_theme.h"
 
 class AppMenuBase : public AppBase
 {
@@ -37,18 +38,13 @@ protected:
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
 
-        // ==========================================
-        // 提取 UI 布局语义常数
-        // ==========================================
-        const int UI_PADDING_X = 10;
-        const int UI_LINE_MARGIN_Y = 8;
-        const int UI_ITEM_SPACING_Y = 24;
-        const int UI_SCAN_BOX_PAD_X = 6;
-        const int UI_SCAN_BOX_H = 24;
-        const int UI_SCROLL_BAR_W = 5;
-
-        // 3D 轮盘侧弯的曲率系数
-        const float UI_3D_CURVE_FACTOR = 12.0f;
+        // 共享菜单布局常数集中在 UITheme，避免菜单视觉参数散落。
+        constexpr int UI_PADDING_X = UITheme::Menu::PaddingX;
+        constexpr int UI_ITEM_SPACING_Y = UITheme::Menu::ItemSpacingY;
+        constexpr int UI_SCAN_BOX_PAD_X = UITheme::Menu::ScanBoxPadX;
+        constexpr int UI_SCAN_BOX_H = UITheme::Menu::ScanBoxHeight;
+        constexpr int UI_SCROLL_BAR_W = UITheme::Menu::ScrollBarWidth;
+        constexpr float UI_3D_CURVE_FACTOR = UITheme::Menu::CurveFactor;
 
         // ==========================================
         // 1. 左侧 HUD 面板
@@ -179,7 +175,7 @@ public:
         {
             uint32_t now = millis();
             // 【核心修复】：将主菜单的滑动也锁定在 60FPS
-            if (now - menu_anim_last_tick >= 16)
+            if (now - menu_anim_last_tick >= UITheme::FRAME_FAST_MS)
             {
                 menu_anim_last_tick = now;
                 visual_selection += diff * 0.25f;

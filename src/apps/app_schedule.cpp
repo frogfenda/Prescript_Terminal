@@ -2,6 +2,7 @@
 #include "app_base.h"
 #include "app_menu_base.h"
 #include "app_manager.h"
+#include "../ui/ui_frame.h"
 #include "sys_config.h"
 #include <time.h>
 #include "sys_event.h"
@@ -118,16 +119,11 @@ class AppScheduleEdit : public AppBase
 
         if (phase == 6)
         {
-            const char *title = zh ? "危险操作" : "DANGER";
-            HAL_Screen_ShowChineseLine(10, 26, title);
-
             char buf[64];
             sprintf(buf, zh ? "抹除 [%s]?" : "DEL [%s]?", sysConfig.schedules[g_schedule_edit_idx].title.c_str());
-            int txt_w = HAL_Get_Text_Width(buf);
-            HAL_Screen_ShowChineseLine(sw - txt_w - 10, 26, buf);
-
-            const char *tip = zh ? "长按确认抹除 / 单击返回编辑" : "LONG: DELETE / CLICK: BACK";
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip)) / 2, 56, tip, 0.6f);
+            UIFrame::DrawDangerConfirm(zh ? "危险操作" : "DANGER",
+                                       buf,
+                                       zh ? "长按确认抹除 / 单击返回编辑" : "LONG: DELETE / CLICK: BACK");
         }
         else
         {
@@ -137,36 +133,31 @@ class AppScheduleEdit : public AppBase
             const char **names = zh ? names_zh : names_en;
 
             // 节点较多，间距设为 95
-            linkAnim.draw(2, names, 6, phase, 95);
+            linkAnim.draw(UITheme::EditFlow::LinkY, names, 6, phase, 95);
 
             // 2. 中间机甲分隔线
-            int line_y = 18;
-            HAL_Draw_Line(0, line_y, sw / 2 - 30, line_y, 1);
-            HAL_Draw_Line(sw / 2 - 30, line_y, sw / 2 - 25, line_y + 3, 1);
-            HAL_Draw_Line(sw / 2 - 25, line_y + 3, sw / 2 + 25, line_y + 3, 1);
-            HAL_Draw_Line(sw / 2 + 25, line_y + 3, sw / 2 + 30, line_y, 1);
-            HAL_Draw_Line(sw / 2 + 30, line_y, sw, line_y, 1);
+            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
 
             // 3. 底部动态机械刻度盘
             if (phase == 0)
-                dialAnim.drawNumberDial(28, mo, 1, 12, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, mo, 1, 12, "");
             else if (phase == 1)
-                dialAnim.drawNumberDial(28, d, 1, 31, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, d, 1, 31, "");
             else if (phase == 2)
-                dialAnim.drawNumberDial(28, h, 0, 23, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, h, 0, 23, "");
             else if (phase == 3)
-                dialAnim.drawNumberDial(28, m, 0, 59, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, m, 0, 59, "");
             else if (phase == 4)
             {
                 const char *t_zh[] = {"常规待办", "高维会议", "系统维护", "突发任务"};
                 const char *t_en[] = {"ROUTINE", "MEETING", "MAINTAIN", "EMERGENCY"};
-                dialAnim.drawStringDial(28, t_idx, zh ? t_zh : t_en, 4);
+                dialAnim.drawStringDial(UITheme::EditFlow::DialY, t_idx, zh ? t_zh : t_en, 4);
             }
             else if (phase == 5)
             {
                 const char *p_zh[] = {"随机指令", "固定提醒"};
                 const char *p_en[] = {"RANDOM", "FIXED MSG"};
-                dialAnim.drawStringDial(28, p_idx, zh ? p_zh : p_en, 2);
+                dialAnim.drawStringDial(UITheme::EditFlow::DialY, p_idx, zh ? p_zh : p_en, 2);
             }
 
             // 4. 底部状态与操作指引
@@ -186,7 +177,7 @@ class AppScheduleEdit : public AppBase
             else if (phase == 5)
                 tip = zh ? "长按返回 / 单击保存" : "LONG: BACK / CLICK: SAVE";
 
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip)) / 2, 56, tip, 0.6f);
+            UIFrame::DrawTip(tip);
         }
         HAL_Screen_Update();
     }

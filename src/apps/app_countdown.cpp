@@ -3,6 +3,7 @@
 #include "app_manager.h"
 #include "sys/sys_audio.h"
 #include "hal/hal.h"
+#include "../ui/ui_frame.h"
 #include "app_countdown.h"
 
 // ==========================================
@@ -61,15 +62,9 @@ private:
 
         if (phase == 3) {
             // 【危险操作界面】
-            const char *title = zh ? "危险操作" : "DANGER";
-            HAL_Screen_ShowChineseLine(10, 26, title);
-
-            const char *buf = zh ? "确认撤收任务 ?" : "ABORT PROTOCOL ?";
-            int txt_w = HAL_Get_Text_Width(buf);
-            HAL_Screen_ShowChineseLine(sw - txt_w - 10, 26, buf);
-
-            const char *tip = zh ? "长按取消 / 单击撤收" : "LONG: CANCEL / CLICK: ABORT";
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip)) / 2, 56, tip, 0.6f);
+            UIFrame::DrawDangerConfirm(zh ? "危险操作" : "DANGER",
+                                       zh ? "确认撤收任务 ?" : "ABORT PROTOCOL ?",
+                                       zh ? "长按取消 / 单击撤收" : "LONG: CANCEL / CLICK: ABORT");
         }
         else {
             // 【机甲引擎主界面】
@@ -78,21 +73,16 @@ private:
             const char **names = zh ? names_zh : names_en;
 
             // 1. 顶部战术链路
-            linkAnim.draw(2, names, 3, phase, 85);
+            linkAnim.draw(UITheme::EditFlow::LinkY, names, 3, phase, 85);
 
             // 2. 中间机甲分隔线 (Y=18)
-            int line_y = 18;
-            HAL_Draw_Line(0, line_y, sw / 2 - 30, line_y, 1);
-            HAL_Draw_Line(sw / 2 - 30, line_y, sw / 2 - 25, line_y + 3, 1);
-            HAL_Draw_Line(sw / 2 - 25, line_y + 3, sw / 2 + 25, line_y + 3, 1);
-            HAL_Draw_Line(sw / 2 + 25, line_y + 3, sw / 2 + 30, line_y, 1);
-            HAL_Draw_Line(sw / 2 + 30, line_y, sw, line_y, 1);
+            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
 
             // 3. 底部动态内容区 (Y=28/32)
             if (phase == 0) {
-                dialAnim.drawNumberDial(28, m, 0, 99, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, m, 0, 99, "");
             } else if (phase == 1) {
-                dialAnim.drawNumberDial(28, s, 0, 59, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, s, 0, 59, "");
             } else if (phase == 2) {
                 int remain = 0;
                 if (g_countdown_active && g_countdown_end_time > millis()) {
@@ -114,7 +104,7 @@ private:
                 tip = zh ? "长按取消 / 单击撤收" : "LONG: CANCEL / CLICK: ABORT";
             }
 
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip)) / 2, 56, tip, 0.6f);
+            UIFrame::DrawTip(tip);
         }
         HAL_Screen_Update();
     }

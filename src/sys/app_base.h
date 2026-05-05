@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include "hal.h"
 #include "sys_time.h"
+#include "../ui/ui_theme.h"
 
 class AppBase {
 public:
@@ -46,7 +47,7 @@ protected:
             uint32_t now = millis();
             // 【核心修复 1】：锁定动画刷新率在约 60FPS (每 16ms 走一帧)
             // 彻底解决屏幕疯狂重绘导致的“频闪”和“撕裂”！
-            if (now - edit_anim_last_tick >= 16) { 
+            if (now - edit_anim_last_tick >= UITheme::FRAME_FAST_MS) { 
                 edit_anim_progress -= 0.15f; 
                 edit_anim_last_tick = now;
                 if (edit_anim_progress <= 0) {

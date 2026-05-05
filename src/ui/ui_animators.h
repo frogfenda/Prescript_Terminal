@@ -1,6 +1,9 @@
 #pragma once
 #include <Arduino.h>
 #include "../hal/hal.h"
+#include "ui_theme.h"
+#include "ui_text.h"
+#include "ui_frame.h"
 
 // ==========================================
 // 机械刻度盘动画引擎 (DialAnimator - 安全区护航版)
@@ -47,7 +50,7 @@ public:
         if (abs(offset) > 0.001f) {
             uint32_t now = millis();
             // 【核心修复】：锁定在约 60FPS (16ms一帧)，防止疯狂重绘撕裂画面
-            if (now - last_tick >= 16) {
+            if (now - last_tick >= UITheme::FRAME_FAST_MS) {
                 last_tick = now;
                 offset += (0.0f - offset) * 0.25f; 
                 if (abs(offset) < 0.02f) offset = 0.0f;
@@ -64,7 +67,7 @@ public:
         float angle_step = 0.22f;  
 
         // 【新增】：16像素绝对安全区，禁止任何字符靠近屏幕物理边缘！
-        int safe_margin = 16; 
+        int safe_margin = UITheme::SAFE_MARGIN_X; 
 
         for (int i = -6; i <= 6; i++) {
             float item_offset = i + offset;
@@ -110,7 +113,7 @@ public:
         int cx = sw / 2;
         float R = 160.0f; 
         float angle_step = 0.40f; 
-        int safe_margin = 16;
+        int safe_margin = UITheme::SAFE_MARGIN_X;
         
         for (int i = -4; i <= 4; i++) {
             float item_offset = i + offset;
@@ -210,7 +213,7 @@ public:
         if (abs(offset - current_phase) > 0.005f) {
             uint32_t now = millis();
             // 【核心修复】：60FPS 锁帧
-            if (now - last_tick >= 16) {
+            if (now - last_tick >= UITheme::FRAME_FAST_MS) {
                 last_tick = now;
                 offset += (current_phase - offset) * 0.15f; 
                 if (abs(offset - current_phase) < 0.01f) offset = current_phase;

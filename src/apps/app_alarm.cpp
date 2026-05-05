@@ -2,6 +2,7 @@
 #include "app_base.h"
 #include "app_menu_base.h"
 #include "app_manager.h"
+#include "../ui/ui_frame.h"
 #include "sys_config.h"
 #include "sys_event.h"
 #include "sys_ble.h"
@@ -61,16 +62,11 @@ class AppAlarmEdit : public AppBase
 
         if (phase == 2)
         {
-            const char *title = zh ? "危险操作" : "DANGER";
-            HAL_Screen_ShowChineseLine(10, 26, title);
-
             char buf[64];
             sprintf(buf, zh ? "抹除 [%s] ?" : "DEL [%s] ?", sysConfig.alarms[g_alarm_edit_idx].name.c_str());
-            int txt_w = HAL_Get_Text_Width(buf);
-            HAL_Screen_ShowChineseLine(sw - txt_w - 10, 26, buf);
-
-            const char *tip = zh ? "长按确认抹除 / 单击返回编辑" : "LONG: DELETE / CLICK: BACK";
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip)) / 2, 56, tip, 0.6f);
+            UIFrame::DrawDangerConfirm(zh ? "危险操作" : "DANGER",
+                                       buf,
+                                       zh ? "长按确认抹除 / 单击返回编辑" : "LONG: DELETE / CLICK: BACK");
         }
         else
         {
@@ -82,21 +78,16 @@ class AppAlarmEdit : public AppBase
             const char **names = zh ? names_zh : names_en;
 
             // 1. 顶部战术链路：Y坐标从 6 调高到了 2
-            linkAnim.draw(2, names, 2, phase, 120);
+            linkAnim.draw(UITheme::EditFlow::LinkY, names, 2, phase, 120);
 
             // 2. 中间机甲分隔线：Y坐标从 24 调高到了 18
-            int line_y = 18;
-            HAL_Draw_Line(0, line_y, sw / 2 - 30, line_y, 1);
-            HAL_Draw_Line(sw / 2 - 30, line_y, sw / 2 - 25, line_y + 3, 1);
-            HAL_Draw_Line(sw / 2 - 25, line_y + 3, sw / 2 + 25, line_y + 3, 1);
-            HAL_Draw_Line(sw / 2 + 25, line_y + 3, sw / 2 + 30, line_y, 1);
-            HAL_Draw_Line(sw / 2 + 30, line_y, sw, line_y, 1);
+            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
 
             // 3. 底部机械刻度盘：Y坐标从 36 调高到了 28
             if (phase == 0)
-                dialAnim.drawNumberDial(28, h, 0, 23, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, h, 0, 23, "");
             else
-                dialAnim.drawNumberDial(28, m, 0, 59, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, m, 0, 59, "");
 
             // 4. 操作提示停留在底部：Y坐标 56
             const char *tip;
@@ -110,7 +101,7 @@ class AppAlarmEdit : public AppBase
             else
                 tip = zh ? "长按返回 / 单击保存" : "LONG: BACK / CLICK: SAVE";
 
-            HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(tip)) / 2, 56, tip, 0.6f);
+            UIFrame::DrawTip(tip);
         }
         HAL_Screen_Update();
     }

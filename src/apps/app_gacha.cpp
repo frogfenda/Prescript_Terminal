@@ -26,7 +26,10 @@ private:
 
     // 动画引擎：左到右线性揭晓
     bool revealed[10];                   // 记录每个方块是否已被扫描线扫过并揭晓
-    const uint32_t ANIM_DURATION = 1800; // 扫描线扫过全屏的总时长 (1.8秒，节奏紧凑)
+    static const uint32_t ANIM_DURATION = 1800; // 扫描线扫过全屏的总时长 (1.8秒，节奏紧凑)
+    static const int RESULT_BOX_SIZE = 18;
+    static const int RESULT_BOX_GAP_X = 6;
+    static const int RESULT_BOX_COUNT = 10;
 
     // 列表引擎参数
     int m_scroll_offset = 0;
@@ -141,9 +144,9 @@ private:
         HAL_Screen_ShowChineseLine_Faded_Color(sw / 2 - 40, 10, "EXTRACTION...", 0.0f, 0x18E3);
 
         // 1x10 横向阵列参数精算 (完美适配 284 宽度)
-        int box_size = 18;                       // 方块大小
-        int gap_x = 6;                           // 间距
-        int total_w = 10 * box_size + 9 * gap_x; // 180 + 54 = 234 像素宽
+        int box_size = RESULT_BOX_SIZE;
+        int gap_x = RESULT_BOX_GAP_X;
+        int total_w = RESULT_BOX_COUNT * box_size + (RESULT_BOX_COUNT - 1) * gap_x;
 
         int start_x = (sw - total_w) / 2;
         int start_y = sh / 2 - box_size / 2 + 8; // 微微偏下放置阵列
@@ -288,11 +291,11 @@ public:
                 // ==========================================
                 // 【核心逻辑】：物理级精准判断扫描线与方块的交集
                 // ==========================================
-                int box_size = 18;
-                int gap_x = 6;
-                int total_w = 10 * box_size + 9 * gap_x;
+                int box_size = RESULT_BOX_SIZE;
+                int gap_x = RESULT_BOX_GAP_X;
+                int total_w = RESULT_BOX_COUNT * box_size + (RESULT_BOX_COUNT - 1) * gap_x;
 
-                for (int i = 0; i < 10; i++)
+                for (int i = 0; i < RESULT_BOX_COUNT; i++)
                 {
                     // 计算出扫描线扫到第 i 个方块“正中心”时所需的时间
                     int trigger_x = i * (box_size + gap_x) + box_size / 2;
