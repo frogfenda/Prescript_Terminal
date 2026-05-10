@@ -1,8 +1,5 @@
-/*
-【模块职责】I2S 音频实现。WAV 在 Core0 后台任务中分块输出，短 tone/glitch 在调用线程中生成 PCM；互斥锁保护 I2S，避免 WAV 与短音效同时写 DMA。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
-*/
 // 文件：src/sys/sys_audio.cpp
+// 职责：管理 I2S 音频输出，支持后台 WAV 播放和程序生成的短音效/乱码音。
 #include "sys_audio.h"
 #include "sys_config.h"
 #include "hal/hal.h"
@@ -20,7 +17,13 @@ volatile uint8_t g_wav_id = 0;
 
 SemaphoreHandle_t g_i2s_mutex = NULL;
 
-// 【函数说明】后台 WAV 播放任务：检测 g_wav_data 后按 256 sample 分块写 I2S，循环音首尾做 64 sample 淡入淡出，停止时输出衰减尾音防爆音。
+/**
+ * 后台 WAV 播放任务。
+ *
+ * App 调用 SysAudio::playWAV() 后，只是更新全局播放指针；
+ * 真正的音量缩放、淡入淡出和 I2S 写入都在这个 Core 0 任务中完成，
+ * 避免长音频阻塞 UI 主循环。
+ */
 void audio_bg_task(void *pvParameters)
 {
     size_t bytes_written;
@@ -60,6 +63,10 @@ void audio_bg_task(void *pvParameters)
 
                 int chunk = (total_samples - ptr < CHUNK_SAMPLES) ? (total_samples - ptr) : CHUNK_SAMPLES;
 
+                /*
+                 * current_len 在 playWAV() 入口已经按 4 字节对齐。
+                 * CHUNK_SAMPLES=256 也是偶数，因此 stereo 16bit 的左右声道帧不会被拆成半帧。
+                 */
                 for (int i = 0; i < chunk; i++)
                 {
                     uint32_t pos = ptr + i;
@@ -94,6 +101,7 @@ void audio_bg_task(void *pvParameters)
                 }
             }
 
+            // 播放被打断或自然结束后，给 I2S 一个短衰减尾巴，减少爆音。
             if (last_val != 0)
             {
                 int16_t safe_buf[64];
@@ -122,7 +130,9 @@ void audio_bg_task(void *pvParameters)
     }
 }
 
-// 【函数说明】初始化 I2S0 为 44.1kHz 16bit 双声道输出，绑定 MAX98375A+ 引脚，创建后台 WAV 播放任务。
+/**
+ * 初始化 I2S 硬件和音频后台任务。
+ */
 void SysAudio::begin()
 {
     if (g_i2s_mutex == NULL)
@@ -130,16 +140,15 @@ void SysAudio::begin()
         g_i2s_mutex = xSemaphoreCreateMutex();
     }
 
-    // 【同步修改 1】：扩大 DMA 吞吐缓冲池，喂饱 44100Hz 的恐怖消耗速度
     i2s_config_t i2s_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-        .sample_rate = 44100, // 全局升级 44100Hz
+        .sample_rate = 44100,
         .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 6,
-        .dma_buf_len = 512, // 【防卡死修改】：从 160 扩大到 512
+        .dma_buf_len = 512,
         .use_apll = false,
         .tx_desc_auto_clear = true};
     i2s_pin_config_t pin_config = {
@@ -154,33 +163,64 @@ void SysAudio::begin()
     xTaskCreatePinnedToCore(audio_bg_task, "SysAudio_Task", 4096, NULL, 1, NULL, 0);
 }
 
-// 【函数说明】切换当前 WAV 播放源：递增 g_wav_id 打断旧播放，设置数据指针、长度和循环标志，实际写 I2S 由后台任务完成。
+/**
+ * 播放一段已经缓存到 PSRAM 的 PCM WAV 数据。
+ *
+ * 注意：传入的 data 应该已经是 WAV data chunk 中的纯 PCM，不包含 RIFF/WAVE 头。
+ * 为了兜底，入口仍会把长度向下对齐到 4 字节，因为当前输出固定按 16bit stereo 处理，
+ * 一帧音频 = L 16bit + R 16bit = 4 字节。
+ */
 void SysAudio::playWAV(const uint8_t *data, uint32_t len, bool loop)
 {
-    if (!data || len == 0)
+    if (!data || len < 4)
+    {
+        Serial.println("[音频] WAV 播放失败：数据为空或长度过短。");
         return;
+    }
+
+    uint32_t aligned_len = len & ~0x03UL;
+    if (aligned_len != len)
+    {
+        Serial.printf(
+            "[音频] WAV 长度未按 stereo frame 对齐，%lu -> %lu。\n",
+            (unsigned long)len,
+            (unsigned long)aligned_len
+        );
+    }
+
+    if (aligned_len < 4)
+        return;
+
+    /*
+     * 先递增播放 ID，让后台任务中断上一段 WAV；
+     * 再写入新数据指针和长度，避免旧任务继续读已经切换的播放状态。
+     */
     g_wav_id++;
+    g_wav_data = nullptr;
     g_wav_loop = loop;
-    g_wav_len = len;
+    g_wav_len = aligned_len;
     g_wav_data = data;
 }
 
-// 【函数说明】递增播放 ID 并清空 WAV 指针，使后台任务在下一块数据前停止当前 WAV。
+/**
+ * 停止当前 WAV 播放。
+ * 递增播放 ID 可以让后台任务即使已经缓存了旧指针，也能在下一次循环中退出。
+ */
 void SysAudio::stopWAV()
 {
     g_wav_id++;
     g_wav_data = nullptr;
     g_wav_loop = false;
+    g_wav_len = 0;
 }
 
-// 【函数说明】同步生成方波短音效：按音量平方映射幅度，低频减半，尾部使用二次包络衰减后写入 I2S。
 void SysAudio::playTone(uint16_t freq, uint16_t duration_ms)
 {
     stopWAV();
     if (freq == 0 || duration_ms == 0 || sysConfig.volume == 0)
         return;
 
-    uint32_t sample_rate = 44100; // 同步升级
+    uint32_t sample_rate = 44100;
     uint32_t total_samples = (sample_rate * duration_ms) / 1000;
 
     float vol_ratio = (float)sysConfig.volume / 100.0f;
@@ -225,13 +265,12 @@ void SysAudio::playTone(uint16_t freq, uint16_t duration_ms)
     }
 }
 
-// 【函数说明】同步生成 3-6ms 下扫三角波故障音，从 3.5-4.5kHz 滑到 800Hz，形成菜单/解码电子噪声。
 void SysAudio::playGlitch()
 {
     stopWAV();
     if (sysConfig.volume == 0)
         return;
-    uint32_t sample_rate = 44100; // 同步升级
+    uint32_t sample_rate = 44100;
     uint32_t duration_ms = random(3, 6);
     uint32_t total_samples = (sample_rate * duration_ms) / 1000;
 
@@ -261,7 +300,6 @@ void SysAudio::playGlitch()
         buf[buf_idx++] = sample_val;
         buf[buf_idx++] = sample_val;
 
-        // 【核心修复 2】：新增切片冲刷阀门，装满 512 个数据就送给声卡，杜绝数组越界引发重启！
         if (buf_idx >= CHUNK_SAMPLES * 2)
         {
             if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
@@ -272,7 +310,7 @@ void SysAudio::playGlitch()
             buf_idx = 0;
         }
     }
-    // 把循环结束后剩下的残余数据送入声卡
+
     if (buf_idx > 0)
     {
         if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
@@ -283,17 +321,13 @@ void SysAudio::playGlitch()
     }
 }
 
-// 【函数说明】进入休眠前清空 DMA 并停止 I2S 时钟，避免唤醒后残留样本造成爆音。
 void SysAudio_Sleep()
 {
-    // 清空底层缓冲并停止硬件时钟，防止唤醒错位
     i2s_zero_dma_buffer(I2S_NUM_0);
     i2s_stop(I2S_NUM_0);
 }
 
-// 【函数说明】唤醒后重新启动 I2S 时钟，让 tone/WAV 可以继续写入 DMA。
 void SysAudio_Wakeup()
 {
-    // 唤醒后重新启动硬件
     i2s_start(I2S_NUM_0);
 }

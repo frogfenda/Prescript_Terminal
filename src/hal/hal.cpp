@@ -22,6 +22,307 @@ U8g2_for_TFT_eSPI u8f;
 
 volatile int raw_knob_counter = 0;
 
+/*
+ * 将逻辑 UI 坐标转换为 NV3007 实际写屏坐标。
+ *
+ * UI_PUSH_X / UI_PUSH_Y 表示旧 284×76 Sprite 在新横屏 428×142 画面中的几何位置；
+ * DISPLAY_RAM_OFFSET_X / DISPLAY_RAM_OFFSET_Y 表示 NV3007 控制器内部 GRAM 可视区偏移。
+ *
+ * 这两个偏移必须分开：
+ * - 想调整画面是否视觉居中，改 UI_PUSH_X / UI_PUSH_Y；
+ * - 想修正底部花屏、控制器写窗口错位，改 DISPLAY_RAM_OFFSET_*。
+ */
+static inline int16_t HAL_DisplayRawX(int16_t logical_x)
+{
+    return logical_x + PrescriptConst::DISPLAY_RAM_OFFSET_X;
+}
+
+static inline int16_t HAL_DisplayRawY(int16_t logical_y)
+{
+    return logical_y + PrescriptConst::DISPLAY_RAM_OFFSET_Y;
+}
+
+// 【新屏幕适配】2.79 寸 142×428 长条屏使用 NV3007/NV3006A1 类初始化序列。
+// TFT_eSPI 当前仍按 ST7789 驱动建立 SPI 事务和基本绘图接口，随后这里补发屏厂例程里的
+// NV3007 初始化命令。这样可以在不重写 HAL 推图体系的前提下，先让新屏完成点亮和 RGB565 显示。
+static void HAL_NV3007_SendCmd(uint8_t cmd)
+{
+    tft.writecommand(cmd);
+}
+
+static void HAL_NV3007_SendData(uint8_t data)
+{
+    tft.writedata(data);
+}
+
+// 【函数说明】按厂家 STM32 例程移植 NV3007/NV3006A1 初始化序列。
+// 关键点：
+// 1. 例程标注面板有效分辨率为 142×428，默认 RGB565；
+// 2. 原例程在 TFT_SET_ADD() 中给 column 加了 12 像素偏移；
+// 3. 这里先只移植初始化序列，窗口偏移先不改 TFT_eSPI 底层，便于先验证点亮；
+// 4. 初始化完成后 HAL_Init() 会再调用 setRotation(1)，让设备按横向带鱼屏使用。
+static void HAL_NV3007_Init_142x428()
+{
+    auto nvCmd = HAL_NV3007_SendCmd;
+    auto nvData = HAL_NV3007_SendData;
+
+    Serial.println("[显示] 使用 NV3007/NV3006A1 142x428 初始化序列。厂家例程 column offset=12，当前为简单居中适配。");
+
+    delay(100);
+    delay(120);
+    nvCmd(0xff);
+    nvData(0xa5);
+    nvCmd(0x9a);
+    nvData(0x08);
+    nvCmd(0x9b);
+    nvData(0x08);
+    nvCmd(0x9c);
+    nvData(0xb0);
+    nvCmd(0x9d);
+    nvData(0x16);
+    nvCmd(0x9e);
+    nvData(0xc4);
+    nvCmd(0x8f);
+    nvData(0x55);
+    nvData(0x04);
+    nvCmd(0x84);
+    nvData(0x90);
+    nvCmd(0x83);
+    nvData(0x7b);
+    nvCmd(0x85);
+    nvData(0x33);
+    nvCmd(0x60);
+    nvData(0x00);
+    nvCmd(0x70);
+    nvData(0x00);
+    nvCmd(0x61);
+    nvData(0x02);
+    nvCmd(0x71);
+    nvData(0x02);
+    nvCmd(0x62);
+    nvData(0x04);
+    nvCmd(0x72);
+    nvData(0x04);
+    nvCmd(0x6c);
+    nvData(0x29);
+    nvCmd(0x7c);
+    nvData(0x29);
+    nvCmd(0x6d);
+    nvData(0x31);
+    nvCmd(0x7d);
+    nvData(0x31);
+    nvCmd(0x6e);
+    nvData(0x0f);
+    nvCmd(0x7e);
+    nvData(0x0f);
+    nvCmd(0x66);
+    nvData(0x21);
+    nvCmd(0x76);
+    nvData(0x21);
+    nvCmd(0x68);
+    nvData(0x3A);
+    nvCmd(0x78);
+    nvData(0x3A);
+    nvCmd(0x63);
+    nvData(0x07);
+    nvCmd(0x73);
+    nvData(0x07);
+    nvCmd(0x64);
+    nvData(0x05);
+    nvCmd(0x74);
+    nvData(0x05);
+    nvCmd(0x65);
+    nvData(0x02);
+    nvCmd(0x75);
+    nvData(0x02);
+    nvCmd(0x67);
+    nvData(0x23);
+    nvCmd(0x77);
+    nvData(0x23);
+    nvCmd(0x69);
+    nvData(0x08);
+    nvCmd(0x79);
+    nvData(0x08);
+    nvCmd(0x6a);
+    nvData(0x13);
+    nvCmd(0x7a);
+    nvData(0x13);
+    nvCmd(0x6b);
+    nvData(0x13);
+    nvCmd(0x7b);
+    nvData(0x13);
+    nvCmd(0x6f);
+    nvData(0x00);
+    nvCmd(0x7f);
+    nvData(0x00);
+    nvCmd(0x50);
+    nvData(0x00);
+    nvCmd(0x52);
+    nvData(0xd6);
+    nvCmd(0x53);
+    nvData(0x08);
+    nvCmd(0x54);
+    nvData(0x08);
+    nvCmd(0x55);
+    nvData(0x1e);
+    nvCmd(0x56);
+    nvData(0x1c);
+    nvCmd(0xa0);
+    nvData(0x2b);
+    nvData(0x24);
+    nvData(0x00);
+    nvCmd(0xa1);
+    nvData(0x87);
+    nvCmd(0xa2);
+    nvData(0x86);
+    nvCmd(0xa5);
+    nvData(0x00);
+    nvCmd(0xa6);
+    nvData(0x00);
+    nvCmd(0xa7);
+    nvData(0x00);
+    nvCmd(0xa8);
+    nvData(0x36);
+    nvCmd(0xa9);
+    nvData(0x7e);
+    nvCmd(0xaa);
+    nvData(0x7e);
+    nvCmd(0xB9);
+    nvData(0x85);
+    nvCmd(0xBA);
+    nvData(0x84);
+    nvCmd(0xBB);
+    nvData(0x83);
+    nvCmd(0xBC);
+    nvData(0x82);
+    nvCmd(0xBD);
+    nvData(0x81);
+    nvCmd(0xBE);
+    nvData(0x80);
+    nvCmd(0xBF);
+    nvData(0x01);
+    nvCmd(0xC0);
+    nvData(0x02);
+    nvCmd(0xc1);
+    nvData(0x00);
+    nvCmd(0xc2);
+    nvData(0x00);
+    nvCmd(0xc3);
+    nvData(0x00);
+    nvCmd(0xc4);
+    nvData(0x33);
+    nvCmd(0xc5);
+    nvData(0x7e);
+    nvCmd(0xc6);
+    nvData(0x7e);
+    nvCmd(0xC8);
+    nvData(0x33);
+    nvData(0x33);
+    nvCmd(0xC9);
+    nvData(0x68);
+    nvCmd(0xCA);
+    nvData(0x69);
+    nvCmd(0xCB);
+    nvData(0x6a);
+    nvCmd(0xCC);
+    nvData(0x6b);
+    nvCmd(0xCD);
+    nvData(0x33);
+    nvData(0x33);
+    nvCmd(0xCE);
+    nvData(0x6c);
+    nvCmd(0xCF);
+    nvData(0x6d);
+    nvCmd(0xD0);
+    nvData(0x6e);
+    nvCmd(0xD1);
+    nvData(0x6f);
+    nvCmd(0xAB);
+    nvData(0x03);
+    nvData(0x67);
+    nvCmd(0xAC);
+    nvData(0x03);
+    nvData(0x6b);
+    nvCmd(0xAD);
+    nvData(0x03);
+    nvData(0x68);
+    nvCmd(0xAE);
+    nvData(0x03);
+    nvData(0x6c);
+    nvCmd(0xb3);
+    nvData(0x00);
+    nvCmd(0xb4);
+    nvData(0x00);
+    nvCmd(0xb5);
+    nvData(0x00);
+    nvCmd(0xB6);
+    nvData(0x32);
+    nvCmd(0xB7);
+    nvData(0x7e);
+    nvCmd(0xB8);
+    nvData(0x7e);
+    nvCmd(0xe0);
+    nvData(0x00);
+    nvCmd(0xe1);
+    nvData(0x03);
+    nvData(0x0f);
+    nvCmd(0xe2);
+    nvData(0x04);
+    nvCmd(0xe3);
+    nvData(0x01);
+    nvCmd(0xe4);
+    nvData(0x0e);
+    nvCmd(0xe5);
+    nvData(0x01);
+    nvCmd(0xe6);
+    nvData(0x19);
+    nvCmd(0xe7);
+    nvData(0x10);
+    nvCmd(0xe8);
+    nvData(0x10);
+    nvCmd(0xea);
+    nvData(0x12);
+    nvCmd(0xeb);
+    nvData(0xd0);
+    nvCmd(0xec);
+    nvData(0x04);
+    nvCmd(0xed);
+    nvData(0x07);
+    nvCmd(0xee);
+    nvData(0x07);
+    nvCmd(0xef);
+    nvData(0x09);
+    nvCmd(0xf0);
+    nvData(0xd0);
+    nvCmd(0xf1);
+    nvData(0x0e);
+    nvData(0x17);
+    nvCmd(0xf2);
+    nvData(0x2c);
+    nvData(0x1b);
+    nvData(0x0b);
+    nvData(0x20);
+    nvCmd(0xe9);
+    nvData(0x29);
+    nvCmd(0xec);
+    nvData(0x04);
+    nvCmd(0x35);
+    nvData(0x00);
+    nvCmd(0x44);
+    nvData(0x00);
+    nvData(0x10);
+    nvCmd(0x46);
+    nvData(0x10);
+    nvCmd(0xff);
+    nvData(0x00);
+    nvCmd(0x3a);
+    nvData(0x05);     // RGB565
+    nvCmd(0x11);      // Sleep out
+    delay(220);
+    nvCmd(0x29);      // Display on
+}
+
+
 // 【函数说明】旋钮 A 相中断：读取 B 相判断方向，将 raw_knob_counter 加一或减一。
 IRAM_ATTR void ISR_Knob_Turn()
 {
@@ -38,14 +339,21 @@ IRAM_ATTR void ISR_Knob_Turn()
 void HAL_Init()
 {
     tft.init();
-    tft.setRotation(1);
+
+    /*
+     * 2.79 寸 142×428 新屏不是原来的 ST7789 初始化序列。
+     * 这里在 TFT_eSPI 建立 SPI/引脚能力后，补发厂家例程中的 NV3007 初始化命令。
+     * 初始化后再设置 rotation=1，把竖屏 142×428 转成横向 428×142 坐标系。
+     */
+    HAL_NV3007_Init_142x428();
+    tft.setRotation(PrescriptConst::DISPLAY_ROTATION);
     tft.fillScreen(TFT_BLACK);
 
     // ==========================================
     // 【新增】：背光与功放硬件初始化，防止引脚高阻态
     // ==========================================
     pinMode(PIN_BLK, OUTPUT);
-    digitalWrite(PIN_BLK, LOW); // 默认点亮屏幕（接GND亮）
+    digitalWrite(PIN_BLK, HIGH); // 新 142×428 屏背光高电平点亮
 
     pinMode(PIN_AUDIO_SD, OUTPUT);
     digitalWrite(PIN_AUDIO_SD, HIGH); // 默认开启功放（给高电平开）
@@ -171,7 +479,16 @@ void HAL_Screen_Scroll_Up(uint8_t scroll_pixels) { textSprite.scroll(0, -scroll_
 // 【函数说明】把逻辑 Sprite 推送到物理屏幕偏移位置，完成一次终端带鱼屏刷新。
 void HAL_Screen_Update()
 {
-    textSprite.pushSprite(PrescriptConst::UI_PUSH_X, PrescriptConst::UI_PUSH_Y);
+    /*
+     * 整屏刷新逻辑 Sprite。
+     *
+     * 这里实际写到物理屏幕的位置 = UI 几何居中偏移 + NV3007 GRAM 内部偏移。
+     * 这样可以在不破坏 UI 布局坐标的情况下，单独修正新屏底部花线/写窗口错位问题。
+     */
+    textSprite.pushSprite(
+        HAL_DisplayRawX(PrescriptConst::UI_PUSH_X),
+        HAL_DisplayRawY(PrescriptConst::UI_PUSH_Y)
+    );
 }
 
 void HAL_Draw_Line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color)
@@ -204,7 +521,21 @@ void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color)
 }
 void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h)
 {
-    textSprite.pushSprite(x + PrescriptConst::UI_PUSH_X, y + PrescriptConst::UI_PUSH_Y, x, y, w, h);
+    /*
+     * 局部刷新 Sprite 的某个区域。
+     *
+     * x/y/w/h 是逻辑 Sprite 内部区域；
+     * 真实屏幕目标坐标仍然要叠加 UI 居中偏移和 NV3007 GRAM 偏移，
+     * 否则局部刷新页面可能重新在底部留下脏线。
+     */
+    textSprite.pushSprite(
+        HAL_DisplayRawX(x + PrescriptConst::UI_PUSH_X),
+        HAL_DisplayRawY(y + PrescriptConst::UI_PUSH_Y),
+        x,
+        y,
+        w,
+        h
+    );
 }
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data)
 {
@@ -323,7 +654,7 @@ ButtonEngine engineBtn2(PrescriptConst::BUTTON_LONG_MS, PrescriptConst::BUTTON_D
 void HAL_Sleep_Enter_Prepare()
 {
     // 1. 熄灭背光与关断功放
-    digitalWrite(PIN_BLK, HIGH);
+    digitalWrite(PIN_BLK, LOW);  // 新屏背光低电平关闭
     gpio_hold_en((gpio_num_t)PIN_BLK);
     digitalWrite(PIN_AUDIO_SD, LOW);
     gpio_hold_en((gpio_num_t)PIN_AUDIO_SD);
@@ -359,7 +690,7 @@ void HAL_Sleep_Wakeup_Post()
     gpio_hold_dis((gpio_num_t)PIN_BLK);
     gpio_hold_dis((gpio_num_t)PIN_AUDIO_SD);
     digitalWrite(PIN_AUDIO_SD, HIGH);
-    digitalWrite(PIN_BLK, LOW); // 灯亮，画面瞬间浮现
+    digitalWrite(PIN_BLK, HIGH); // 新屏背光高电平点亮，画面瞬间浮现
 
     // 5. 唤醒外设
     SysHaptic_Wakeup();

@@ -1,12 +1,10 @@
-/*
-【模块职责】资源缓存实现。读取 WAV/bin/json 到内存，解析抽卡身份池，避免动画播放时频繁从 LittleFS 读文件。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
-*/
 // 文件：src/sys/sys_res.cpp
+// 职责：把 LittleFS 中的常驻资源加载到 PSRAM，包括 WAV 音频、硬币贴图和抽卡身份池。
+// 说明：WAV 不再假设 44 字节固定头，而是扫描 RIFF chunk，找到真正的 data 段后再缓存 PCM 数据。
 #include "sys_res.h"
 #include <LittleFS.h>
-#include <ArduinoJson.h> // 【新增】
-#include <new>           // 【新增】
+#include <ArduinoJson.h>
+#include <new>
 
 uint8_t *g_wav_procedure = nullptr;
 uint32_t g_wav_procedure_len = 0;
@@ -17,10 +15,10 @@ uint8_t *g_wav_heads = nullptr;
 uint32_t g_wav_heads_len = 0;
 uint8_t *g_wav_tails = nullptr;
 uint32_t g_wav_tails_len = 0;
-// 在文件顶部和其他指针放在一起
-uint8_t* g_ahab_sound = nullptr;
+
+uint8_t *g_ahab_sound = nullptr;
 uint32_t g_ahab_sound_len = 0;
-// 【新增】：实体化抽卡全局池
+
 IdentityData *g_gacha_pool = nullptr;
 int g_gacha_pool_total = 0;
 int *g_gacha_1star = nullptr;
@@ -29,104 +27,240 @@ int *g_gacha_2star = nullptr;
 int g_count_2star = 0;
 int *g_gacha_3star = nullptr;
 int g_count_3star = 0;
-// 【新增】：实体指针数组定义
+
 uint16_t *g_img_heads[3] = {nullptr, nullptr, nullptr};
 uint16_t *g_img_tails[3] = {nullptr, nullptr, nullptr};
 
-// 【函数说明】从 LittleFS 加载音频、硬币贴图、待机图和 ids.json 到全局资源缓存，供 App 动画直接使用。
+/**
+ * 读取 4 字节小端整数。
+ * WAV/RIFF 里的 chunk size 使用 little-endian 存储，不能直接把字节数组强转成 uint32_t，
+ * 这样写可以避免不同编译器/对齐方式造成隐患。
+ */
+static uint32_t _ReadU32LE(const uint8_t *p)
+{
+    return ((uint32_t)p[0]) |
+           ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+/**
+ * 判断 4 字节 chunk id 是否匹配。
+ * 例如 RIFF、WAVE、fmt 、data、LIST 等。
+ */
+static bool _ChunkIdEquals(const uint8_t *id, const char *tag)
+{
+    return id[0] == (uint8_t)tag[0] &&
+           id[1] == (uint8_t)tag[1] &&
+           id[2] == (uint8_t)tag[2] &&
+           id[3] == (uint8_t)tag[3];
+}
+
+/**
+ * 从 WAV 文件中定位真正的 PCM data chunk。
+ *
+ * 旧代码固定 f.seek(44)，但当前资源文件里 WAV 头包含 LIST/INFO 等附加 chunk，
+ * 真正的 data 段不在 offset 44，而是在更靠后的位置。
+ *
+ * 本函数按 RIFF 结构逐个扫描 chunk：
+ * RIFF header -> fmt/LIST/... -> data
+ * 找到 data 后返回 data_offset 和 data_len。
+ */
+static bool _FindWavDataChunk(File &file, uint32_t *out_offset, uint32_t *out_len)
+{
+    if (!out_offset || !out_len)
+        return false;
+
+    uint32_t file_size = file.size();
+    if (file_size < 12)
+        return false;
+
+    uint8_t header[12];
+    file.seek(0);
+    if (file.read(header, sizeof(header)) != sizeof(header))
+        return false;
+
+    if (!_ChunkIdEquals(header + 0, "RIFF") || !_ChunkIdEquals(header + 8, "WAVE"))
+    {
+        return false;
+    }
+
+    uint32_t offset = 12;
+
+    while (offset + 8 <= file_size)
+    {
+        uint8_t chunk_header[8];
+        file.seek(offset);
+        if (file.read(chunk_header, sizeof(chunk_header)) != sizeof(chunk_header))
+            return false;
+
+        uint32_t chunk_size = _ReadU32LE(chunk_header + 4);
+        uint32_t data_offset = offset + 8;
+
+        if (_ChunkIdEquals(chunk_header, "data"))
+        {
+            if (data_offset >= file_size)
+                return false;
+
+            uint32_t readable_len = chunk_size;
+            if (data_offset + readable_len > file_size)
+            {
+                readable_len = file_size - data_offset;
+            }
+
+            *out_offset = data_offset;
+            *out_len = readable_len;
+            return true;
+        }
+
+        /*
+         * RIFF chunk 以偶数字节对齐。
+         * 如果 chunk_size 是奇数，下一个 chunk 前会有 1 字节 padding。
+         */
+        offset = data_offset + chunk_size + (chunk_size & 0x01);
+    }
+
+    return false;
+}
+
+/**
+ * 把 WAV 的 PCM data 段加载进 PSRAM。
+ *
+ * 输出给 SysAudio 的数据必须是“纯 PCM”，不能包含 RIFF/LIST/data 头。
+ * 同时当前音频输出按 44.1kHz / 16bit / stereo 处理，一帧是 4 字节，
+ * 因此缓存长度会向下对齐到 4 字节，避免最后半个声道帧进入 I2S。
+ */
+static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *out_len)
+{
+    if (!path || !out_data || !out_len)
+        return false;
+
+    *out_data = nullptr;
+    *out_len = 0;
+
+    File file = LittleFS.open(path, "r");
+    if (!file)
+    {
+        Serial.printf("[资源管家] WAV 加载失败：未找到 %s\n", path);
+        return false;
+    }
+
+    uint32_t data_offset = 0;
+    uint32_t data_len = 0;
+    if (!_FindWavDataChunk(file, &data_offset, &data_len))
+    {
+        Serial.printf("[资源管家] WAV 加载失败：%s 未找到有效 data 段。\n", path);
+        file.close();
+        return false;
+    }
+
+    uint32_t aligned_len = data_len & ~0x03UL;
+    if (aligned_len < 4)
+    {
+        Serial.printf("[资源管家] WAV 加载失败：%s data 段过短，len=%lu。\n", path, (unsigned long)data_len);
+        file.close();
+        return false;
+    }
+
+    uint8_t *buffer = (uint8_t *)ps_malloc(aligned_len);
+    if (!buffer)
+    {
+        Serial.printf("[资源管家] WAV 加载失败：%s 申请 PSRAM 失败，len=%lu。\n", path, (unsigned long)aligned_len);
+        file.close();
+        return false;
+    }
+
+    file.seek(data_offset);
+    size_t read_len = file.read(buffer, aligned_len);
+    file.close();
+
+    if (read_len != aligned_len)
+    {
+        Serial.printf(
+            "[资源管家] WAV 加载失败：%s 读取不完整，期望=%lu，实际=%u。\n",
+            path,
+            (unsigned long)aligned_len,
+            (unsigned)read_len
+        );
+        free(buffer);
+        return false;
+    }
+
+    *out_data = buffer;
+    *out_len = aligned_len;
+
+    Serial.printf(
+        "[资源管家] WAV 已缓存：%s，data_offset=%lu，pcm_len=%lu。\n",
+        path,
+        (unsigned long)data_offset,
+        (unsigned long)aligned_len
+    );
+    return true;
+}
+
+/**
+ * 加载固定尺寸的二进制图片到 PSRAM。
+ * 当前硬币素材是 64×64 RGB565，因此固定读取 8192 字节。
+ */
+static bool _LoadBinaryToPsram(const char *path, uint8_t *dst, uint32_t expected_len)
+{
+    if (!path || !dst || expected_len == 0)
+        return false;
+
+    File file = LittleFS.open(path, "r");
+    if (!file)
+        return false;
+
+    size_t read_len = file.read(dst, expected_len);
+    file.close();
+
+    return read_len == expected_len;
+}
+
+/**
+ * 初始化资源系统。
+ *
+ * 启动时把常用音频和图像一次性加载到 PSRAM，后续 App 播放/绘制时只访问内存，
+ * 避免在动画或音频播放过程中反复从 LittleFS 读取导致卡顿。
+ */
 void SysRes_Init()
 {
     Serial.println("[资源管家] 正在将高清材质与音频吸入 PSRAM 常驻...");
 
-    // 1. 吸入音频
-    File f1 = LittleFS.open("/assets/procedure.wav", "r");
-    if (f1)
-    {
-        g_wav_procedure_len = f1.size() - 44;
-        g_wav_procedure = (uint8_t *)ps_malloc(g_wav_procedure_len);
-        if (g_wav_procedure)
-        {
-            f1.seek(44);
-            f1.read(g_wav_procedure, g_wav_procedure_len);
-        }
-        f1.close();
-    }
+    // 1. 加载 WAV 音频。这里会解析 RIFF chunk，只缓存真正的 PCM data 段。
+    _LoadWavPcmToPsram("/assets/procedure.wav", &g_wav_procedure, &g_wav_procedure_len);
+    _LoadWavPcmToPsram("/assets/final.wav", &g_wav_final, &g_wav_final_len);
+    _LoadWavPcmToPsram("/assets/coins/heads.wav", &g_wav_heads, &g_wav_heads_len);
+    _LoadWavPcmToPsram("/assets/coins/tails.wav", &g_wav_tails, &g_wav_tails_len);
+    _LoadWavPcmToPsram("/assets/Ahab.wav", &g_ahab_sound, &g_ahab_sound_len);
 
-    File f2 = LittleFS.open("/assets/final.wav", "r");
-    if (f2)
-    {
-        g_wav_final_len = f2.size() - 44;
-        g_wav_final = (uint8_t *)ps_malloc(g_wav_final_len);
-        if (g_wav_final)
-        {
-            f2.seek(44);
-            f2.read(g_wav_final, g_wav_final_len);
-        }
-        f2.close();
-    }
-
-    File f3 = LittleFS.open("/assets/coins/heads.wav", "r");
-    if (f3)
-    {
-        g_wav_heads_len = f3.size() - 44;
-        g_wav_heads = (uint8_t *)ps_malloc(g_wav_heads_len);
-        if (g_wav_heads)
-        {
-            f3.seek(44);
-            f3.read(g_wav_heads, g_wav_heads_len);
-        }
-        f3.close();
-    }
-
-    File f4 = LittleFS.open("/assets/coins/tails.wav", "r");
-    if (f4)
-    {
-        g_wav_tails_len = f4.size() - 44;
-        g_wav_tails = (uint8_t *)ps_malloc(g_wav_tails_len);
-        if (g_wav_tails)
-        {
-            f4.seek(44);
-            f4.read(g_wav_tails, g_wav_tails_len);
-        }
-        f4.close();
-    }
-    
-    File f_new = LittleFS.open("/assets/Ahab.wav", "r");
-    if (f_new) {
-        g_ahab_sound_len = f_new.size() - 44;
-        g_ahab_sound = (uint8_t *)ps_malloc(g_ahab_sound_len);
-        if (g_ahab_sound) {
-            f_new.seek(44);
-            f_new.read(g_ahab_sound, g_ahab_sound_len);
-        }
-        f_new.close();
-    }
-
-    // 2. 【新增】：吸入所有 6 张硬币材质 (64*64*2 = 8KB，共 48KB)
+    // 2. 加载 3 套硬币贴图：普通、红色、绿色。缺失时回退到普通金色贴图。
     String prefixes[3] = {"/assets/coins/", "/assets/coins/r", "/assets/coins/g"};
     for (int i = 0; i < 3; i++)
     {
         g_img_heads[i] = (uint16_t *)ps_malloc(8192);
         g_img_tails[i] = (uint16_t *)ps_malloc(8192);
 
-        File fh = LittleFS.open((prefixes[i] + "heads.bin").c_str(), "r");
-        if (!fh)
-            fh = LittleFS.open("/assets/coins/heads.bin", "r"); // 找不到就用金色兜底
-        if (fh)
+        if (!g_img_heads[i] || !g_img_tails[i])
         {
-            fh.read((uint8_t *)g_img_heads[i], 8192);
-            fh.close();
+            Serial.printf("[资源管家] 硬币贴图申请 PSRAM 失败，索引=%d。\n", i);
+            continue;
         }
 
-        File ft = LittleFS.open((prefixes[i] + "tails.bin").c_str(), "r");
-        if (!ft)
-            ft = LittleFS.open("/assets/coins/tails.bin", "r");
-        if (ft)
+        String heads_path = prefixes[i] + "heads.bin";
+        if (!_LoadBinaryToPsram(heads_path.c_str(), (uint8_t *)g_img_heads[i], 8192))
         {
-            ft.read((uint8_t *)g_img_tails[i], 8192);
-            ft.close();
+            _LoadBinaryToPsram("/assets/coins/heads.bin", (uint8_t *)g_img_heads[i], 8192);
+        }
+
+        String tails_path = prefixes[i] + "tails.bin";
+        if (!_LoadBinaryToPsram(tails_path.c_str(), (uint8_t *)g_img_tails[i], 8192))
+        {
+            _LoadBinaryToPsram("/assets/coins/tails.bin", (uint8_t *)g_img_tails[i], 8192);
         }
     }
+
+    // 3. 加载抽卡身份池，并按星级建立索引表，供提取部模拟快速随机抽取。
     File f_json = LittleFS.open("/assets/ids.json", "r");
     if (f_json)
     {
@@ -140,22 +274,29 @@ void SysRes_Init()
             g_gacha_2star = (int *)ps_malloc(sizeof(int) * g_gacha_pool_total);
             g_gacha_3star = (int *)ps_malloc(sizeof(int) * g_gacha_pool_total);
 
-            for (int i = 0; i < g_gacha_pool_total; i++)
+            if (!g_gacha_pool || !g_gacha_1star || !g_gacha_2star || !g_gacha_3star)
             {
-                new (&g_gacha_pool[i]) IdentityData();
-                g_gacha_pool[i].sinner = doc[i]["sinner"].as<String>();
-                g_gacha_pool[i].id_name = doc[i]["id"].as<String>();
-                g_gacha_pool[i].star = doc[i]["star"].as<int>();
-                g_gacha_pool[i].walp = doc[i]["walp"].as<int>();
-
-                if (g_gacha_pool[i].star == 1)
-                    g_gacha_1star[g_count_1star++] = i;
-                else if (g_gacha_pool[i].star == 2)
-                    g_gacha_2star[g_count_2star++] = i;
-                else if (g_gacha_pool[i].star == 3)
-                    g_gacha_3star[g_count_3star++] = i;
+                Serial.println("[资源管家] 提取部数据申请 PSRAM 失败！");
             }
-            Serial.printf("[资源管家] 提取部数据挂载完毕！总计载入身份: %d\n", g_gacha_pool_total);
+            else
+            {
+                for (int i = 0; i < g_gacha_pool_total; i++)
+                {
+                    new (&g_gacha_pool[i]) IdentityData();
+                    g_gacha_pool[i].sinner = doc[i]["sinner"].as<String>();
+                    g_gacha_pool[i].id_name = doc[i]["id"].as<String>();
+                    g_gacha_pool[i].star = doc[i]["star"].as<int>();
+                    g_gacha_pool[i].walp = doc[i]["walp"].as<int>();
+
+                    if (g_gacha_pool[i].star == 1)
+                        g_gacha_1star[g_count_1star++] = i;
+                    else if (g_gacha_pool[i].star == 2)
+                        g_gacha_2star[g_count_2star++] = i;
+                    else if (g_gacha_pool[i].star == 3)
+                        g_gacha_3star[g_count_3star++] = i;
+                }
+                Serial.printf("[资源管家] 提取部数据挂载完毕！总计载入身份: %d\n", g_gacha_pool_total);
+            }
         }
         else
         {
@@ -167,5 +308,6 @@ void SysRes_Init()
     {
         Serial.println("[资源管家] 未找到 /assets/ids.json！");
     }
+
     Serial.println("[资源管家] 常驻资产挂载完毕！");
 }

@@ -4,82 +4,99 @@
 // Centralized system constants for Prescript Terminal.
 // Keep pin layout, UI geometry, persistent limits and protocol identifiers here,
 // so HAL/SYS/APP layers do not silently diverge.
-namespace PrescriptConst {
+namespace PrescriptConst
+{
 
-// -----------------------------------------------------------------------------
-// Hardware pins
-// -----------------------------------------------------------------------------
-constexpr int PIN_KNOB_A    = 5;
-constexpr int PIN_KNOB_B    = 4;
-constexpr int PIN_BTN_MAIN  = 6;
-constexpr int PIN_BTN_SIDE  = 7;
+    // -----------------------------------------------------------------------------
+    // Hardware pins
+    // -----------------------------------------------------------------------------
+    constexpr int PIN_KNOB_A = 5;
+    constexpr int PIN_KNOB_B = 4;
+    constexpr int PIN_BTN_MAIN = 6;
+    constexpr int PIN_BTN_SIDE = 7;
 
-constexpr int PIN_I2S_BCLK  = 18;
-constexpr int PIN_I2S_LRC   = 13;
-constexpr int PIN_I2S_DOUT  = 17;
-constexpr int PIN_AUDIO_SD  = 48;
-constexpr int PIN_BACKLIGHT = 40;
+    constexpr int PIN_I2S_BCLK = 18;
+    constexpr int PIN_I2S_LRC = 13;
+    constexpr int PIN_I2S_DOUT = 17;
+    constexpr int PIN_AUDIO_SD = 48;
+    constexpr int PIN_BACKLIGHT = 40;
 
-constexpr int PIN_BAT_ADC   = 8;
-constexpr int PIN_CHRG      = 16;
+    constexpr int PIN_BAT_ADC = 8;
+    constexpr int PIN_CHRG = 16;
 
-constexpr int PIN_I2C_SDA   = 41;
-constexpr int PIN_I2C_SCL   = 42;
-constexpr uint8_t DRV2605_ADDR = 0x5A;
+    constexpr int PIN_I2C_SDA = 41;
+    constexpr int PIN_I2C_SCL = 42;
+    constexpr uint8_t DRV2605_ADDR = 0x5A;
 
-constexpr int PIN_NFC_SCK   = 1;
-constexpr int PIN_NFC_MISO  = 2;
-constexpr int PIN_NFC_MOSI  = 47;
-constexpr int PIN_NFC_SS    = 15;
-constexpr int PIN_NFC_RESET = 21;
+    constexpr int PIN_NFC_SCK = 1;
+    constexpr int PIN_NFC_MISO = 2;
+    constexpr int PIN_NFC_MOSI = 47;
+    constexpr int PIN_NFC_SS = 15;
+    constexpr int PIN_NFC_RESET = 21;
 
-// -----------------------------------------------------------------------------
-// Display and UI geometry
-// -----------------------------------------------------------------------------
-constexpr uint16_t UI_SCREEN_WIDTH  = 284;
-constexpr uint16_t UI_SCREEN_HEIGHT = 76;   // Keep 76 unless the physical 78px panel is confirmed usable.
-constexpr int16_t UI_PUSH_X = 18;
-constexpr int16_t UI_PUSH_Y = 82;
+    // -----------------------------------------------------------------------------
+    // Display and UI geometry
+    // -----------------------------------------------------------------------------
+    // 2.79 寸 142×428 长条屏简单适配配置：
+    // - 物理面板竖屏分辨率为 142×428；
+    // - 设备横向使用，因此 TFT_eSPI rotation=1 后坐标系约为 428×142；
+    // - 当前先保持旧 UI 的 284×76 逻辑画布不变，只把它居中推到新屏上；
+    // - 后续如果要真正利用 428×142 全尺寸，再把 UI_SCREEN_WIDTH/HEIGHT 扩大并重构各 UI 布局。
+    constexpr uint16_t DISPLAY_PANEL_WIDTH = 142;
+    constexpr uint16_t DISPLAY_PANEL_HEIGHT = 428;
+    constexpr uint8_t DISPLAY_ROTATION = 1;
 
-constexpr uint8_t UI_HEADER_HEIGHT = 38;
-constexpr uint8_t UI_MARGIN_LEFT   = 20;
-constexpr uint8_t UI_MARGIN_RIGHT  = 20;
-constexpr uint8_t UI_TEXT_Y_TOP    = 16;
-constexpr uint8_t UI_TIME_SAFE_PAD = 28;
-constexpr uint8_t UI_FRAME_MS      = 16;
+    constexpr uint16_t UI_SCREEN_WIDTH = 284;
+    constexpr uint16_t UI_SCREEN_HEIGHT = 76;
+    constexpr int16_t UI_PUSH_X = 72; // (428 - 284) / 2，旧 UI 在新横屏宽度中居中
+    constexpr int16_t UI_PUSH_Y = 33; // (142 - 76) / 2，旧 UI 在新横屏高度中居中
 
-// Legacy drawing wrappers treat color == 1 as the default accent color.
-constexpr uint16_t UI_ACCENT_SENTINEL = 1;
+    // NV3007/NV3006A1 面板的 GRAM 可视区偏移。
+    // STM32 例程里是 portrait/native 坐标的 column +12。
+    // 当前设备使用 rotation=1 横向显示后，这个 native column offset 会表现为横屏坐标的 Y 方向偏移。
+    // 所以所有真正写到物理屏幕的 pushSprite 坐标都要额外加 DISPLAY_RAM_OFFSET_Y。
+    constexpr int16_t DISPLAY_RAM_OFFSET_X = 0;
+    constexpr int16_t DISPLAY_RAM_OFFSET_Y = 12;
 
-// -----------------------------------------------------------------------------
-// Runtime timings and capacities
-// -----------------------------------------------------------------------------
-constexpr uint8_t  CPU_RUNTIME_MHZ          = 80;
-constexpr uint32_t DEFAULT_IDLE_SLEEP_MS    = 30000UL;
-constexpr uint32_t NEVER_SLEEP_MS           = 0xFFFFFFFFUL;
-constexpr uint32_t BUTTON_LONG_MS           = 800UL;
-constexpr uint32_t BUTTON_DOUBLE_GAP_MS     = 250UL;
-constexpr uint32_t BUTTON_DEBOUNCE_MS       = 20UL;
+    constexpr uint8_t UI_HEADER_HEIGHT = 38;
+    constexpr uint8_t UI_MARGIN_LEFT = 20;
+    constexpr uint8_t UI_MARGIN_RIGHT = 20;
+    constexpr uint8_t UI_TEXT_Y_TOP = 16;
+    constexpr uint8_t UI_TIME_SAFE_PAD = 28;
+    constexpr uint8_t UI_FRAME_MS = 16;
 
-constexpr uint8_t MAX_NAV_STACK       = 5;
-constexpr uint8_t MAX_BG_APPS         = 10;
-constexpr uint8_t MAX_EVENT_SUBSCRIBERS = 24;
-constexpr uint8_t MAX_POMODORO_PRESETS = 5;
-constexpr uint8_t MAX_COIN_PRESETS    = 10;
-constexpr uint8_t MAX_ALARMS          = 10;
-constexpr uint8_t MAX_SCHEDULES       = 15;
-constexpr uint8_t MAX_CHAR_CHAINS     = 8;
-constexpr uint8_t MAX_BLE_QUEUE       = 8;
+    // Legacy drawing wrappers treat color == 1 as the default accent color.
+    constexpr uint16_t UI_ACCENT_SENTINEL = 1;
 
-// -----------------------------------------------------------------------------
-// Files and BLE protocol identifiers
-// -----------------------------------------------------------------------------
-constexpr const char* CONFIG_FILE       = "/assets/config.json";
-constexpr const char* STANDBY_IMAGE_BIN = "/assets/standby.bin";
+    // -----------------------------------------------------------------------------
+    // Runtime timings and capacities
+    // -----------------------------------------------------------------------------
+    constexpr uint8_t CPU_RUNTIME_MHZ = 80;
+    constexpr uint32_t DEFAULT_IDLE_SLEEP_MS = 30000UL;
+    constexpr uint32_t NEVER_SLEEP_MS = 0xFFFFFFFFUL;
+    constexpr uint32_t BUTTON_LONG_MS = 800UL;
+    constexpr uint32_t BUTTON_DOUBLE_GAP_MS = 250UL;
+    constexpr uint32_t BUTTON_DEBOUNCE_MS = 20UL;
 
-constexpr const char* BLE_DEVICE_NAME   = "Terminal_01";
-constexpr const char* BLE_SERVICE_UUID  = "0000DEAD-0000-1000-8000-00805F9B34FB";
-constexpr const char* BLE_CHAR_UUID     = "0000BEEF-0000-1000-8000-00805F9B34FB";
-constexpr const char* NETWORK_SYNC_URL  = "http://index.dimension-404.cloud/api/schedule/sync";
+    constexpr uint8_t MAX_NAV_STACK = 5;
+    constexpr uint8_t MAX_BG_APPS = 10;
+    constexpr uint8_t MAX_EVENT_SUBSCRIBERS = 24;
+    constexpr uint8_t MAX_POMODORO_PRESETS = 5;
+    constexpr uint8_t MAX_COIN_PRESETS = 10;
+    constexpr uint8_t MAX_ALARMS = 10;
+    constexpr uint8_t MAX_SCHEDULES = 15;
+    constexpr uint8_t MAX_CHAR_CHAINS = 8;
+    constexpr uint8_t MAX_BLE_QUEUE = 8;
+
+    // -----------------------------------------------------------------------------
+    // Files and BLE protocol identifiers
+    // -----------------------------------------------------------------------------
+    constexpr const char *CONFIG_FILE = "/assets/config.json";
+    constexpr const char *STANDBY_IMAGE_BIN = "/assets/standby.bin";
+
+    constexpr const char *BLE_DEVICE_NAME = "Terminal_01";
+    constexpr const char *BLE_SERVICE_UUID = "0000DEAD-0000-1000-8000-00805F9B34FB";
+    constexpr const char *BLE_CHAR_UUID = "0000BEEF-0000-1000-8000-00805F9B34FB";
+    constexpr const char *NETWORK_SYNC_URL = "http://index.dimension-404.cloud/api/schedule/sync";
 
 }
