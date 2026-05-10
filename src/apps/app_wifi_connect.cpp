@@ -1,3 +1,7 @@
+/*
+【模块职责】WiFi 连接页。手动启动网络同步，显示连接进度和结果，并可断开常驻 WiFi。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_wifi_connect.cpp
 #include "app_base.h"
 #include "app_manager.h"
@@ -14,6 +18,7 @@ private:
     uint32_t result_show_time;
     bool is_finished;
 
+    // 【函数说明】绘制 WiFi 状态页：居中显示连接、同步、断开等文本，并用省略号动画表示等待。
     void drawUI(const char *base_text, bool show_dots = false)
     {
         HAL_Screen_Clear();
@@ -34,6 +39,7 @@ private:
     }
 
 public:
+    // 【函数说明】进入 WiFi 页时根据当前网络状态决定显示已连接、启动同步或等待配置。
     void onCreate() override
     {
         anim_dots = 0;
@@ -50,7 +56,7 @@ public:
             g_state = NET_DISCONNECTED; // 强制更新底层状态
 
             drawUI((appManager.getLanguage() == LANG_ZH) ? "已切断神经网" : "WIFI DISCONNECTED");
-            sysAudio.playTone(800, 100);
+            Feedback_PlayWifiDisconnected();
             is_finished = true;
             result_show_time = millis();
             return;
@@ -59,7 +65,7 @@ public:
         else if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API)
         {
             drawUI((appManager.getLanguage() == LANG_ZH) ? "网络已在后台运行" : "WIFI IS RUNNING");
-            sysAudio.playTone(1500, 100);
+            Feedback_PlayWifiBusy();
             is_finished = true;
             result_show_time = millis();
             return;
@@ -70,6 +76,7 @@ public:
         drawUI((appManager.getLanguage() == LANG_ZH) ? "启动网络模块" : "INIT NETWORK");
     }
 
+    // 【函数说明】轮询网络状态并刷新省略号，连接成功、失败、忙碌时播放对应反馈。
     void onLoop() override
     {
         if (is_finished)
@@ -98,9 +105,7 @@ public:
         else if (state == NET_SYNCING_NTP || state == NET_FETCHING_API || state == NET_SYNC_SUCCESS)
         {
             drawUI((appManager.getLanguage() == LANG_ZH) ? "网络已接入!" : "WIFI CONNECTED!");
-            sysAudio.playTone(2000, 80);
-            delay(60);
-            sysAudio.playTone(2500, 150);
+            Feedback_PlayNetworkOk();
             is_finished = true;
             result_show_time = millis();
         }
@@ -115,11 +120,13 @@ public:
 
     void onDestroy() override {}
     void onKnob(int delta) override {}
+    // 【函数说明】短按根据当前状态启动同步、断开 WiFi或返回。
     void onKeyShort() override
     {
         SYS_SOUND_NAV();
         appManager.popApp();
     }
+    // 【函数说明】长按直接返回上一级页面。
     void onKeyLong() override { appManager.popApp(); }
 };
 

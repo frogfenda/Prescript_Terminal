@@ -1,9 +1,14 @@
+/*
+【模块职责】主菜单。把 11 个顶层功能入口映射到 AppId 跳转，包括指令、日程、闹钟、TT2、番茄、硬币、抽卡、档案和设置。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_main_menu.cpp
 #include "app_menu_base.h"
 
 class AppMainMenu : public AppMenuBase
 {
 protected:
+    // 【函数说明】返回 11 个主菜单入口，数量必须与 getItemText/onItemClicked 的 switch 保持一致。
     int getMenuCount() override { return 11; } // 菜单数组有 11 项，避免最后一项滚不到
 
     const char *getTitle() override
@@ -26,6 +31,7 @@ protected:
         }
     }
 
+// 【函数说明】把主菜单 index 映射到 AppId：进入指令、日程、闹钟、TT2、番茄、硬币、抽卡、档案和设置。
 void onItemClicked(int index) override
     {
         if (index == 0)
@@ -52,6 +58,7 @@ void onItemClicked(int index) override
             appManager.launch(AppId::Standby);
     }
 
+    // 【函数说明】主菜单长按直接进入待机页，等同于手动让终端休眠。
     void onLongPressed() override { appManager.launch(AppId::Standby); }
 };
 

@@ -1,89 +1,159 @@
+/*
+【模块职责】指令档案页。管理普通指令库的添加、删除、浏览、换行和滚动显示，并接收 PRE/PRE_DEL 事件。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_prescript_list.cpp
 #include "app_base.h"
 #include "app_manager.h"
 #include "sys_fs.h"
 #include "sys_config.h"
 #include "sys/sys_event.h"
+#include "sys/sys_command_result.h"
+#include "../lang/terminal_lang.h"
 
 // ========================================================
 // 【新增】：独立的数据操作接口（暴露给未来的蓝牙、网络模块调用）
 // ========================================================
-void DBArchive_SaveToFile(SystemLang_t lang)
+// 【函数说明】把当前语言的指令池重写回 prescripts_zh/en.txt，每条指令一行，删除和新增后都通过它持久化。
+bool DBArchive_SaveToFile(SystemLang_t lang)
 {
     std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    const char *path = (lang == LANG_ZH) ? "/assets/prescripts_zh.txt" : "/assets/prescripts_en.txt";
+    const char *path = TerminalLang::PrescriptPath(lang);
     File f = LittleFS.open(path, "w");
-    if (f)
+    if (!f)
+        return false;
+
+    for (size_t i = 0; i < p->size(); i++)
     {
-        for (size_t i = 0; i < p->size(); i++)
-        {
-            f.println((*p)[i]);
-        }
-        f.close();
+        f.println((*p)[i]);
     }
+    f.close();
+    return true;
 }
 
 // ==========================================
 // 邮局拆包回调：接收到蓝牙/NFC传来的新指令
 // ==========================================
+// 【函数说明】处理 PRE 命令：检查语言锁定、去重后加入对应指令池，保存文件并写业务 ACK。
 void _Cb_PreAdd(void *payload)
 {
     Evt_PreAdd_t *p = (Evt_PreAdd_t *)payload;
-    
+
+    if (!TerminalLang::Accepts((SystemLang_t)p->lang))
+    {
+        SysCmdResult_Error("LANG_LOCKED", TerminalLang::BUILD_CODE);
+        return;
+    }
+
     String new_text = String(p->text);
-    new_text.trim(); 
-    if (new_text.length() == 0) return; 
+    new_text.trim();
+    if (new_text.length() == 0)
+    {
+        SysCmdResult_Error("EMPTY_TEXT");
+        return;
+    }
 
-    extern void DBArchive_AddRecord(SystemLang_t lang, const String &text);
-    DBArchive_AddRecord((SystemLang_t)p->lang, new_text);
+    // 【函数说明】向指定语言指令池追加一条文本；先去重，再写文件，成功后内存池和 LittleFS 保持一致。
+    extern bool DBArchive_AddRecord(SystemLang_t lang, const String &text);
+    bool added = DBArchive_AddRecord((SystemLang_t)p->lang, new_text);
 
-    // 【真正的修复点】：用 LANG_ZH 来判断，彻底杜绝 0 和 1 的乌龙！
-    Serial.printf("[指令库] 成功添加指令到 %s 库: %s\n", 
-                 (p->lang == LANG_ZH) ? "中文" : "英文", 
-                 new_text.c_str());
+    Serial.printf("[指令库] %s添加指令到 %s 库: %s\n",
+                  added ? "成功" : "未",
+                  (p->lang == LANG_ZH) ? "中文" : "英文",
+                  new_text.c_str());
 }
 
 // 接口 1：从外部添加一条新指令到硬盘
-void DBArchive_AddRecord(SystemLang_t lang, const String &text)
+// 【函数说明】向指定语言指令池追加一条文本；先去重，再写文件，成功后内存池和 LittleFS 保持一致。
+bool DBArchive_AddRecord(SystemLang_t lang, const String &text)
 {
+    if (!TerminalLang::Accepts(lang))
+    {
+        SysCmdResult_Error("LANG_LOCKED", TerminalLang::BUILD_CODE);
+        return false;
+    }
     std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    for (size_t i = 0; i < p->size(); i++)
+    {
+        if ((*p)[i] == text)
+        {
+            SysCmdResult_Warn("EXISTS");
+            return false;
+        }
+    }
+
     p->push_back(text);
-    DBArchive_SaveToFile(lang);
+    if (!DBArchive_SaveToFile(lang))
+    {
+        p->pop_back();
+        SysCmdResult_Error("SAVE_FAILED");
+        return false;
+    }
+
+    SysCmdResult_Ok("ADDED");
+    return true;
 }
 
 // 接口 2：从外部物理删除某一条指令
+// 【函数说明】按索引从指定语言指令池删除一条记录，删除后重写文件。
 bool DBArchive_DeleteRecord(SystemLang_t lang, int index)
 {
-    std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    if (index >= 0 && index < p->size())
+    if (!TerminalLang::Accepts(lang))
     {
+        SysCmdResult_Error("LANG_LOCKED", TerminalLang::BUILD_CODE);
+        return false;
+    }
+    std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    if (index >= 0 && index < (int)p->size())
+    {
+        String removed = (*p)[index];
         p->erase(p->begin() + index);
-        DBArchive_SaveToFile(lang);
+        if (!DBArchive_SaveToFile(lang))
+        {
+            p->insert(p->begin() + index, removed);
+            SysCmdResult_Error("SAVE_FAILED");
+            return false;
+        }
+        SysCmdResult_Ok("DELETED");
         return true;
     }
+    SysCmdResult_Error("NOT_FOUND");
     return false;
 }
+
+// 【函数说明】处理 PRE_DEL 命令：按文本找到对应语言池中的条目，删除并保存，找不到则返回 WARN。
 void _Cb_PreDel(void* payload) {
     Evt_PreDel_t* p = (Evt_PreDel_t*)payload;
     String target = String(p->text);
+    target.trim();
+    if (target.length() == 0)
+    {
+        SysCmdResult_Error("EMPTY_TEXT");
+        return;
+    }
     SystemLang_t target_lang = (SystemLang_t)p->lang;
-    
-    // 声明你在上方写好的外部接口和存储数组
+    if (!TerminalLang::Accepts(target_lang))
+    {
+        SysCmdResult_Error("LANG_LOCKED", TerminalLang::BUILD_CODE);
+        return;
+    }
+
+    // 【函数说明】按索引从指定语言指令池删除一条记录，删除后重写文件。
     extern bool DBArchive_DeleteRecord(SystemLang_t lang, int index);
     extern std::vector<String> sys_prescripts_zh;
     extern std::vector<String> sys_prescripts_en;
 
-    // 根据传入的语言，选择对应的指令池
     std::vector<String> *target_pool = (target_lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    
-    // 遍历寻找匹配的指令并删除
-    for (int i = 0; i < target_pool->size(); i++) {
+
+    for (int i = 0; i < (int)target_pool->size(); i++) {
         if ((*target_pool)[i] == target) {
-            DBArchive_DeleteRecord(target_lang, i);
-            Serial.printf("[指令库] 成功抹除指令: %s\n", target.c_str());
-            break; // 找到并删除后，立刻停止遍历
+            if (DBArchive_DeleteRecord(target_lang, i))
+                Serial.printf("[指令库] 成功抹除指令: %s\n", target.c_str());
+            return;
         }
     }
+
+    SysCmdResult_Error("NOT_FOUND");
 }
 // ========================================================
 
@@ -101,6 +171,7 @@ private:
     char m_lines[MAX_LINES][128];
     int m_actual_lines = 0;
 
+    // 【函数说明】返回当前 UTF-8 字符字节数，指令档案分行时避免切断中文字符。
     int get_utf8_char_len(char c)
     {
         unsigned char uc = (unsigned char)c;
@@ -115,6 +186,7 @@ private:
         return 1;
     }
 
+    // 【函数说明】把当前选中的指令按屏幕宽度拆成多行，计算可滚动行数和 m_actual_lines。
     void FormatCurrent()
     {
         if (pool->empty())
@@ -247,6 +319,7 @@ private:
         }
     }
 
+    // 【函数说明】绘制指令档案页：顶部显示编号/总数，中间显示当前指令多行文本，右侧显示滚动条，删除模式显示危险确认。
     void drawUI()
     {
         HAL_Sprite_Clear();
@@ -379,17 +452,18 @@ private:
     }
 
 public:
+    // 【函数说明】进入档案页时读取当前语言指令池，选择第一条并完成第一次分行。
     void onCreate() override
     {
         if (appManager.getLanguage() == LANG_ZH)
         {
             pool = &sys_prescripts_zh;
-            file_path = "/assets/prescripts_zh.txt";
+            file_path = TerminalLang::PrescriptPath(LANG_ZH);
         }
         else
         {
             pool = &sys_prescripts_en;
-            file_path = "/assets/prescripts_en.txt";
+            file_path = TerminalLang::PrescriptPath(LANG_EN);
         }
         current_idx = 0;
         m_scroll_offset = 0;
@@ -398,6 +472,7 @@ public:
         drawUI();
     }
 
+    // 【函数说明】返回档案页时重绘当前记录，保留选中项和滚动偏移。
     void onResume() override { drawUI(); }
     void onLoop() override {}
 
@@ -450,6 +525,7 @@ public:
         drawUI();
     }
 
+    // 【函数说明】普通模式短按进入/确认删除流程；删除确认后删除当前指令并重排索引。
     void onKeyShort() override
     {
         if (pool->empty())
@@ -463,6 +539,7 @@ public:
         drawUI();
     }
 
+    // 【函数说明】普通模式长按退出档案页；删除模式长按取消删除确认。
     void onKeyLong() override
     {
         if (m_is_deleting)
@@ -508,6 +585,7 @@ public:
             appManager.popApp();
         }
     }
+    // 【函数说明】离开档案页不释放指令池，池由 sys_fs 和全局 vector 持有。
     void onDestroy() override {}
 
 public:

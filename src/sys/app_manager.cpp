@@ -1,3 +1,7 @@
+/*
+【模块职责】App 调度核心。每帧先处理后台任务和 BLE 队列，再把旋钮/按键事件分派到当前 App；副按键双击进入指令页、长按开启 NFC 伪装、短按取消伪装的全局规则也在这里。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/sys/app_manager.cpp
 #include "app_manager.h"
 #include "sys_network.h"
@@ -30,7 +34,7 @@ AppManager::AppManager()
     btn_press_start_time = 0;
     btn_is_holding = false;
     long_press_handled = false;
-    current_lang = LANG_ZH;
+    current_lang = TerminalLang::DEFAULT_LANG;
     config_sleep_time_ms = PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
 }
 
@@ -48,9 +52,26 @@ void AppManager::installApp(AppBase* app) {
     }
 }
 
+void AppManager::loadLanguageFromConfig()
+{
+    if (TerminalLang::LOCKED)
+    {
+        current_lang = TerminalLang::DEFAULT_LANG;
+        return;
+    }
+    current_lang = TerminalLang::Normalize(sysConfig.language);
+}
+
+void AppManager::toggleLanguage()
+{
+    if (TerminalLang::LOCKED)
+        return;
+    current_lang = (current_lang == LANG_EN) ? LANG_ZH : LANG_EN;
+}
+
 void AppManager::begin()
 {
-    current_lang = (SystemLang_t)sysConfig.language;
+    loadLanguageFromConfig();
     config_sleep_time_ms = sysConfig.sleep_time_ms;
     last_tick = millis();
     idle_timer = millis();
@@ -238,7 +259,7 @@ void AppManager::run()
         // 【修改】：加入了 && currentApp != prescriptApp
         if (SysNfc_IsEmulating() && !isCurrent(AppId::Prescript)) {
             SysNfc_StopEmulation();         // 下发撤退指令
-            sysAudio.playTone(800, 100);    // 播放一声低频“滴”，确认打断
+            Feedback_PlayAbort();    // 播放一声低频“滴”，确认打断
         } else {
             // 如果没在伪装，或者此时正处于指令抽取界面，按键正常下发给 UI！
             currentApp->onBtn2Short();

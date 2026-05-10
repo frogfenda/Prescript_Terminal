@@ -1,3 +1,7 @@
+/*
+【模块职责】待机页。显示 standby.bin，处理空闲后 Light Sleep，按键唤醒后恢复屏幕、音频、震动和 NFC。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_standby.cpp
 #include "app_base.h"
 #include "app_manager.h"
@@ -14,6 +18,7 @@ private:
     bool is_sleeping;
 
 public:
+    // 【函数说明】进入待机页时绘制 standby.bin，重置睡眠计时，等待用户按键或到达真休眠时间。
     void onCreate() override
     {
         HAL_Screen_Clear();
@@ -23,6 +28,7 @@ public:
         is_sleeping = false;
     }
 
+    // 【函数说明】待机页循环：检测主按键进入主菜单，达到 true_sleep_time_ms 后执行 Light Sleep 并在唤醒后重绘待机图。
     void onLoop() override
     {
         // 【防呆检查】：如果设置为“永不休眠”，直接退出，不计时！
@@ -68,11 +74,12 @@ public:
     void onDestroy() override {}
     void onKnob(int delta) override {}
 
+    // 【函数说明】主按键短按从待机页进入主菜单。
     void onKeyShort() override
     {
         // 因为底层的 HAL_Sleep_Wakeup_Post 已经吞掉了“唤醒那一下”的按键
         // 所以当代码走到这里，说明是用户真正在亮屏待机状态下，短按了旋钮
-        sysAudio.playTone(2000, 40);
+        Feedback_PlayWake();
         appManager.launch(AppId::MainMenu);
     }
     // 【新增】：如果你想手动“点一下”就进待机（休眠），可以加长按逻辑

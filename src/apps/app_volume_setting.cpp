@@ -1,3 +1,7 @@
+/*
+【模块职责】音量/震动设置页。以左右两个战术滑条显示音量和震动强度，旋钮调整数值并保存到 sysConfig。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_volume_setting.cpp
 #include "app_base.h"
 #include "sys/app_manager.h"
@@ -26,6 +30,7 @@ private:
     // ==========================================
     // 【战术进度条引擎】
     // ==========================================
+    // 【函数说明】绘制一个战术滑条：左侧/右侧标题、数值百分比、外框、填充条和焦点角标都在这里完成。
     void drawTacticalSlider(int x, int y, int w, int h, float val, bool is_focus, const char *label, bool is_volume)
     {
         // 1. 标题居中绘制
@@ -84,6 +89,7 @@ private:
     }
 
 public:
+    // 【函数说明】进入音量/震动页时读取 sysConfig 的音量和震动强度，初始化显示值和焦点。
     void onCreate() override
     {
         // 音量目标值初始化
@@ -109,6 +115,7 @@ public:
     void onResume() override {}
     void onDestroy() override {}
 
+    // 【函数说明】旋钮按当前焦点调整音量百分比或震动强度，更新目标值并触发即时反馈。
     void onKnob(int delta) override
     {
         if (focus_idx == 0)
@@ -156,19 +163,21 @@ public:
             // 5. 立即给予声震反馈，让用户体验新档位的力度
             SYS_SOUND_NAV();
             force_redraw = true;
-            sysHaptic.playConfirm();
+            Feedback_PlayConfirm();
         }
     }
 
+    // 【函数说明】短按在音量滑条和震动滑条之间切换焦点。
     void onKeyShort() override
     {
         // 切换焦点
         focus_idx = (focus_idx + 1) % 2;
         force_redraw = true;
         SYS_SOUND_NAV();
-        sysHaptic.playTick();
+        Feedback_PlayKnobTick();
     }
 
+    // 【函数说明】长按保存音量和震动设置到 config.json 并返回上一级。
     void onKeyLong() override
     {
         // 长按退出：执行真正的文件系统持久化存储
@@ -177,6 +186,7 @@ public:
         appManager.popApp();
     }
 
+    // 【函数说明】按 UIClock 约 30FPS 让显示值追向目标值，只有数值变化时才重绘两个滑条。
     void onLoop() override
     {
         bool animating = (fabs(target_vol - display_vol) > UITheme::Volume::SnapEpsilon) ||

@@ -1,3 +1,7 @@
+/*
+【模块职责】资源缓存实现。读取 WAV/bin/json 到内存，解析抽卡身份池，避免动画播放时频繁从 LittleFS 读文件。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/sys/sys_res.cpp
 #include "sys_res.h"
 #include <LittleFS.h>
@@ -29,6 +33,7 @@ int g_count_3star = 0;
 uint16_t *g_img_heads[3] = {nullptr, nullptr, nullptr};
 uint16_t *g_img_tails[3] = {nullptr, nullptr, nullptr};
 
+// 【函数说明】从 LittleFS 加载音频、硬币贴图、待机图和 ids.json 到全局资源缓存，供 App 动画直接使用。
 void SysRes_Init()
 {
     Serial.println("[资源管家] 正在将高清材质与音频吸入 PSRAM 常驻...");

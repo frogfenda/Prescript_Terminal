@@ -1,3 +1,7 @@
+/*
+【模块职责】硬件抽象实现。负责 ST7789+U8g2 显示、旋钮 A/B 相中断计数、两个按键的短按/长按/双击识别、背光/功放使能、Light Sleep 前后的屏幕和外设恢复。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/hal/hal.cpp
 #include "hal.h"
 #include <LittleFS.h>
@@ -18,6 +22,7 @@ U8g2_for_TFT_eSPI u8f;
 
 volatile int raw_knob_counter = 0;
 
+// 【函数说明】旋钮 A 相中断：读取 B 相判断方向，将 raw_knob_counter 加一或减一。
 IRAM_ATTR void ISR_Knob_Turn()
 {
     static uint8_t old_AB = 3;
@@ -29,6 +34,7 @@ IRAM_ATTR void ISR_Knob_Turn()
     raw_knob_counter += enc_states[(old_AB & 0x0f)];
 }
 
+// 【函数说明】配置显示、旋钮、按键、背光、功放、ADC 等底层资源；创建 284×76 Sprite 并设置中文字体。
 void HAL_Init()
 {
     tft.init();
@@ -68,6 +74,7 @@ void HAL_Init()
     u8f.setFont(u8g2_font_wqy12_t_gb2312);
 }
 
+// 【函数说明】原子读取并清零旋钮累计步数，把中断层的脉冲转换为 AppManager 每帧可消费的 delta。
 int HAL_Get_Knob_Delta(void)
 {
     int raw;
@@ -161,6 +168,7 @@ void HAL_Screen_ShowChineseLine_Faded_Color(int32_t x, int32_t y, const char *st
 
 void HAL_Screen_Scroll_Up(uint8_t scroll_pixels) { textSprite.scroll(0, -scroll_pixels); }
 
+// 【函数说明】把逻辑 Sprite 推送到物理屏幕偏移位置，完成一次终端带鱼屏刷新。
 void HAL_Screen_Update()
 {
     textSprite.pushSprite(PrescriptConst::UI_PUSH_X, PrescriptConst::UI_PUSH_Y);
@@ -311,6 +319,7 @@ ButtonEngine engineBtn2(PrescriptConst::BUTTON_LONG_MS, PrescriptConst::BUTTON_D
 // ==========================================
 // 【休眠系统原子化】：将休眠拆解，供 AppStandby 统一调度
 // ==========================================
+// 【函数说明】关背光、关功放、让 ST7789 进入 sleep，并准备 Light Sleep 前的硬件静默状态。
 void HAL_Sleep_Enter_Prepare()
 {
     // 1. 熄灭背光与关断功放
@@ -324,6 +333,7 @@ void HAL_Sleep_Enter_Prepare()
     tft.writecommand(0x10);
 }
 
+// 【函数说明】配置主按键唤醒源并进入 esp_light_sleep_start，返回时说明用户已经按键唤醒。
 void HAL_Sleep_Start()
 {
     // 3. 真正的浅睡眠触发
@@ -331,6 +341,7 @@ void HAL_Sleep_Start()
     esp_light_sleep_start();
 }
 
+// 【函数说明】唤醒后恢复屏幕、背光、功放、音频、震动和 NFC，并等待主按键释放。
 void HAL_Sleep_Wakeup_Post()
 {
     // 1. 唤醒屏幕驱动 IC

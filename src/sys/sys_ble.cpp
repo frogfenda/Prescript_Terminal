@@ -1,3 +1,7 @@
+/*
+【模块职责】BLE 通信实现。创建 Terminal_01 服务与 BEEF 特征；网页写入的数据不直接处理，而是放入 sys_ble_queue 等主循环安全消费。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/sys/sys_ble.cpp
 #include "sys_ble.h"
 #include <Arduino.h>
@@ -11,6 +15,7 @@ NimBLECharacteristic *g_ble_char = nullptr;
 
 class TerminalBLECallbacks : public NimBLECharacteristicCallbacks
 {
+    // 【函数说明】BLE 特征写入回调：读取网页写入的 UTF-8 命令字符串并放入 SysBleQueue，避免在 BLE 线程中直接分发事件。
     void onWrite(NimBLECharacteristic *pCharacteristic)
     {
         std::string value = pCharacteristic->getValue();
@@ -31,6 +36,7 @@ class TerminalBLECallbacks : public NimBLECharacteristicCallbacks
     }
 };
 
+// 【函数说明】BLE 监护任务占位：保持服务任务常驻，后续可放连接状态监控。
 void bleDaemonTask(void *pvParameters)
 {
     Serial.print("[Core 0] BLE 守护进程已启动, 运行在核心: ");
@@ -58,12 +64,14 @@ void bleDaemonTask(void *pvParameters)
     }
 }
 
+// 【函数说明】创建 NimBLE 设备 Terminal_01，注册 DEAD 服务和 BEEF 特征，并启动可写/可 Notify 的 WebBLE 服务。
 void SysBLE_Init()
 {
     xTaskCreatePinnedToCore(bleDaemonTask, "BLE_Daemon", 4096, NULL, 1, NULL, 0);
 }
 
 // 【关键 3】：实现实体函数，让任何文件都能 include "sys_ble.h" 后向手机发数据！
+// 【函数说明】向已连接网页发送一条文本 Notify，ACK、SYNC、LANG、SPC_META 都通过这个出口返回。
 void SysBLE_Notify(const char *data)
 {
     if (g_ble_char != nullptr)

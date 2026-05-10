@@ -1,3 +1,7 @@
+/*
+【模块职责】自动推送设置页。配置是否启用、最小间隔和最大间隔，并调用 SysAutoPush_UpdateConfig 重新安排下一次推送。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_push_setting.cpp
 #include "app_menu_base.h" 
 #include "sys_config.h"
@@ -11,6 +15,7 @@ private:
     int t_max;
 
 protected:
+    // 【函数说明】返回自动推送设置的四项：开关、最小间隔、最大间隔、返回。
     int getMenuCount() override { return 4; }
 
     const char* getTitle() override {
@@ -18,6 +23,7 @@ protected:
         return (appManager.getLanguage() == LANG_ZH) ? "指令推送配置" : "PUSH CONFIG";
     }
 
+    // 【函数说明】返回每个设置项的完整显示文本。
     const char* getItemText(int index) override {
         static char buf[64];
         const char* edit_mark = (is_editing && index == current_selection) ? " <" : "";
@@ -37,6 +43,7 @@ protected:
         return buf;
     }
 
+    // 【函数说明】把可编辑条目拆成前缀、动态值、后缀，让 AppMenuBase 只对数字部分做跳动动画。
     bool getItemEditParts(int index, const char** prefix, const char** anim_val, const char** suffix) override {
         if (!is_editing || index != current_selection) return false;
         
@@ -80,6 +87,7 @@ protected:
         return true; 
     }
 
+    // 【函数说明】短按切换编辑状态或保存并返回；开关项直接翻转启用状态。
     void onItemClicked(int index) override {
         if (index == 3) { 
             SysAutoPush_UpdateConfig(t_en, t_min, t_max);
@@ -90,6 +98,7 @@ protected:
         }
     }
 
+    // 【函数说明】长按保存自动推送配置，调用 SysAutoPush_UpdateConfig 重置下一次推送。
     void onLongPressed() override { 
     // 【修复防呆】：不管你是怎么退出的，哪怕是长按强行返回，也强制写入硬盘！
     SysAutoPush_UpdateConfig(t_en, t_min, t_max);
@@ -97,6 +106,7 @@ protected:
 }
 
 public:
+    // 【函数说明】进入设置页时从 sysConfig 读取当前自动推送开关和间隔范围。
     void onCreate() override {
         is_editing = false;
         t_en = sysConfig.auto_push_enable;
@@ -105,6 +115,7 @@ public:
         AppMenuBase::onCreate();
     }
 
+    // 【函数说明】编辑状态下旋钮调整最小/最大推送间隔，并保证最大值不小于最小值。
     void onKnob(int delta) override {
         if (is_editing) {
             if (current_selection == 0) t_en = !t_en;

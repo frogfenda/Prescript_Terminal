@@ -1,3 +1,7 @@
+/*
+【模块职责】指令推送弹窗。接收随机推送、网页 TXT、日程/闹钟、特殊指令强制触发，闪烁提示后进入 AppPrescript。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_push_notify.cpp
 #include "app_base.h"
 #include "app_manager.h"
@@ -11,6 +15,7 @@
 
 bool g_push_notify_keep_stack = false;
 
+// 【函数说明】生成一次随机推送弹窗：设置 keep_stack，使用普通推送标题，并通过 AppManager 切换到 PushNotify。
 void PushNotify_Trigger_Random(bool keep_stack)
 {
     // 【核心 1】：提前摇骰子，此时已经决定了是不是以实玛利！
@@ -41,6 +46,7 @@ void PushNotify_Trigger_Random(bool keep_stack)
     }
 }
 
+// 【函数说明】生成自定义文本推送弹窗：保存外部文本，确认后进入 AppPrescript 显示该文本。
 void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
 {
     // 【核心 2】：强行注入 NFC 或网络传来的自定义指令！
@@ -72,6 +78,7 @@ void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
     }
 }
 
+// 【函数说明】生成特殊指令强制触发弹窗：从 sysSpecials 取得标题和文本，确认后进入预抽指令流程。
 void PushNotify_Trigger_Special_Forced(bool keep_stack)
 {
     // 注意：这里【不调用】 sysSpecials.rollRandom()
@@ -93,6 +100,7 @@ void PushNotify_Trigger_Special_Forced(bool keep_stack)
 // ==========================================
 // 邮局回调：收到强制触发电报时的处理动作
 // ==========================================
+// 【函数说明】处理 SPC 命令：按特殊指令 ID 锁定对应文本并拉起强制触发弹窗。
 void _Cb_SpcForce(void *payload)
 {
     Evt_SpcForce_t *p = (Evt_SpcForce_t *)payload;
@@ -112,22 +120,21 @@ private:
 
 public:
     // 【新增】：利用系统初始化钩子自动摆摊收信
+    // 【函数说明】订阅 SPECIAL_FORCE 事件，让网页 SPC 命令可以直接触发特殊指令弹窗。
     void onSystemInit() override
     {
         SysEvent_Subscribe(EVT_SPECIAL_FORCE, _Cb_SpcForce);
     }
 
+    // 【函数说明】弹窗出现时播放三段警报反馈，初始化闪烁计时器并绘制第一帧。
     void onCreate() override
     {
         blink_timer = millis();
         show_text = true;
-        sysAudio.playTone(1500, 200);
-        delay(100);
-        sysAudio.playTone(1500, 200);
-        delay(100);
-        sysAudio.playTone(2500, 600);
+        Feedback_PlayAlertSequence();
     }
 
+    // 【函数说明】每 600ms 切换标题显示状态，形成警报闪烁，并同步播放警报脉冲。
     void onLoop() override
     {
         if (millis() - blink_timer > 600)
@@ -136,8 +143,7 @@ public:
             show_text = !show_text;
             if (show_text)
             {
-                SYS_HAPTIC_ALERT();
-                sysAudio.playTone(2500, 50);
+                Feedback_PlayAlertPulse();
             }
 
             HAL_Sprite_Clear();
@@ -156,6 +162,7 @@ public:
     void onDestroy() override {}
     void onKnob(int delta) override {}
 
+    // 【函数说明】确认弹窗：随机推送进入随机抽取，自定义文本进入自定义指令，特殊指令进入预抽流程。
     void onKeyShort() override
     {
         SYS_SOUND_CONFIRM();
@@ -169,6 +176,7 @@ public:
         else
             appManager.launch(AppId::Prescript);
     }
+    // 【函数说明】长按与短按同义，允许用户用长按确认推送弹窗。
     void onKeyLong() override { onKeyShort(); }
 };
 

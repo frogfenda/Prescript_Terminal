@@ -1,3 +1,7 @@
+/*
+【模块职责】通用编辑动画组件。DialAnimator 负责数字/字符串弧形滚轮，TacticalLinkEngine 负责顶部流程节点滑动。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 #pragma once
 #include <Arduino.h>
 #include "../hal/hal.h"
@@ -13,6 +17,7 @@ private:
     float offset = 0.0f; 
     uint32_t last_tick = 0; // 【新增】帧率锁
 
+    // 【函数说明】返回 UTF-8 字符长度，刻度盘逐字符裁剪时用它避免中文被切开。
     int getCharLen(unsigned char c) {
         if ((c & 0x80) == 0) return 1;
         if ((c & 0xE0) == 0xC0) return 2;
@@ -21,6 +26,7 @@ private:
         return 1;
     }
 
+    // 【函数说明】逐字符绘制刻度盘文字，只有完全处在屏幕范围内的字符才会显示，并按 fade 衰减。
     void drawClippedFadedText(int x, int y, const char* text, float fade) {
         int sw = HAL_Get_Screen_Width();
         int cursor_x = x;
@@ -44,6 +50,7 @@ private:
     }
 
 public:
+    // 【函数说明】把旋钮 delta 累加到 offset，下一帧 update 会让刻度盘从偏移位置回弹。
     void trigger(int delta) { offset += (float)delta; }
 
     bool update() {
@@ -60,6 +67,7 @@ public:
         return false;
     }
 
+    // 【函数说明】绘制数字弧形滚轮：中心值清晰显示，两侧数字按 sin 曲线分布并淡出，中心区域用角框强调。
     void drawNumberDial(int center_y, int current_val, int min_val, int max_val, const char* suffix = "") {
         int sw = HAL_Get_Screen_Width();
         int cx = sw / 2;
@@ -108,6 +116,7 @@ public:
         }
     }
     
+    // 【函数说明】绘制字符串弧形滚轮：用于月份、类型等离散选项，文字沿横向弧线滑动并在边缘裁剪。
     void drawStringDial(int center_y, int current_idx, const char** str_array, int max_count) {
         int sw = HAL_Get_Screen_Width();
         int cx = sw / 2;
@@ -157,6 +166,7 @@ private:
     uint32_t last_tick = 0; // 【新增】帧率锁
 
 
+    // 【函数说明】返回 UTF-8 字符长度，刻度盘逐字符裁剪时用它避免中文被切开。
     int getCharLen(unsigned char c) {
         if ((c & 0x80) == 0) return 1;
         if ((c & 0xE0) == 0xC0) return 2;
@@ -165,6 +175,7 @@ private:
         return 1;
     }
 
+    // 【函数说明】测量一个 UTF-8 字符宽度，空格按固定宽度处理。
     int getCharWidth(const char* c_str, int len) {
         char buf[5] = {0};
         for(int b=0; b<len; b++) buf[b] = c_str[b];
@@ -173,6 +184,7 @@ private:
         return cw;
     }
 
+    // 【函数说明】逐字符累加得到阶段标签宽度，用于流程节点居中。
     int getWordWidth(const char* text) {
         int total = 0;
         int i = 0;
@@ -184,6 +196,7 @@ private:
         return total;
     }
 
+    // 【函数说明】逐字符绘制流程链路标签，只有完整落入屏幕的字符显示。
     void drawClippedText(int x, int y, const char* text) {
         int sw = HAL_Get_Screen_Width();
         int cursor_x = x;
@@ -207,6 +220,7 @@ private:
     }
 
 public:
+    // 【函数说明】让流程链路动画直接跳到指定阶段，进入编辑页时避免从 0 慢慢滑入。
     void jumpTo(int phase) { offset = (float)phase; }
     
     bool update(int current_phase) {
@@ -223,6 +237,7 @@ public:
         return false;
     }
     
+    // 【函数说明】绘制顶部流程链路：当前阶段位于中心，前后阶段沿水平轴滑动，节点之间用短线连接。
     void draw(int y, const char** names, int count, int current_phase, int spacing = 120) {
         int sw = HAL_Get_Screen_Width();
         int cx = sw / 2;

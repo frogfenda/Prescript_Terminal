@@ -1,3 +1,7 @@
+/*
+【模块职责】提取部模拟。执行十连抽、扫描线揭示、结果滚动展示，并将星级与瓦夜统计写入 sysConfig.gacha_stats。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_gacha.cpp
 #include "app_base.h"
 #include "app_manager.h"
@@ -71,6 +75,7 @@ private:
         return &g_gacha_pool[selected_idx];
     }
 
+    // 【函数说明】执行十连抽核心逻辑：按概率产生 1/2/3 星结果，第十抽保底 2 星，并更新总抽数、星级和瓦夜统计。
     void executeTenPull()
     {
         max_star_pulled = 1;
@@ -107,6 +112,7 @@ private:
         sysConfig.save(); // 【新增】：十连结束瞬间，将 config.json 永久覆写至硬盘！
     }
 
+    // 【函数说明】跳过扫描动画，直接把所有结果标记为已揭示并进入结果浏览阶段。
     void skipToResult()
     {
         phase = 2;
@@ -114,12 +120,11 @@ private:
         // 最终结果汇总音效
         if (has_walp_pulled || max_star_pulled == 3)
         {
-            sysAudio.playTone(2000, 300);
-            sysHaptic.playConfirm();
+            Feedback_PlayConfirm();
         }
         else
         {
-            sysAudio.playTone(1000, 100);
+            Feedback_PlayBack();
         }
         drawUI();
     }
@@ -127,15 +132,19 @@ private:
     // ==========================================
     // UI 渲染：待机界面
     // ==========================================
+    // 【函数说明】绘制提取待机界面：显示执行十连提取的操作提示，等待短按开始。
     void drawIdlePhase(int sw, int sh)
     {
+        bool zh = appManager.getLanguage() == LANG_ZH;
+        const char* tip = zh ? "[ 单击 ] 执行十连提取" : "[ CLICK ] 10X EXTRACT";
         HAL_Screen_ShowChineseLine_Faded_Color(sw / 2 - 50, 20, ">> MEPHISTOPHELES", 0.0f, TFT_RED);
-        HAL_Screen_ShowChineseLine_Faded_Color(sw / 2 - 65, 45, "[ 单击 ] 执行十连提取", 0.0f, TFT_WHITE);
+        HAL_Screen_ShowChineseLine_Faded_Color((sw - HAL_Get_Text_Width(tip)) / 2, 45, tip, 0.0f, TFT_WHITE);
     }
 
     // ==========================================
     // UI 渲染：【线性阵列解密】硬核扫描动画
     // ==========================================
+    // 【函数说明】绘制扫描线揭示动画：十个结果框横向排列，扫描线扫过时逐个显示身份星级并播放反馈。
     void drawAnimPhase(int sw, int sh)
     {
         uint32_t elapsed = millis() - anim_timer;
@@ -193,6 +202,7 @@ private:
     // ==========================================
     // UI 渲染：提取结算列表
     // ==========================================
+    // 【函数说明】绘制结果浏览界面：显示十连结果列表，旋钮控制纵向滚动查看超出屏幕的身份名称。
     void drawResultPhase(int sw, int sh)
     {
         for (int i = 0; i < MAX_VIS; i++)
@@ -248,6 +258,7 @@ private:
         }
     }
 
+    // 【函数说明】根据当前 phase 分派到待机、扫描动画、结果三种画面并提交屏幕。
     void drawUI()
     {
         HAL_Sprite_Clear();
@@ -265,6 +276,7 @@ private:
     }
 
 public:
+    // 【函数说明】进入抽卡页面时清空上次结果、重置扫描状态和滚动偏移。
     void onCreate() override
     {
         phase = 0;
@@ -274,6 +286,7 @@ public:
 
     void onResume() override { drawUI(); }
 
+    // 【函数说明】扫描阶段按 30FPS 推进动画进度，结果阶段保持静态显示。
     void onLoop() override
     {
         if (phase == 1)
@@ -310,24 +323,7 @@ public:
                         // 【不同程度的音效震动反馈】
                         if (p_id)
                         {
-                            if (p_id->walp == 1)
-                            {
-                                sysAudio.playTone(2500, 160); // 瓦夜：最长、最高亢的异响
-                                sysHaptic.playTick();
-                            }
-                            else if (p_id->star == 3)
-                            {
-                                sysAudio.playTone(3200, 120); // 3星：清脆高音
-                                sysHaptic.playTick();
-                            }
-                            else if (p_id->star == 2)
-                            {
-                                sysAudio.playTone(1500, 70); // 2星：标准中音
-                            }
-                            else
-                            {
-                                sysAudio.playTone(800, 30); // 1星：沉闷短促的“哒”
-                            }
+                            Feedback_PlayGachaReveal(p_id->star, p_id->walp == 1);
                         }
                     }
                 }
@@ -344,6 +340,7 @@ public:
 
     void onDestroy() override {}
 
+    // 【函数说明】结果阶段旋钮滚动身份列表；待机和扫描阶段旋钮不改变状态。
     void onKnob(int delta) override
     {
         if (phase == 2)
@@ -361,6 +358,7 @@ public:
         }
     }
 
+    // 【函数说明】待机阶段开始十连，扫描阶段跳过到结果，结果阶段再次短按重新开始下一次十连。
     void onKeyShort() override
     {
         if (phase == 0)
@@ -385,6 +383,7 @@ public:
         }
     }
 
+    // 【函数说明】长按返回上一级菜单。
     void onKeyLong() override
     {
         SYS_SOUND_NAV();

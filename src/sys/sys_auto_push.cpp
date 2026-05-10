@@ -1,3 +1,7 @@
+/*
+【模块职责】自动推送实现。每次重置时在最小/最大分钟之间随机生成下次触发时间，到点后请求 AppManager 在主循环中拉起 PushNotify。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 #include "sys_auto_push.h"
 #include "sys_runtime_status.h"
 #include "sys_config.h"

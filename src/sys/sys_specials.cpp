@@ -1,3 +1,7 @@
+/*
+【模块职责】特殊指令实现。按当前语言读取 specials_zh/en.json，抽取时先推进人物链条概率，再抽纯特殊指令，并把进度写回 sysConfig。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 #include "sys_specials.h"
 #include "sys_config.h"
 #include "app_manager.h"
@@ -6,9 +10,11 @@
 #include <vector>
 #include "sys_ble.h" // 确保引入了蓝牙接口
 #include "sys_event.h"
+#include "../lang/terminal_lang.h"
 
 SysSpecials sysSpecials;
 // 【新增】：收到蓝牙同步请求时的回调函数
+// 【函数说明】WebBLE 同步回调：发送特殊指令元数据，让网页显示人物链条、概率、进度、颜色和启用状态。
 static void _Cb_Spc_Sync_Req(void *payload)
 {
     // 收到广播，特异点引擎主动交出元数据
@@ -44,13 +50,14 @@ std::vector<CharChain> pool_char_chains;
 extern std::vector<String> sys_prescripts_zh;
 extern std::vector<String> sys_prescripts_en;
 
+// 【函数说明】按当前语言读取 specials_zh/en.json，解析人物链条和纯特殊指令，并订阅 BLE 同步事件。
 void SysSpecials::begin()
 {
     pool_pure_specials.clear();
     pool_char_chains.clear();
 
     SystemLang_t current_lang = appManager.getLanguage();
-    String path = (current_lang == LANG_ZH) ? "/assets/specials_zh.json" : "/assets/specials_en.json";
+    String path = TerminalLang::SpecialsPath(current_lang);
 
     File f = LittleFS.open(path, "r");
     if (!f)
@@ -110,6 +117,7 @@ void SysSpecials::begin()
     SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_Spc_Sync_Req);
 }
 
+// 【函数说明】指令抽取核心：先按人物链条概率尝试推进特殊剧情，再抽纯特殊指令，最后回落到普通指令池。
 void SysSpecials::rollRandom()
 {
     SystemLang_t current_lang = appManager.getLanguage();
@@ -203,6 +211,7 @@ void SysSpecials::rollRandom()
     }
 }
 
+// 【函数说明】把外部文本直接设为当前抽取结果，用于 TXT、闹钟、日程这类指定内容。
 void SysSpecials::setCustom(const char *custom_text)
 {
     SystemLang_t current_lang = appManager.getLanguage();
@@ -211,6 +220,7 @@ void SysSpecials::setCustom(const char *custom_text)
     current_draw.title = (current_lang == LANG_ZH) ? "【 接受都市意志 】" : "[ OVERRIDE PRESCRIPT ]";
     current_draw.text = String(custom_text);
 }
+// 【函数说明】按 ID 查找特殊指令，锁定为当前抽取结果并更新人物链条进度。
 void SysSpecials::forceDrawByID(const String &id)
 {
     SystemLang_t current_lang = appManager.getLanguage();
@@ -265,6 +275,7 @@ void SysSpecials::forceDrawByID(const String &id)
     }
 }
 
+// 【函数说明】把所有特殊指令的 ID、名称、概率、进度、颜色和启用状态通过 BLE 发给网页。
 void SysSpecials::syncMetaData()
 {
     // 1. 同步纯指令 (异想体等)
@@ -294,6 +305,7 @@ void SysSpecials::syncMetaData()
     }
 }
 
+// 【函数说明】按 ID 查找特殊指令正文并通过 SPC_TXT 回传网页。
 void SysSpecials::syncTextByID(const String &id)
 {
     // 1. 在人物链条中寻找
@@ -309,7 +321,7 @@ void SysSpecials::syncTextByID(const String &id)
             }
             else
             {
-                target_text = "[ 观测日志已完结，目标数据归档完毕 ]"; // 进度抽完的兜底
+                target_text = (appManager.getLanguage() == LANG_ZH) ? "[ 观测日志已完结，目标数据归档完毕 ]" : "[ OBSERVATION LOG COMPLETE. TARGET DATA ARCHIVED. ]"; // 进度抽完的兜底
             }
             // 协议格式：SPC_TXT:ID|具体文本
             String msg = "SPC_TXT:" + id + "|" + target_text;

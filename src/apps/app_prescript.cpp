@@ -1,3 +1,7 @@
+/*
+【模块职责】指令接收页。负责抽取普通/特殊指令、播放 procedure 循环音、调用 UIPrescript 四种解码动画，并在完成态支持滚动阅读。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_prescript.cpp
 #include "app_base.h"
 #include "app_manager.h"
@@ -12,6 +16,7 @@
 
 bool g_prescript_needs_roll = true;
 
+// 【函数说明】特殊指令弹窗确认前调用：标记下一次进入 AppPrescript 时不要重新随机，而是使用 sysSpecials 已锁定的结果。
 void Prescript_Prepare_PreRolled()
 {
     g_prescript_needs_roll = false; // 被推送唤醒时调用，告诉自己不要重新摇号
@@ -20,6 +25,7 @@ void Prescript_Prepare_PreRolled()
 namespace {
 static const int ANIM_CHAOS_DELAY = 15;
 
+// 【函数说明】解码动画播放期间的音频保活回调；确保 procedure.wav 循环声在长动画中持续存在。
 void PrescriptProcedureTick()
 {
     if (!g_wav_procedure)

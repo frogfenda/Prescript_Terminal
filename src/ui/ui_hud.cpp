@@ -1,3 +1,7 @@
+/*
+【模块职责】菜单 HUD 实现。左侧显示电池、标题、时间、NFC 伪装 BUS 状态和倒计时 TMR 状态，供所有 AppMenuBase 页面复用。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 #include "ui_hud.h"
 #include "../hal/hal.h"
 #include "../sys/sys_power.h"
@@ -10,6 +14,7 @@ constexpr int HUD_LINE_MARGIN_Y = 8;
 constexpr int HUD_STACK_LINE_H = 14;
 }
 
+// 【函数说明】绘制菜单左栏：电池图标在顶部，标题居中区域，时间在中部，BUS/TMR 状态在底部，并缓存本帧状态。
 int UIHud_DrawLeftPanel(const char* title_text)
 {
     sysPower.drawBatteryIcon(4, 4);
@@ -57,6 +62,7 @@ int UIHud_DrawLeftPanel(const char* title_text)
     return left_panel_w;
 }
 
+// 【函数说明】重新采样 HUD 状态并和缓存比较，任一字段变化就要求 AppMenuBase 重绘整页。
 bool UIHud_NeedsRedraw()
 {
     return SysRuntime_HudStatusChanged();

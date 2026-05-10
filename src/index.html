@@ -1,3 +1,7 @@
+<!--
+【模块职责】WebBLE 上位机。连接 Terminal_01，自动读取 LANG，按终端语言切换 UI，发送 PRE/SCH/ALM/COIN/WIFI 等命令并根据 ACK 同步。
+【联动关系】网页通过 WebBLE 写入文本命令，ESP 侧 sys_ble_queue → AppManager → sys_router → SysEvent → App/sys 模块；ESP 通过 Notify 回传 ACK/SYNC/LANG。
+-->
 <!DOCTYPE html>
 <html lang="zh">
 
@@ -291,7 +295,7 @@
     <div class="panel">
         <div class="panel-title"><span data-i18n="panel_txt">>> TXT OVERRIDE (强制打断)</span></div>
         <input type="text" class="input-box" id="txt_msg" style="width: 100%; margin-bottom: 10px;" value="有内鬼,终止交易！">
-        <button class="btn" onclick="sendRaw('TXT:' + document.getElementById('txt_msg').value)"
+        <button class="btn" onclick="sendRaw('TXT:' + sanitizeCommandField(document.getElementById('txt_msg').value), { syncAfter: false })"
             data-i18n="btn_txt">传递指令</button>
     </div>
 
@@ -300,7 +304,7 @@
         <div class="panel-title"><span data-i18n="panel_spc">>> SPECIAL DIRECTIVE (特异点强制介入)</span></div>
         <input type="text" class="input-box" id="spc_id" style="width: 100%; margin-bottom: 10px;"
             placeholder="输入编号 (例: ishmael)" data-i18n-ph="ph_spc">
-        <button class="btn" onclick="forceSpecial()" ssdata-i18n="btn_spc">强行启动剧本链条</button>
+        <button class="btn" onclick="forceSpecial()" data-i18n="btn_spc">强行启动剧本链条</button>
     </div>
 
     <div class="panel">
@@ -313,7 +317,7 @@
     <div class="panel">
         <div class="panel-title">
             <span data-i18n="panel_alm">>> ALARM MATRIX (唤醒调度)</span>
-            <span onclick="sendRaw('GET:SYNC')" style="cursor:pointer; color:var(--main-color)"
+            <span onclick="sendRaw('GET:SYNC:' + currentLang.toUpperCase(), { syncAfter: false })" style="cursor:pointer; color:var(--main-color)"
                 data-i18n="btn_refresh">[ 刷新 ]</span>
         </div>
         <div id="alarm_list_container"></div>
@@ -331,7 +335,7 @@
     <div class="panel">
         <div class="panel-title">
             <span data-i18n="panel_sch">>> SCHEDULE (长期日程)</span>
-            <span onclick="sendRaw('GET:SYNC')" style="cursor:pointer; color:var(--main-color)"
+            <span onclick="sendRaw('GET:SYNC:' + currentLang.toUpperCase(), { syncAfter: false })" style="cursor:pointer; color:var(--main-color)"
                 data-i18n="btn_refresh">[ 刷新 ]</span>
         </div>
         <div id="sch_list_container"></div>
@@ -349,7 +353,7 @@
     <div class="panel">
         <div class="panel-title">
             <span data-i18n="panel_coin">>> COIN PRESETS (硬币技能预设)</span>
-            <span onclick="sendRaw('GET:SYNC')" style="cursor:pointer; color:var(--main-color)"
+            <span onclick="sendRaw('GET:SYNC:' + currentLang.toUpperCase(), { syncAfter: false })" style="cursor:pointer; color:var(--main-color)"
                 data-i18n="btn_refresh">[ 刷新 ]</span>
         </div>
         <div id="coin_list_container"></div>
@@ -421,7 +425,7 @@
         <div class="panel-title"><span data-i18n="title_wifi">>> WLAN CONFIG (网络密钥注入)</span></div>
         <input type="text" class="input-box" id="wifi_ssid" style="width: 100%; margin-bottom: 10px;"
             placeholder="输入 WiFi 名称 (SSID)" data-i18n-ph="ph_wifi_ssid">
-        <input type="text" class="input-box" id="wifi_pass" style="width: 100%; margin-bottom: 10px;"
+        <input type="password" class="input-box" id="wifi_pass" style="width: 100%; margin-bottom: 10px;"
             placeholder="输入 WiFi 密码 (选填)" data-i18n-ph="ph_wifi_pass">
         <button class="btn" onclick="setWifi()" data-i18n="btn_wifi_set">下发密钥</button>
     </div>
@@ -431,6 +435,13 @@
         // 多语言字典与动态引擎 (i18n Engine)
         // ==========================================
         let currentLang = 'zh';
+        const webLangParams = new URLSearchParams(window.location.search);
+        const requestedWebLang = webLangParams.get('lang');
+        const webLangLockedByUrl = webLangParams.get('lock') === '1' || webLangParams.get('locked') === '1';
+        let terminalLangLocked = false;
+        let terminalLangMode = 'UNKNOWN';
+        if (requestedWebLang === 'zh' || requestedWebLang === 'en') currentLang = requestedWebLang;
+        document.documentElement.lang = currentLang;
         let specialDirectives = {}; // 存储元数据字典
         const i18n = {
             zh: {
@@ -544,8 +555,37 @@
             }
         };
 
+        // 【函数说明】判断网页当前是否已被终端语言锁定；锁定后右上角语言按钮只显示当前语言，不再切换。
+
+        function isLanguageLocked() {
+            return webLangLockedByUrl || terminalLangLocked;
+        }
+
+        // 【函数说明】处理 ESP 返回的 LANG 消息：更新 currentLang、terminalLangLocked、按钮状态，并刷新页面文案。
+
+        function applyTerminalLanguage(code, mode, buildCode) {
+            const normalized = String(code || '').toLowerCase();
+            if (normalized !== 'zh' && normalized !== 'en') return;
+            terminalLangLocked = String(mode || '').toUpperCase() === 'LOCKED';
+            terminalLangMode = terminalLangLocked ? 'LOCKED' : 'RUNTIME';
+            currentLang = normalized;
+            document.documentElement.lang = currentLang;
+            reloadUploadState();
+            applyLanguageToPage();
+            renderUI();
+
+            const modeText = terminalLangLocked ? (currentLang === 'zh' ? '语言锁定' : 'LANG LOCKED') : (currentLang === 'zh' ? '运行时语言' : 'RUNTIME LANG');
+            document.getElementById('statusBox').innerHTML = `SYS_STATUS: ONLINE<br><span style="font-size: 12px; color: #0f0;">[ ${currentLang.toUpperCase()} / ${modeText} ]</span>`;
+            requestSyncDebounced(120);
+        }
+
+        // 【函数说明】用户手动切换网页语言；如果终端返回 LOCKED，则直接阻止切换。
+
         function toggleLanguage() {
+            if (isLanguageLocked()) return;
             currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            document.documentElement.lang = currentLang;
+            reloadUploadState();
             document.getElementById('langToggle').innerText = currentLang === 'zh' ? 'EN' : '中文';
             document.querySelectorAll('[data-i18n]').forEach(el => { el.innerText = i18n[currentLang][el.getAttribute('data-i18n')]; });
             document.querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = i18n[currentLang][el.getAttribute('data-i18n-ph')]; });
@@ -558,12 +598,14 @@
             // 切换语言时，自动请求对应语言的数据库档案！
             if (bleCharacteristic) {
                 document.getElementById('statusBox').innerHTML = i18n[currentLang].status_online;
-                setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 100);
+                requestSyncDebounced(120);
             } else if (document.getElementById('statusBox').innerHTML.includes("OFFLINE")) {
                 document.getElementById('statusBox').innerHTML = `SYS_STATUS: OFFLINE<br><span style="font-size: 12px; color: #888;">${i18n[currentLang].status_click}</span>`;
             }
             renderUI();
         }
+
+        // 【函数说明】从云端 API 拉取中英文指令档案，缓存到 globalCloudData 后按当前网页语言渲染。
 
         async function loadCloudArchive() {
             const container = document.getElementById('cloud_archive_window');
@@ -582,6 +624,8 @@
                 renderCloudItems(globalCloudData);
             }
         }
+
+        // 【函数说明】渲染云端指令列表；左侧按钮负责注入/删除，右侧文本点击后填入本地输入框。
 
         function renderCloudItems(dataList) {
             const container = document.getElementById('cloud_archive_window');
@@ -619,8 +663,7 @@
 
                     if (uploadedSessionItems.has(contentText)) {
                         // 当前是 ✖ 状态 -> 执行一键物理删除，并变回 ✓
-                        sendRaw(`PRE_DEL:${currentLang.toUpperCase()}:${contentText}`);
-                        setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
+                        sendRaw(`PRE_DEL:${currentLang.toUpperCase()}:${sanitizeCommandField(contentText)}`, { syncAfter: true });
 
                         uploadedSessionItems.delete(contentText);
                         saveUploadState(); // 【新增】：同步到浏览器硬盘
@@ -628,8 +671,7 @@
                         actionBtn.innerText = '✓';
                     } else {
                         // 当前是 ✓ 状态 -> 执行一键物理写入，并变成 ✖
-                        sendRaw(`PRE:${currentLang.toUpperCase()}:${contentText}`);
-                        setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
+                        sendRaw(`PRE:${currentLang.toUpperCase()}:${sanitizeCommandField(contentText)}`, { syncAfter: true });
 
                         uploadedSessionItems.add(contentText);
                         saveUploadState(); // 【新增】：同步到浏览器硬盘
@@ -656,16 +698,85 @@
         let globalCloudData = []; // 【新增】：用来在内存中缓存云端数据，供随机抽取使用
         const CHAR_UUID = "0000beef-0000-1000-8000-00805f9b34fb";
         let terminalAlarms = []; let terminalSchedules = []; let terminalPrescripts = []; let terminalCoins = [];
+        let pendingAckSyncCount = 0;
+        let ackSyncTimer = null;
+
+        // 【函数说明】延迟发送 GET:SYNC，合并连续 ACK 后的多次刷新请求，减少 BLE 同步风暴。
+
+        function requestSyncDebounced(delay = 180) {
+            clearTimeout(ackSyncTimer);
+            ackSyncTimer = setTimeout(() => {
+                sendRaw('GET:SYNC:' + currentLang.toUpperCase(), { syncAfter: false });
+            }, delay);
+        }
+
+        // 【函数说明】判断一条命令执行后是否需要重新同步终端数据，新增/删除类命令返回 true。
+
+        function commandNeedsSync(cmd) {
+            return /^(ALM:|ALM_DEL:|SCH:|SCH_DEL:|POM:|PRE:|PRE_DEL:|COIN:|COIN_DEL:)/.test(cmd);
+        }
+
+        // 【函数说明】清理发送字段中的宏命令分隔符，防止普通文本里的 | 和换行被 ESP 拆成多条命令。
+
+        function sanitizeCommandField(str, keepColon = false) {
+            let v = String(str || '');
+            v = v.replace(/\r?\n/g, ' ');   // 避免被 ESP 宏命令换行拆包
+            v = v.replace(/\|/g, '｜');      // 避免被 ESP 宏命令 | 拆包
+            if (!keepColon) v = v.replace(/:/g, '：');
+            return v.trim();
+        }
         // ==========================================
         // 利用浏览器本地存储 (LocalStorage) 赋予网页永久记忆
         // ==========================================
-        let uploadedSessionItems = new Set(JSON.parse(localStorage.getItem('terminal_uploaded_items') || '[]'));
+        // 【函数说明】根据当前语言生成 localStorage key，让中英文云端注入状态分开保存。
+        function getUploadStateKey() {
+            return 'terminal_uploaded_items_' + currentLang;
+        }
+
+        let uploadedSessionItems = new Set(JSON.parse(localStorage.getItem(getUploadStateKey()) || '[]'));
+
+        // 【函数说明】从 localStorage 恢复当前语言的已注入云端条目集合。
+
+        function reloadUploadState() {
+            uploadedSessionItems = new Set(JSON.parse(localStorage.getItem(getUploadStateKey()) || '[]'));
+        }
+
+        // 【函数说明】把当前语言的已注入云端条目集合写回 localStorage。
 
         function saveUploadState() {
-            localStorage.setItem('terminal_uploaded_items', JSON.stringify([...uploadedSessionItems]));
+            localStorage.setItem(getUploadStateKey(), JSON.stringify([...uploadedSessionItems]));
+        }
+
+
+        // 【函数说明】把 i18n 表中的静态文案、输入框 placeholder 和语言按钮应用到 DOM。
+
+
+        function applyLanguageToPage() {
+            const langBtn = document.getElementById('langToggle');
+            langBtn.innerText = currentLang === 'zh' ? 'EN' : '中文';
+            langBtn.style.opacity = '1';
+            langBtn.style.pointerEvents = 'auto';
+            langBtn.style.cursor = 'pointer';
+            if (isLanguageLocked()) {
+                langBtn.innerText = currentLang === 'zh' ? '中文版本' : 'EN BUILD';
+                langBtn.style.opacity = '0.65';
+                langBtn.style.pointerEvents = 'none';
+                langBtn.style.cursor = 'default';
+            }
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (i18n[currentLang][key] !== undefined) el.innerText = i18n[currentLang][key];
+            });
+            document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+                const key = el.getAttribute('data-i18n-ph');
+                if (i18n[currentLang][key] !== undefined) el.placeholder = i18n[currentLang][key];
+            });
+            reloadUploadState();
+            if (typeof generateColorSelects === 'function') generateColorSelects();
         }
 
         window.onload = () => {
+            applyLanguageToPage();
             let now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset() + 60);
             document.getElementById('sch_time').value = now.toISOString().slice(0, 16);
             let almInit = new Date(); almInit.setMinutes(almInit.getMinutes() - almInit.getTimezoneOffset()); almInit.setHours(8, 0);
@@ -673,10 +784,12 @@
 
             // 绑定所有的 [刷新] 按钮加上动态语言标识
             document.querySelectorAll('[data-i18n="btn_refresh"]').forEach(el => {
-                el.onclick = () => sendRaw('GET:SYNC:' + currentLang.toUpperCase());
+                el.onclick = () => sendRaw('GET:SYNC:' + currentLang.toUpperCase(), { syncAfter: false });
             });
             loadCloudArchive();
         };
+
+        // 【函数说明】发起 WebBLE 连接：筛选 Terminal_01，取得 DEAD/BEEF 服务特征，开启 Notify 后先请求 GET:LANG 自动识别终端语言。
 
         async function connectBLE() {
             const statusBox = document.getElementById('statusBox');
@@ -692,8 +805,12 @@
                 statusBox.innerHTML = i18n[currentLang].status_online;
                 statusBox.style.borderColor = "#0f0"; statusBox.style.color = "#0f0";
 
-                // 连接成功时带上当前网页语言去拉取数据
-                setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
+                // 连接成功后先询问终端固件语言，网页会自动切换并同步对应语言数据。
+                await bleCharacteristic.writeValue(new TextEncoder().encode('GET:LANG'));
+                setTimeout(() => {
+                    // 兼容旧固件：如果没有 LANG 回包，则按当前网页语言继续同步。
+                    if (terminalLangMode === 'UNKNOWN') requestSyncDebounced(250);
+                }, 650);
 
                 device.addEventListener('gattserverdisconnected', () => {
                     bleCharacteristic = null;
@@ -703,8 +820,29 @@
             } catch (error) { alert("Error: " + error.message); }
         }
 
+        // 【函数说明】处理 ESP Notify 回来的文本：LANG 自动切换语言，ACK 显示命令结果，SYNC 填充本地数组，SPC 元数据刷新特殊指令库。
+
         function handleRX(event) {
             let val = new TextDecoder().decode(event.target.value);
+            if (val.startsWith("LANG:")) {
+                const parts = val.split(':');
+                applyTerminalLanguage(parts[1] || currentLang, parts[2] || 'RUNTIME', parts[3] || '');
+                return;
+            }
+            if (val.startsWith("ACK:OK:") || val.startsWith("ACK:WARN:") || val.startsWith("ACK:ERR:")) {
+                const isOk = val.startsWith("ACK:OK:");
+                const isWarn = val.startsWith("ACK:WARN:");
+                const color = isOk ? "#0f0" : (isWarn ? "#fc0" : "#f03");
+                const label = isOk ? val.substring(7) : (isWarn ? val.substring(9) : val.substring(8));
+                document.getElementById('statusBox').innerHTML = "SYS_STATUS: ONLINE<br><span style='font-size: 12px; color: " + color + ";'>[ " + (isWarn ? "WARN " : isOk ? "ACK " : "ERR ") + label + " ]</span>";
+
+                if (pendingAckSyncCount > 0) {
+                    pendingAckSyncCount--;
+                    if (!val.startsWith("ACK:ERR:")) requestSyncDebounced(160);
+                }
+                if (val.startsWith("ACK:ERR:")) console.warn("Terminal command error:", val);
+                return;
+            }
             if (val === "SYNC:CLEAR") {
                 // 【终极修复】：每次同步前，必须清空所有的数组！否则就会出现幽灵数据和无限堆叠！
                 terminalAlarms = []; terminalSchedules = []; terminalPrescripts = []; terminalCoins = [];
@@ -754,6 +892,8 @@
             }, 300);
         }
 
+        // 【函数说明】根据 terminalAlarms、terminalSchedules、terminalCoins、specialData 重绘网页端设备状态面板。
+
         function renderUI() {
             let almHtml = terminalAlarms.length === 0 ? `<div style='color:#555; text-align:center; font-size:12px;'>${i18n[currentLang].msg_no_alm}</div>` : "";
             terminalAlarms.forEach(a => {
@@ -779,16 +919,16 @@
             terminalCoins.forEach(c => {
                 let clStrDesc = "";
                 let clArray = c.cl.split(''); // 解析发回来的 "102"
-                let colorNames = ['金', '红', '绿'];
+                let colorNames = currentLang === 'zh' ? ['金', '红', '绿'] : ['GOLD', 'RED', 'GREEN'];
                 clArray.forEach(x => {
                     let idx = parseInt(x);
-                    clStrDesc += (colorNames[idx] || '金');
+                    clStrDesc += (colorNames[idx] || colorNames[0]);
                 });
 
                 coinHtml += `<div class="list-item">
                 <div class="item-info">
                     <span style="color:#0ff; font-weight:bold;">[${c.n}]</span><br>
-                    <span style="color:#aaa; font-size:12px;">BP: ${c.bp} | CP: ${c.cp} | 材质: [${clStrDesc}]</span>
+                    <span style="color:#aaa; font-size:12px;">BP: ${c.bp} | CP: ${c.cp} | ${currentLang === 'zh' ? '材质' : 'COLOR'}: [${clStrDesc}]</span>
                 </div>
                 <button class="btn-danger" onclick="executeDelete('COIN_DEL:${c.n}')">✖</button>
             </div>`;
@@ -801,7 +941,7 @@
             // 【新增】：动态渲染特异点监视树
             // ==========================================
             let spcHtml = Object.keys(specialDirectives).length === 0
-                ? `<div style='color:#555; text-align:center; font-size:12px;'>[ DATABASE EMPTY ]</div>`
+                ? `<div style='color:#555; text-align:center; font-size:12px;'>${currentLang === 'zh' ? '[ 数据库为空 ]' : '[ DATABASE EMPTY ]'}</div>`
                 : "";
 
             for (let id in specialDirectives) {
@@ -814,7 +954,7 @@
                 let b = Math.round((cInt & 0x1F) * 255 / 31);
                 let cssColor = `rgb(${r},${g},${b})`;
 
-                let typeLabel = item.type === 'C' ? '[人物链条]' : '[异想体]';
+                let typeLabel = item.type === 'C' ? (currentLang === 'zh' ? '[人物链条]' : '[CHAR CHAIN]') : (currentLang === 'zh' ? '[异想体]' : '[ABNORMALITY]');
                 let statusColor = item.enabled === '1' ? '#0f0' : '#f03';
                 let statusText = item.enabled === '1' ? 'ACTIVE' : 'LOCKED';
 
@@ -834,14 +974,14 @@
                     
                     <div style="font-size: 0.8em; color: #aaa; margin-top: 2px; margin-bottom: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
                         <span>ID: ${item.id}</span>
-                        <span>概率: ${item.prob}‱</span>
-                        <span>进度: ${item.progress}</span>
-                        <span>弹窗: ${item.title}</span>
+                        <span>${currentLang === 'zh' ? '概率' : 'PROB'}: ${item.prob}‱</span>
+                        <span>${currentLang === 'zh' ? '进度' : 'PROG'}: ${item.progress}</span>
+                        <span>${currentLang === 'zh' ? '弹窗' : 'POPUP'}: ${item.title}</span>
                     </div>
 
                     <button class="btn" style="padding: 4px 8px; font-size: 0.8em; width: auto; align-self: flex-start; border-color: #088; color: #0ff;" 
-                        onclick="sendRaw('GET:SPC_TXT:${item.id}')">
-                        >> FETCH PAYLOAD (获取具体文本)
+                        onclick="sendRaw('GET:SPC_TXT:${item.id}', { syncAfter: false })">
+                        ${currentLang === 'zh' ? '>> 获取具体文本' : '>> FETCH PAYLOAD'}
                     </button>
                     ${fetchedContentHtml}
                 </div>`;
@@ -849,17 +989,18 @@
             // 写入你在 HTML 里写好的容器
             document.getElementById('spc_list_container').innerHTML = spcHtml;
         }
+        // 【函数说明】生成硬币颜色/材质下拉框，供 COIN 命令选择每枚硬币的贴图类型。
         function generateColorSelects() {
             let count = parseInt(document.getElementById('coin_cc').value) || 3;
             if (count < 1) count = 1; if (count > 9) count = 9;
             let html = '';
             for (let i = 0; i < count; i++) {
                 html += `<div class="input-row" style="padding-left:10px; border-left:2px solid #088; margin-top:4px;">
-                    <label style="font-size:12px; width:45%; color:#888;">硬币 ${i + 1} 材质:</label>
+                    <label style="font-size:12px; width:45%; color:#888;">${currentLang === 'zh' ? '硬币' : 'COIN'} ${i + 1} ${currentLang === 'zh' ? '材质' : 'COLOR'}:</label>
                     <select class="input-box coin-color-select" style="width:55%; padding:4px;">
-                        <option value="0">经典金</option>
-                        <option value="1">狂气红</option>
-                        <option value="2">沉稳绿</option>
+                        <option value="0">${i18n[currentLang].opt_cl0}</option>
+                        <option value="1">${i18n[currentLang].opt_cl1}</option>
+                        <option value="2">${i18n[currentLang].opt_cl2}</option>
                     </select>
                 </div>`;
             }
@@ -868,54 +1009,73 @@
 
         // 网页一加载完毕，先执行一次生成
         window.addEventListener('DOMContentLoaded', () => generateColorSelects());
-        async function sendRaw(cmdStr) {
+        // 【函数说明】向 BLE 特征写入一条命令；写入前做字段清理，写入后根据 ACK 或 syncAfter 决定是否同步。
+        async function sendRaw(cmdStr, options = {}) {
             if (!bleCharacteristic) return alert(i18n[currentLang].msg_conn_err);
+            const syncAfter = options.syncAfter !== undefined ? options.syncAfter : commandNeedsSync(cmdStr);
             try {
+                if (syncAfter) pendingAckSyncCount++;
                 await bleCharacteristic.writeValue(new TextEncoder().encode(cmdStr));
-                document.body.style.backgroundColor = "#003333"; setTimeout(() => document.body.style.backgroundColor = "#050505", 100);
-            } catch (error) { console.error(error); }
+                document.body.style.backgroundColor = "#003333";
+                setTimeout(() => document.body.style.backgroundColor = "#050505", 100);
+            } catch (error) {
+                if (syncAfter && pendingAckSyncCount > 0) pendingAckSyncCount--;
+                console.error(error);
+            }
         }
 
-        function executeDelete(cmd) { sendRaw(cmd); setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500); }
+        // 【函数说明】发送删除命令并要求 ACK 后同步设备状态。
+
+        function executeDelete(cmd) { sendRaw(cmd, { syncAfter: true }); }
+
+        // 【函数说明】读取闹钟表单并发送 ALM:h:m:name:text 命令。
 
         function addAlarm() {
-            let dt = document.getElementById('alm_time').value; let n = document.getElementById('alm_name').value.replace(/:/g, "："); let txt = document.getElementById('alm_text').value.replace(/:/g, "：");
+            let dt = document.getElementById('alm_time').value; let n = sanitizeCommandField(document.getElementById('alm_name').value); let txt = sanitizeCommandField(document.getElementById('alm_text').value);
             if (!dt || !n) return alert(i18n[currentLang].msg_param_err);
             let timePart = dt.split('T')[1]; let [h, m] = timePart.split(':');
-            sendRaw(`ALM:${h}:${m}:${n}:${txt}`); setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
+            sendRaw(`ALM:${h}:${m}:${n}:${txt}`, { syncAfter: true });
         }
+
+        // 【函数说明】读取日程表单并发送 SCH:year:month:day:hour:min:title:text 命令。
 
         function addSchedule() {
-            let dt = document.getElementById('sch_time').value; let n = document.getElementById('sch_name').value.replace(/:/g, "："); let txt = document.getElementById('sch_text').value.replace(/:/g, "：");
+            let dt = document.getElementById('sch_time').value; let n = sanitizeCommandField(document.getElementById('sch_name').value); let txt = sanitizeCommandField(document.getElementById('sch_text').value);
             if (!dt || !n) return alert(i18n[currentLang].msg_param_err);
             let [y, mo, d] = dt.split('T')[0].split('-'); let [h, m] = dt.split('T')[1].split(':');
-            sendRaw(`SCH:${y}:${mo}:${d}:${h}:${m}:${n}:${txt}`); setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
+            sendRaw(`SCH:${y}:${mo}:${d}:${h}:${m}:${n}:${txt}`, { syncAfter: true });
         }
 
+        // 【函数说明】读取自定义指令输入框并按当前网页语言发送 PRE:ZH/EN。
+
         function addPre() {
-            let txt = document.getElementById('pre_text').value.replace(/:/g, "：");
+            let txt = sanitizeCommandField(document.getElementById('pre_text').value);
             if (!txt) return alert(i18n[currentLang].msg_empty);
             // 【核心修改】：发送带语言标签的指令
-            sendRaw(`PRE:${currentLang.toUpperCase()}:${txt}`);
-            setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
+            sendRaw(`PRE:${currentLang.toUpperCase()}:${txt}`, { syncAfter: true });
             document.getElementById('pre_text').value = "";
         }
 
+        // 【函数说明】读取番茄钟表单并发送 POM:slot:name:work:rest 命令。
+
         function updatePom() {
-            let slot = document.getElementById('pom_slot').value; let n = document.getElementById('pom_name').value.replace(/:/g, "："); let w = document.getElementById('pom_work').value; let r = document.getElementById('pom_rest').value;
-            sendRaw(`POM:${slot}:${n}:${w}:${r}`);
+            let slot = document.getElementById('pom_slot').value; let n = sanitizeCommandField(document.getElementById('pom_name').value); let w = document.getElementById('pom_work').value; let r = document.getElementById('pom_rest').value;
+            sendRaw(`POM:${slot}:${n}:${w}:${r}`, { syncAfter: true });
         }
+
+        // 【函数说明】读取 WiFi SSID 和密码并发送 WIFI:ssid:password 命令。
 
         function setWifi() {
             let ssid = document.getElementById('wifi_ssid').value.trim(); let pass = document.getElementById('wifi_pass').value.trim();
             if (!ssid) return alert(i18n[currentLang].msg_wifi_empty);
-            sendRaw(`WIFI:${ssid}:${pass}`);
+            sendRaw(`WIFI:${sanitizeCommandField(ssid, true)}:${sanitizeCommandField(pass, true)}`, { syncAfter: false });
             document.getElementById('wifi_pass').value = "";
             alert(i18n[currentLang].msg_wifi_sent);
         }
         // ==========================================
         // 【核心新增】：一键随机注入 10 条云端指令
         // ==========================================
+        // 【函数说明】从当前语言云端指令中随机选取未注入的 10 条，逐条发送 PRE 命令，最后统一请求同步。
         async function injectRandomTen() {
             if (!bleCharacteristic) return alert(i18n[currentLang].msg_conn_err);
             if (!globalCloudData || globalCloudData.length === 0) return;
@@ -938,7 +1098,7 @@
             for (let i = 0; i < picked.length; i++) {
                 let text = picked[i].content;
                 uploadedSessionItems.add(text); // 标记为已上传
-                await sendRaw(`PRE:${langTag}:${text}`);
+                await sendRaw(`PRE:${langTag}:${sanitizeCommandField(text)}`, { syncAfter: false });
                 await new Promise(r => setTimeout(r, 100)); // 延迟防拥堵
             }
             saveUploadState(); // 【新增】：10条全部发完后，统一保存一次记忆
@@ -948,11 +1108,12 @@
             renderCloudItems(globalCloudData);
 
             // 6. 通知终端更新状态
-            setTimeout(() => sendRaw('GET:SYNC:' + langTag), 500);
+            requestSyncDebounced(250);
             alert(currentLang === 'zh' ? `已成功从云端随机注入 ${picked.length} 条指令！` : `Successfully injected ${picked.length} random prescripts!`);
         }
+        // 【函数说明】读取硬币技能表单并发送 COIN:基础值:硬币值:硬币数:颜色序列:技能名。
         function addCoin() {
-            let n = document.getElementById('coin_name').value.replace(/:/g, "：");
+            let n = sanitizeCommandField(document.getElementById('coin_name').value);
             let bp = document.getElementById('coin_bp').value;
             let cp = document.getElementById('coin_cp').value;
             let cc = document.getElementById('coin_cc').value;
@@ -963,18 +1124,18 @@
             colorSelects.forEach(sel => cl_str += sel.value);
 
             if (!n) return alert(i18n[currentLang].msg_empty);
-            sendRaw(`COIN:${bp}:${cp}:${cc}:${cl_str}:${n}`);
-            setTimeout(() => sendRaw('GET:SYNC:' + currentLang.toUpperCase()), 500);
+            sendRaw(`COIN:${bp}:${cp}:${cc}:${cl_str}:${n}`, { syncAfter: true });
         }
         // ==========================================
         // 【新增】：一键强行触发特异点或人物链条
         // ==========================================
+        // 【函数说明】读取特殊指令 ID 并发送 SPC:id，让 ESP 锁定并弹出对应特殊指令。
         function forceSpecial() {
             let id = document.getElementById('spc_id').value.trim();
             if (!id) return alert(i18n[currentLang].msg_empty);
 
             // 发送 SPC: 协议
-            sendRaw(`SPC:${id}`);
+            sendRaw(`SPC:${sanitizeCommandField(id, true)}`, { syncAfter: false });
 
             // 选填：触发后清空输入框
             // document.getElementById('spc_id').value = "";

@@ -1,3 +1,7 @@
+/*
+【模块职责】DRV2605L 震动实现。用 Wire1 访问 0x5A，按全局震动开关和强度等级把基础波形映射到不同衰减 ROM 波形，并支持睡眠/唤醒。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 #include "sys_haptic.h"
 #include "sys_config.h"
 #include "sys_constants.h"
@@ -6,6 +10,7 @@
 
 SysHaptic sysHaptic;
 
+// 【函数说明】向 DRV2605L 写一个寄存器值，所有震动波形配置都通过 Wire1 调用这个最小封装。
 void drv_write(uint8_t reg, uint8_t val)
 {
     Wire1.beginTransmission(PrescriptConst::DRV2605_ADDR);
@@ -14,6 +19,7 @@ void drv_write(uint8_t reg, uint8_t val)
     Wire1.endTransmission();
 }
 
+// 【函数说明】初始化 Wire1 的 SDA/SCL，引导 DRV2605L 退出待机并选择内部 LRA 波形库。
 void SysHaptic::begin()
 {
     Wire1.begin(PrescriptConst::PIN_I2C_SDA, PrescriptConst::PIN_I2C_SCL);
@@ -24,6 +30,7 @@ void SysHaptic::begin()
     drv_write(0x03, 0x06); // 内部 LRA 预设库
 }
 
+// 【函数说明】根据全局震动开关和强度，把基础波形号映射到 100/60/30% 物理 ROM 波形，并触发 GO 寄存器。
 void playWaveform(uint8_t base_effect)
 {
     if (!sysConfig.haptic_enable)
@@ -75,14 +82,18 @@ void playWaveform(uint8_t base_effect)
 }
 
 // 核心波形全面升级为清脆短波
+// 【函数说明】播放旋钮移动使用的 Soft Bump 短震。
 void SysHaptic::playTick() { playWaveform(7); }      // 旋钮：极短微震
 void SysHaptic::playConfirm() { playWaveform(4); }   // 确认：清脆单击
+// 【函数说明】播放返回/长按使用的 Double Click 震动。
 void SysHaptic::playBack() { playWaveform(10); }     // 返回：双击段落
 void SysHaptic::playCoinHeads() { playWaveform(4); } // 抛硬币正面：强确认
+// 【函数说明】播放硬币反面结果的较弱震动。
 void SysHaptic::playCoinTails() { playWaveform(5); } // 抛硬币反面：比正面弱一档
 void SysHaptic::playAlert() { playWaveform(15); }    // 警告提示
 
 // 复合连击也严格遵循用户的强度设置！
+// 【函数说明】写入三段波形队列和短等待，形成解码完成的复合连击震动。
 void SysHaptic::playDecodeSuccess()
 {
     if (!sysConfig.haptic_enable)
@@ -117,6 +128,7 @@ void SysHaptic::playDecodeSuccess()
     drv_write(0x0C, 0x01);
 }
 
+// 【函数说明】把 DRV2605L MODE 写成 standby，休眠时停止触觉驱动。
 void SysHaptic_Sleep()
 {
     Wire1.beginTransmission(0x5A);
@@ -125,6 +137,7 @@ void SysHaptic_Sleep()
     Wire1.endTransmission();
 }
 
+// 【函数说明】把 DRV2605L MODE 写回 internal trigger，唤醒后恢复波形播放能力。
 void SysHaptic_Wakeup()
 {
     Wire1.beginTransmission(0x5A);

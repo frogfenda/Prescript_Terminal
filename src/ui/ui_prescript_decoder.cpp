@@ -1,3 +1,7 @@
+/*
+【模块职责】指令解码渲染实现。负责中英文换行、乱码字符池、四种解码动画、完成态滚动条，AppPrescript 只保留业务状态机。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 #include "ui_prescript_decoder.h"
 #include "ui_text.h"
 #include "../hal/hal.h"

@@ -1,3 +1,7 @@
+/*
+【模块职责】休眠设置页。配置空闲进入待机的时间和待机后真正 Light Sleep 的时间。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_sleep_setting.cpp
 #include "app_menu_base.h"
 #include "sys_constants.h"
@@ -8,11 +12,13 @@ private:
     int menu_level = 0; // 0:主级菜单, 1:待机时间选项, 2:深睡时间选项
 
 protected:
+    // 【函数说明】根据 menu_level 返回当前层级条目数：主层级、待机时间候选、真休眠时间候选。
     int getMenuCount() override {
         if (menu_level == 0) return 2; // 主菜单只有 2 项
         return 4;                      // 子菜单有 4 个选项
     }
 
+    // 【函数说明】按层级返回休眠设置标题，让用户知道当前正在配置待机还是深睡。
     const char* getTitle() override {
         if (appManager.getLanguage() == LANG_ZH) {
             if (menu_level == 0) return "电源与休眠策略";
@@ -26,6 +32,7 @@ protected:
         return "";
     }
 
+    // 【函数说明】返回当前层级的候选文本，例如 30 秒、1 分钟、永不休眠。
     const char* getItemText(int index) override {
         if (appManager.getLanguage() == LANG_ZH) {
             if (menu_level == 0) {
@@ -52,6 +59,7 @@ protected:
         }
     }
 
+    // 【函数说明】主层级进入具体时间选择；时间层级写入 sysConfig.sleep_time_ms/true_sleep_time_ms 并保存。
     void onItemClicked(int index) override {
         if (menu_level == 0) {
             // 【进入二级菜单】
@@ -101,6 +109,7 @@ protected:
         drawMenuUI(visual_selection); // 强制重绘刷新
     }
 
+    // 【函数说明】长按在子层级返回主层级，在主层级退出设置页。
     void onLongPressed() override {
         if (menu_level == 0) {
             appManager.popApp(); // 在主级菜单长按：退出应用
@@ -114,6 +123,7 @@ protected:
     }
 
 public:
+    // 【函数说明】进入休眠设置页时重置到主层级并绘制菜单。
     void onCreate() override {
         menu_level = 0;
         current_selection = 0;

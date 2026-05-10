@@ -5,7 +5,7 @@
 #include "sys_network.h"
 #include "sys_auto_push.h"
 #include "sys_ble.h"
-#include "sys_fs.h" // <--- 【新增】引入文件系统中枢
+#include "sys_fs.h"
 #include "hal.h"
 #include "app_manager.h"
 #include "sys/sys_audio.h"
@@ -22,31 +22,70 @@ void setup()
     Serial.begin(115200);
     Serial.println("[Main] System Booting...");
 
+    /*
+     * 开机先显式关闭 WiFi。
+     * 网络模块后续会通过 Network_RequestBootSync() 延迟触发自动同步，
+     * 避免 setup 阶段立刻拉起 WiFi 扫描导致首屏和菜单动画变慢。
+     */
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
 
-    // 【新增】：在所有系统初始化前，挂载内部数据库
+    /*
+     * 文件系统和配置必须先初始化。
+     * 后面的语言、指令库、特殊指令、网络配置都依赖 sysConfig 和 LittleFS。
+     */
     SysFS_Init();
-    SysFS_Load_Prescripts();
     sysConfig.load();
+
+    /*
+     * 先把配置中的语言写入 AppManager。
+     * 这样 SysFS_Load_Prescripts() 和 sysSpecials.begin() 能按正确语言加载资源。
+     */
+    appManager.loadLanguageFromConfig();
+    SysFS_Load_Prescripts();
     sysSpecials.begin();
+
+    /*
+     * SysTime_Init 只设置时区和清空本次开机的 NTP 记录，不联网。
+     * 网络对时由 Network_Init + Network_RequestBootSync 延迟完成。
+     */
     SysTime_Init();
+
     sysAudio.begin();
     sysPower.begin();
     HAL_Init();
     appManager.begin();
+
     extern void SysRouter_Init();
     SysRouter_Init();
+
     sysHaptic.begin();
     SysAutoPush_Init();
     SysBLE_Init();
     sysNfc.begin();
+
     Network_Init();
-    Network_StartSync();
+
+    /*
+     * 保留“开机自动同步”体验，但延迟 4 秒触发。
+     * 同步内容仍然是完整流程：WiFi -> NTP -> 隐秘指令 API。
+     * 延迟触发的好处是 UI 先进入 loop，用户不会在无网环境下看到首屏卡住。
+     */
+    Network_RequestBootSync(4000);
 }
 
 void loop()
 {
+    /*
+     * 网络轻量维护：
+     * - 到点触发开机自动同步；
+     * - 网络总超时兜底；
+     * - 如果用户开启周期校时，到间隔后启动轻量 NTP 校时。
+     *
+     * 这里不执行 WiFi.begin 或 HTTP，只做状态判断和任务通知。
+     */
+    Network_Update();
+
     SysAutoPush_Update();
     appManager.run();
     delay(1);

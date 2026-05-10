@@ -1,3 +1,7 @@
+/*
+【模块职责】同步事件总线接口。SysRouter、NFC、网络等模块发布事件，App 与系统服务订阅事件完成实际保存、删除和弹窗。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/sys/sys_event.h
 #pragma once
 #include <Arduino.h>
@@ -59,5 +63,6 @@ struct Evt_SpcForce_t { const char* id; };
 // 3. 邮局接口声明
 typedef void (*SysEventCallback)(void* payload);
 
+// 【接口说明】订阅一个系统事件，事件发布时回调会被同步调用。
 void SysEvent_Subscribe(SysEventID evt, SysEventCallback cb);
 void SysEvent_Publish(SysEventID evt, void* payload);

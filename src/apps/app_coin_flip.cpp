@@ -1,3 +1,7 @@
+/*
+【模块职责】硬币系统。包含快速投掷、技能预设投掷、硬币参数设置和预设编辑；动画用硬币贴图横向压缩模拟翻面。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_coin_flip.cpp
 #include "app_menu_base.h"
 #include "app_manager.h"
@@ -11,6 +15,7 @@
 #include "sys/sys_event.h" 
 #include "sys/sys_ble.h"   
 #include "sys/sys_constants.h"
+#include "sys/sys_command_result.h"
 
 int g_coin_run_idx = -1;  // 告诉动画引擎当前在跑哪个技能 (-1代表快速推演)
 int g_coin_edit_idx = -1; // 告诉编辑界面当前在改哪个技能
@@ -48,6 +53,7 @@ public:
         SysEvent_Subscribe(EVT_BLE_SYNC_REQ, onSyncReq); 
     }
     
+    // 【函数说明】WebBLE 同步回调：把当前硬币预设数组逐条打包成 SYNC:COIN JSON 回传网页。
     static void onSyncReq(void* payload) {
         for (int i = 0; i < sysConfig.coin_preset_count; i++) {
             CoinPreset& p = sysConfig.coin_presets[i];
@@ -59,39 +65,68 @@ public:
         }
     }
 
+    // 【函数说明】处理 COIN 命令：按技能名查找现有预设，存在则更新，不存在则追加，并保存配置和写 ACK。
     static void onCoinAdd(void* payload) {
         Evt_CoinAdd_t* p = (Evt_CoinAdd_t*)payload;
         String name = String(p->name);
+        name.trim();
+        if (name.length() == 0)
+        {
+            SysCmdResult_Error("EMPTY_NAME");
+            return;
+        }
+        if (p->cc < 1 || p->cc > 9)
+        {
+            SysCmdResult_Error("INVALID_COIN_COUNT");
+            return;
+        }
+
         int idx = -1;
-        
         for(int i=0; i<sysConfig.coin_preset_count; i++) {
             if (sysConfig.coin_presets[i].name == name) { idx = i; break; }
         }
-        if (idx == -1 && sysConfig.coin_preset_count < 10) {
+
+        bool updated = (idx >= 0);
+        if (idx == -1) {
+            if (sysConfig.coin_preset_count >= PrescriptConst::MAX_COIN_PRESETS)
+            {
+                SysCmdResult_Error("FULL");
+                return;
+            }
             idx = sysConfig.coin_preset_count;
             sysConfig.coin_preset_count++;
         }
-        
-        if (idx != -1) {
-            sysConfig.coin_presets[idx].name = name;
-            sysConfig.coin_presets[idx].base_power = p->bp;
-            sysConfig.coin_presets[idx].coin_power = p->cp;
-            sysConfig.coin_presets[idx].coin_count = p->cc;
-            sysConfig.coin_presets[idx].coin_colors = String(p->colors); 
-            sysConfig.save(); 
-            SysBLE_Notify("SYNC:CLEAR"); 
-        }
+
+        sysConfig.coin_presets[idx].name = name;
+        sysConfig.coin_presets[idx].base_power = p->bp;
+        sysConfig.coin_presets[idx].coin_power = p->cp;
+        sysConfig.coin_presets[idx].coin_count = p->cc;
+        sysConfig.coin_presets[idx].coin_colors = String(p->colors);
+        sysConfig.save();
+        SysBLE_Notify("SYNC:CLEAR");
+
+        if (updated)
+            SysCmdResult_Warn("UPDATED", name);
+        else
+            SysCmdResult_Ok("ADDED", name);
     }
 
+    // 【函数说明】处理 COIN_DEL 命令：按技能名删除预设，移动后续元素填补空位，保存配置并返回 DELETED/NOT_FOUND。
     static void onCoinDel(void* payload) {
         Evt_CoinDel_t* p = (Evt_CoinDel_t*)payload;
         String name = String(p->name);
+        name.trim();
+        if (name.length() == 0)
+        {
+            SysCmdResult_Error("EMPTY_NAME");
+            return;
+        }
+
         int idx = -1;
-        
         for(int i=0; i<sysConfig.coin_preset_count; i++) {
             if (sysConfig.coin_presets[i].name == name) { idx = i; break; }
         }
-        
+
         if (idx != -1) {
             for (int i=idx; i<sysConfig.coin_preset_count-1; i++) {
                 sysConfig.coin_presets[i] = sysConfig.coin_presets[i+1];
@@ -99,6 +134,11 @@ public:
             sysConfig.coin_preset_count--;
             sysConfig.save();
             SysBLE_Notify("SYNC:CLEAR");
+            SysCmdResult_Ok("DELETED", name);
+        }
+        else
+        {
+            SysCmdResult_Error("NOT_FOUND", name);
         }
     }
 };
@@ -122,10 +162,12 @@ protected:
     bool global_is_animating = false;
     uint32_t last_frame_time = 0;
 
+    // 【函数说明】返回硬币动画左侧保留区域宽度；快速和技能投掷都使用全宽动画，所以返回 0。
     virtual int getLeftPanelWidth() { return 0; }
     virtual int getTopPanelHeight() { return 0; } 
     virtual void drawStaticUI() {}
     virtual bool drawDynamicUI() { return false; }
+    // 【函数说明】单枚硬币停止时的回调，子类用它更新计数、点数和结果反馈。
     virtual void onCoinStop(int idx) {}
     virtual void onAllCoinsStopped() {}
 
@@ -136,6 +178,7 @@ protected:
         HAL_Sprite_PushImage(x, y, w, h, coin_buffer);
     }
 
+    // 【函数说明】把硬币 RGB565 贴图按 scaleX 横向压缩到缓冲区，scaleX 接近 0 时形成翻转到侧面的视觉。
     void drawScaledCoinToBuffer(int idx, float scaleX, int target_size) {
         memset(coin_buffer, 0, target_size * target_size * 2);
         
@@ -193,6 +236,7 @@ protected:
         }
     }
 
+    // 【函数说明】只重绘仍在翻转或需要闪烁的硬币，减少硬币动画中无意义的贴图绘制。
     bool drawActiveCoinsOnly() {
         int left_w = getLeftPanelWidth();
         int top_h = getTopPanelHeight(); 
@@ -226,6 +270,7 @@ protected:
         return screen_needs_push;
     }
 
+    // 【函数说明】让指定硬币停止在目标正反面，设置闪烁帧并触发单枚停止回调。
     void stopCoin(int idx) {
         coins[idx].is_flipping = false;
         int heads_chance = 50 + sysConfig.coin_data.sanity;
@@ -236,6 +281,7 @@ protected:
     }
 
 public:
+    // 【函数说明】硬币动画主循环：推进角度、按自动计时停止硬币、绘制动态 UI，并在有变化时推屏。
     void onLoop() override {
         uint32_t now = millis();
         if (now - last_frame_time < CoinAnimParams::FRAME_DELAY_MS) return;
@@ -249,6 +295,7 @@ public:
                     coins[i].current_angle += CoinAnimParams::RAPID_SPIN_STEP;
                     if (sysConfig.coin_data.mode == 0) {
                         if (coins[i].auto_stop_timer > 0) coins[i].auto_stop_timer--;
+                        // 【函数说明】让指定硬币停止在目标正反面，设置闪烁帧并触发单枚停止回调。
                         else stopCoin(i);
                     }
                 }
@@ -270,6 +317,7 @@ public:
         }
     }
 
+   // 【函数说明】离开硬币动画页时停止动画标志，静态资源继续保留在全局资源缓存中。
    void onDestroy() override {
         sysAudio.stopWAV();
         // 退出时只释放橡皮擦缓存，不碰全局图片
@@ -282,6 +330,7 @@ public:
 // ==========================================
 class AppCoinQuick : public AppCoinCore {
 protected:
+    // 【函数说明】返回硬币动画左侧保留区域宽度；快速和技能投掷都使用全宽动画，所以返回 0。
     int getLeftPanelWidth() override { return 0; } 
     int getTopPanelHeight() override { return 0; } 
 
@@ -294,6 +343,7 @@ protected:
         }
     }
 
+    // 【函数说明】单枚硬币停止时的回调，子类用它更新计数、点数和结果反馈。
     void onCoinStop(int idx) override {
         sysAudio.stopWAV();
         if (coins[idx].target_face == 0) {
@@ -319,6 +369,7 @@ public:
         for(int i=0; i<active_coins; i++) { coins[i].current_angle = 0; coins[i].is_flipping = false; coins[i].flash_frames = 0; coins[i].needs_redraw = true; coins[i].target_face = 0; }
         HAL_Sprite_Clear(); drawActiveCoinsOnly(); drawStaticUI(); HAL_Screen_Update();
     }
+    // 【函数说明】返回硬币页时重新执行 onCreate，重置一轮投掷动画。
     void onResume() override { onCreate(); }
     void onKnob(int delta) override {}
 
@@ -334,6 +385,7 @@ public:
         }
         last_frame_time = millis();
     }
+    // 【函数说明】长按退出硬币投掷页并返回上一层菜单。
     void onKeyLong() override { SYS_SOUND_NAV(); appManager.popApp(); }
 };
 
@@ -351,6 +403,7 @@ private:
     uint16_t top_pop_color = TFT_WHITE;
 
 protected:
+    // 【函数说明】返回硬币动画左侧保留区域宽度；快速和技能投掷都使用全宽动画，所以返回 0。
     int getLeftPanelWidth() override { return 0; } 
     int getTopPanelHeight() override { return 26; } 
 
@@ -362,6 +415,7 @@ protected:
         updateTopPanelScore(TFT_WHITE);
     }
 
+    // 【函数说明】绘制技能投掷顶部点数面板，显示基础值、硬币增量和当前累计点数。
     void updateTopPanelScore(uint16_t color) {
         eraseRect(140, 0, 144, 24); 
         char pow_str[16]; sprintf(pow_str, "%d", current_power); 
@@ -378,6 +432,7 @@ protected:
         }
     }
 
+    // 【函数说明】绘制硬币页面中随结果变化的 UI，例如技能投掷的点数弹出；返回 true 表示需要推屏。
     bool drawDynamicUI() override {
         bool needs_push = false;
         if (top_pop_timer > 0) { top_pop_timer--; needs_push = true; }
@@ -392,6 +447,7 @@ protected:
         return needs_push;
     }
 
+    // 【函数说明】单枚硬币停止时的回调，子类用它更新计数、点数和结果反馈。
     void onCoinStop(int idx) override {
         sysAudio.stopWAV();
         CoinPreset& p = sysConfig.coin_presets[g_coin_run_idx];
@@ -414,6 +470,7 @@ protected:
             SYS_HAPTIC_COIN_TAILS();
         }
     }
+    // 【函数说明】所有硬币停止后的回调，技能模式用它切换到结果阶段。
     void onAllCoinsStopped() override { phase = 2; }
 
 public:
@@ -429,6 +486,7 @@ void onCreate() override {
         for(int i=0; i<active_coins; i++) { coins[i].current_angle = 0; coins[i].is_flipping = false; coins[i].flash_frames = 0; coins[i].needs_redraw = true; coins[i].target_face = 0; }
         HAL_Sprite_Clear(); drawActiveCoinsOnly(); drawStaticUI(); HAL_Screen_Update();
     }
+    // 【函数说明】返回硬币页时重新执行 onCreate，重置一轮投掷动画。
     void onResume() override { onCreate(); }
     void onKnob(int delta) override {}
 
@@ -451,6 +509,7 @@ void onCreate() override {
         }
         last_frame_time = millis();
     }
+    // 【函数说明】长按退出硬币投掷页并返回上一层菜单。
     void onKeyLong() override { SYS_SOUND_NAV(); appManager.popApp(); }
 };
 
@@ -469,6 +528,7 @@ private:
     bool is_editing = false;
 
 protected:
+    // 【函数说明】返回硬币设置/菜单条目数量，决定 AppMenuBase 的循环滚动范围。
     int getMenuCount() override { return 4; } 
 
     const char *getTitle() override
@@ -502,6 +562,7 @@ protected:
         return text_buf;
     }
 
+    // 【函数说明】把硬币设置条目拆成可跳动的数值片段，例如理智值、硬币数量和模式。
     bool getItemEditParts(int index, const char **prefix, const char **anim_val, const char **suffix) override
     {
         if (!is_editing || index != current_selection)
@@ -546,6 +607,7 @@ protected:
         return false;
     }
 
+    // 【函数说明】根据设置项返回颜色，高风险/当前可编辑项可以与普通条目区分。
     uint16_t getItemColor(int index) override
     {
         if (index == current_selection)
@@ -553,6 +615,7 @@ protected:
         return 0x07FF;
     }
 
+    // 【函数说明】硬币菜单/设置项确认入口，按 index 进入快速投掷、技能投掷、设置或预设编辑。
     void onItemClicked(int index) override
     {
         SYS_SOUND_CONFIRM();
@@ -562,6 +625,7 @@ protected:
         AppMenuBase::onResume();
     }
 
+    // 【函数说明】硬币投掷动画中旋钮不改变状态，避免用户中途改变结果。
     void onKnob(int delta) override
     {
         if (is_editing)
@@ -598,6 +662,7 @@ protected:
             AppMenuBase::onKnob(delta);
     }
 
+    // 【函数说明】硬币菜单长按返回上一级，设置页则保存配置后返回。
     void onLongPressed() override
     {
         if (is_editing)
@@ -626,6 +691,7 @@ private:
     DialAnimator dialAnim;       
     TacticalLinkEngine linkAnim; 
 
+    // 【函数说明】绘制硬币预设编辑器：流程链路显示基础值、硬币值、数量、材质，中央滚轮显示当前数值。
     void drawUI() {
         HAL_Sprite_Clear();
         int sw = HAL_Get_Screen_Width();
@@ -678,6 +744,7 @@ public:
         phase = 0; linkAnim.jumpTo(phase); drawUI();
     }
 
+    // 【函数说明】返回硬币页时重新执行 onCreate，重置一轮投掷动画。
     void onResume() override { drawUI(); }
 
     void onLoop() override {
@@ -686,6 +753,7 @@ public:
         if (d_anim || l_anim) drawUI();
     }
 
+    // 【函数说明】离开硬币动画页时停止动画标志，静态资源继续保留在全局资源缓存中。
     void onDestroy() override {}
 
     void onKnob(int delta) override {
@@ -699,6 +767,7 @@ public:
         drawUI();
     }
 
+    // 【函数说明】短按在未动画时重新开始一轮投掷；动画中通常用于跳过或不处理。
     void onKeyShort() override {
         SYS_SOUND_CONFIRM();
         if (phase < 4) {
@@ -720,7 +789,7 @@ public:
                 String c_str = ""; for(int i=0; i<cc; i++) c_str += String(cl);
                 sysConfig.coin_presets[idx].coin_colors = c_str;
                 char autoName[16];
-                sprintf(autoName, "预设-%d", idx + 1);
+                sprintf(autoName, appManager.getLanguage() == LANG_ZH ? "预设-%d" : "PRESET-%d", idx + 1);
                 sysConfig.coin_presets[idx].name = autoName;
                 sysConfig.coin_preset_count++;
             }
@@ -729,6 +798,7 @@ public:
         }
     }
 
+    // 【函数说明】长按退出硬币投掷页并返回上一层菜单。
     void onKeyLong() override {
         if (phase == 4) {
             if (g_coin_edit_idx >= 0) {
@@ -763,6 +833,7 @@ AppBase *appCoinPresetEdit = &instanceCoinPresetEdit;
 class AppCoinMenu : public AppMenuBase
 {
 protected:
+    // 【函数说明】返回硬币设置/菜单条目数量，决定 AppMenuBase 的循环滚动范围。
     int getMenuCount() override { 
         return sysConfig.coin_preset_count + 3; 
     }
@@ -790,6 +861,7 @@ protected:
         return buf;
     }
 
+   // 【函数说明】硬币菜单/设置项确认入口，按 index 进入快速投掷、技能投掷、设置或预设编辑。
    void onItemClicked(int index) override
     {
         if (index == 0) {
@@ -811,6 +883,7 @@ protected:
         }
     }
 
+    // 【函数说明】硬币菜单长按返回上一级，设置页则保存配置后返回。
     void onLongPressed() override
     {
         if (current_selection > 0 && current_selection <= sysConfig.coin_preset_count) {

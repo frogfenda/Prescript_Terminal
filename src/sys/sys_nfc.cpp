@@ -1,3 +1,7 @@
+/*
+【模块职责】PN532 NFC 实现。常态扫描 M1/NTAG 文本命令并发布 EVT_NFC_SCANNED；伪装模式下手写 PN532 target/APDU 流程向手机暴露 LimbusCompany NDEF。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/sys/sys_nfc.cpp
 #include "sys_nfc.h"
 #include "sys_constants.h"
@@ -25,6 +29,7 @@ bool g_nfc_is_emulating = false;
 bool g_nfc_just_started_emu = false;
 uint32_t g_nfc_emu_end_time = 0;
 
+// 【函数说明】启动 60 秒靶卡伪装窗口，设置结束时间和首次复位标志，并播放确认反馈。
 void SysNfc_StartEmulation()
 {
     g_nfc_is_emulating = true;
@@ -34,6 +39,7 @@ void SysNfc_StartEmulation()
     SYS_SOUND_CONFIRM();
 }
 
+// 【函数说明】返回伪装状态；如果当前时间超过结束时间，先自动清除伪装标志。
 bool SysNfc_IsEmulating()
 {
     if (g_nfc_is_emulating && millis() >= g_nfc_emu_end_time)
@@ -42,6 +48,7 @@ bool SysNfc_IsEmulating()
     }
     return g_nfc_is_emulating;
 }
+// 【函数说明】提前终止伪装：把结束时间置 0，让后台 APDU 循环在下一次检查时退出并复位 PN532。
 void SysNfc_StopEmulation()
 {
     if (g_nfc_is_emulating)
@@ -53,6 +60,7 @@ void SysNfc_StopEmulation()
     }
 }
 
+// 【函数说明】计算伪装窗口剩余秒数，HUD 显示 BUS 倒计时使用。
 int SysNfc_GetEmulationRemainingSeconds()
 {
     if (!SysNfc_IsEmulating()) return 0;
@@ -67,6 +75,7 @@ uint8_t ndef_file[] = {
     'a', 'n', 'd', 'r', 'o', 'i', 'd', '.', 'c', 'o', 'm', ':', 'p', 'k', 'g',
     'c', 'o', 'm', '.', 'P', 'r', 'o', 'j', 'e', 'c', 't', 'M', 'o', 'o', 'n', '.', 'L', 'i', 'm', 'b', 'u', 's', 'C', 'o', 'm', 'p', 'a', 'n', 'y'};
 
+// 【函数说明】按 PN532 SPI 帧格式手写命令发送：写 preamble/len/checksum/data，轮询 ready 状态并读取 ACK。
 bool raw_sendCommand(uint8_t *cmd, uint8_t cmdlen)
 {
     nfc_spi.beginTransaction(pn532_spi_settings);
@@ -129,6 +138,7 @@ bool raw_sendCommand(uint8_t *cmd, uint8_t cmdlen)
     return true;
 }
 
+// 【函数说明】按 PN532 SPI 帧格式读取响应：等待 ready，校验 preamble 与长度校验，再把 payload 拷入缓冲。
 int raw_readResponse(uint8_t *buf, uint8_t maxlen, uint16_t timeout)
 {
     nfc_spi.beginTransaction(pn532_spi_settings);
@@ -196,6 +206,7 @@ int raw_readResponse(uint8_t *buf, uint8_t maxlen, uint16_t timeout)
     return actual_len;
 }
 
+// 【函数说明】硬复位 PN532：拉低 RESET、恢复 HIGH，再轻触 SS，清理 target 模式或读卡异常状态。
 void raw_reset()
 {
     digitalWrite(PrescriptConst::PIN_NFC_RESET, LOW);
@@ -215,6 +226,7 @@ void raw_reset()
 // ==========================================
 // 【低功耗控制接口】：随时物理断电 + 锁死引脚防漏电
 // ==========================================
+// 【函数说明】休眠前挂起 NFC 任务，拉低并 hold RESET 引脚，关闭射频并降低漏电。
 void SysNfc_Sleep()
 {
     if (nfcTaskHandle != NULL)
@@ -232,6 +244,7 @@ void SysNfc_Sleep()
     Serial.println("[NFC-电源管理] 模块已进入休眠，射频天线关闭并锁定引脚 (1µA)。");
 }
 
+// 【函数说明】唤醒后解除 GPIO hold，重新 nfc.begin/SAMConfig，并恢复后台扫描任务。
 void SysNfc_Wakeup()
 {
     // 【核心补丁：解除物理锁】
@@ -248,6 +261,7 @@ void SysNfc_Wakeup()
     }
     Serial.println("[NFC-电源管理] 模块已唤醒，恢复主动雷达扫描。");
 }
+// 【函数说明】NFC 后台任务主循环：普通模式扫描 M1/NTAG 命令卡，伪装模式进入 PN532 target/APDU 流程向手机投递 NDEF。
 void nfc_bg_task(void *pvParameters)
 {
     while (true)
@@ -263,7 +277,7 @@ void nfc_bg_task(void *pvParameters)
             if (millis() > g_nfc_emu_end_time)
             {
                 Serial.println("[NFC-硬件SPI] 60秒伪装结束，恢复主动雷达扫描！");
-                sysHaptic.playTick();
+                Feedback_PlayKnobTick();
                 g_nfc_is_emulating = false;
 
                 digitalWrite(PrescriptConst::PIN_NFC_RESET, LOW);
@@ -304,7 +318,7 @@ void nfc_bg_task(void *pvParameters)
                 if (connected)
                 {
                     Serial.println("[NFC-硬件SPI] 手机已碰触！建立 APDU 隧道...");
-                    sysHaptic.playConfirm();
+                    Feedback_PlayConfirm();
                     int current_file = 0;
                     bool payload_delivered = false;
 
@@ -420,7 +434,7 @@ void nfc_bg_task(void *pvParameters)
                     if (payload_delivered)
                     {
                         Serial.println("[NFC-硬件SPI] 载荷投递成功！准备迎接下一次碰触...");
-                        sysHaptic.playConfirm();
+                        Feedback_PlayConfirm();
                     }
                     else
                     {
@@ -565,7 +579,7 @@ void nfc_bg_task(void *pvParameters)
                 if (read_aborted)
                 {
                     Serial.println("[NFC-警告] 读取不完整，数据丢弃！");
-                    sysAudio.playTone(400, 150);
+                    Feedback_PlayNfcReadError();
                 }
                 else
                 {
@@ -593,8 +607,7 @@ void nfc_bg_task(void *pvParameters)
                         String clean_text = raw_text.substring(min_idx);
                         Serial.printf("[NFC] 提取指令: %s\n", clean_text.c_str());
                         snprintf(payload.payload, sizeof(payload.payload), "%s", clean_text.c_str());
-                        sysAudio.playTone(4000, 50);
-                        sysHaptic.playConfirm();
+                        Feedback_PlayNfcReadOk();
                         SysEvent_Publish(EVT_NFC_SCANNED, &payload);
                         has_valid_cmd = true;
                     }
@@ -604,7 +617,7 @@ void nfc_bg_task(void *pvParameters)
                             Serial.printf("[NFC-警告] 未发现有效指令头: %s\n", raw_text.c_str());
                         else
                             Serial.println("[NFC-警告] 卡片内容为空！");
-                        sysAudio.playTone(400, 150);
+                        Feedback_PlayNfcReadError();
                     }
                 }
             }
@@ -680,8 +693,7 @@ void nfc_bg_task(void *pvParameters)
                     String clean_text = raw_text.substring(min_idx);
                     Serial.printf("[NFC] 提取指令: %s\n", clean_text.c_str());
                     snprintf(payload.payload, sizeof(payload.payload), "%s", clean_text.c_str());
-                    sysAudio.playTone(4000, 50);
-                    sysHaptic.playConfirm();
+                    Feedback_PlayNfcReadOk();
                     SysEvent_Publish(EVT_NFC_SCANNED, &payload);
                     has_valid_cmd = true;
                 }
@@ -691,7 +703,7 @@ void nfc_bg_task(void *pvParameters)
                         Serial.printf("[NFC-警告] 未发现有效指令头: %s\n", raw_text.c_str());
                     else
                         Serial.println("[NFC-警告] NTAG 内容为空！");
-                    sysAudio.playTone(400, 150);
+                    Feedback_PlayNfcReadError();
                 }
             }
         }
@@ -730,7 +742,7 @@ void SysNFC::begin()
     {
         Serial.println("[NFC-警告] 找不到 PN532 模块，NFC服务将离线...");
         
-        // 【核心修复】：直接 return 退出 begin() 初始化函数。
+        // 【核心修复】：直接 return 退出 begin() 初始化流程。
         // 这样既保住了主线程继续去连 WiFi，又完美避开了下方创建 NFC 后台任务的代码！
         return; 
     }

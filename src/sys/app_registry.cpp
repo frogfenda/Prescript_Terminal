@@ -1,3 +1,7 @@
+/*
+【模块职责】App 实例集中定义与查找表。所有页面对象在这里静态创建，AppManager 通过 AppId 取指针并调用生命周期。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 #include "app_registry.h"
 #include "app_manager.h"
 
@@ -33,6 +37,11 @@ extern AppBase *appPrescriptList;
 extern AppBase *appVolumeSetting;
 extern AppBase *appGachaStats;
 
+// 时间设置相关 App 在 app_time_setting.cpp 中定义。
+extern AppBase *appTimeSetting;
+extern AppBase *appTimeManualSet;
+extern AppBase *appTimeDateSet;
+
 AppBase* AppRegistry_Get(AppId id)
 {
     switch (id)
@@ -66,6 +75,9 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::PrescriptList: return appPrescriptList;
         case AppId::VolumeSetting: return appVolumeSetting;
         case AppId::GachaStats: return appGachaStats;
+        case AppId::TimeSetting: return appTimeSetting;
+        case AppId::TimeManualSet: return appTimeManualSet;
+        case AppId::TimeDateSet: return appTimeDateSet;
         default: return nullptr;
     }
 }
@@ -103,14 +115,20 @@ const char* AppRegistry_Name(AppId id)
         case AppId::PrescriptList: return "PrescriptList";
         case AppId::VolumeSetting: return "VolumeSetting";
         case AppId::GachaStats: return "GachaStats";
+        case AppId::TimeSetting: return "TimeSetting";
+        case AppId::TimeManualSet: return "TimeManualSet";
+        case AppId::TimeDateSet: return "TimeDateSet";
         default: return "Unknown";
     }
 }
 
 void AppRegistry_InstallSystemApps()
 {
-    // Apps that subscribe to events or need background ticks register themselves here.
-    // Navigation-only apps do not need onSystemInit() during boot.
+    /*
+     * 这里只安装需要事件订阅或后台 tick 的 App。
+     * TimeSetting / TimeManualSet / TimeDateSet 只是用户进入时才运行的导航页面，
+     * 没有事件订阅，也不需要后台检查，所以不安装到后台 App 列表。
+     */
     appManager.installApp(AppId::Schedule);
     appManager.installApp(AppId::Alarm);
     appManager.installApp(AppId::Pomodoro);

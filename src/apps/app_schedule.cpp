@@ -1,3 +1,7 @@
+/*
+【模块职责】日程指令系统。支持普通/隐藏日程添加删除、编辑器选择日期时间、后台到点弹窗、过期日程列表。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_schedule.cpp
 #include "app_base.h"
 #include "app_menu_base.h"
@@ -7,30 +11,47 @@
 #include <time.h>
 #include "sys_event.h"
 #include "sys_ble.h"
+#include "sys_command_result.h"
 
 int g_schedule_edit_idx = -1;
+// 【函数说明】事件回调：把 Router 传入的时间戳、标题、文本、隐藏标志交给 Schedule_AddMobile。
 void _Cb_SchAdd(void* payload);
 void _Cb_SchDel(void* payload);
 void _Cb_SchSync(void* payload);
 void Schedule_DeleteMobile(const char *title)
-
 {
-    bool deleted = false;
+    String target = String(title);
+    target.trim();
+    if (target.length() == 0)
+    {
+        SysCmdResult_Error("EMPTY_TITLE");
+        return;
+    }
+
+    int deletedCount = 0;
     for (int i = 0; i < sysConfig.schedule_count; i++)
     {
-        if (sysConfig.schedules[i].title == title)
+        if (sysConfig.schedules[i].title == target)
         {
             for (int j = i; j < sysConfig.schedule_count - 1; j++)
             {
                 sysConfig.schedules[j] = sysConfig.schedules[j + 1];
             }
             sysConfig.schedule_count--;
-            deleted = true;
+            deletedCount++;
             i--;
         }
     }
-    if (deleted)
+
+    if (deletedCount > 0)
+    {
         sysConfig.save();
+        SysCmdResult_Ok("DELETED", target);
+    }
+    else
+    {
+        SysCmdResult_Error("NOT_FOUND", target);
+    }
 }
 
 const char *Get_Title_Preset(int idx)
@@ -46,6 +67,7 @@ const char *Get_Text_Preset(int p_idx)
     return (appManager.getLanguage() == LANG_ZH) ? zh_p[p_idx] : en_p[p_idx];
 }
 
+// 【函数说明】按 target_time 从早到晚排序日程数组，使菜单和到点检查都按时间顺序工作。
 void Sort_Schedules()
 {
     for (int i = 0; i < sysConfig.schedule_count - 1; i++)
@@ -62,46 +84,70 @@ void Sort_Schedules()
     }
 }
 
-// 【修改】：末尾增加 bool is_hidden = false 参数
+// 【函数说明】处理 SCH/SCH_HID 命令：校验重复和容量，必要时回收过期项，再写入普通/隐藏日程并排序保存。
 void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden)
 {
-    // 【核心修复 1：查重防刷】
-    // 遍历检查是否已经存在完全相同的日程（防止每次联网都重复添加同一个 API 指令）
-    for (int i = 0; i < sysConfig.schedule_count; i++) {
-        if (sysConfig.schedules[i].target_time == target_time && 
-            sysConfig.schedules[i].title == String(title)) {
-            return; // 已经存在，绝对不重复添加！
+    String safeTitle = String(title);
+    safeTitle.trim();
+    if (safeTitle.length() == 0)
+    {
+        SysCmdResult_Error("EMPTY_TITLE");
+        return;
+    }
+    if (target_time == 0)
+    {
+        SysCmdResult_Error("INVALID_TIME");
+        return;
+    }
+
+    for (int i = 0; i < sysConfig.schedule_count; i++)
+    {
+        if (sysConfig.schedules[i].target_time == target_time &&
+            sysConfig.schedules[i].title == safeTitle)
+        {
+            SysCmdResult_Warn("EXISTS", safeTitle);
+            return;
         }
     }
 
-    // 【核心修复 2：容量保护与强制清理】
-    if (sysConfig.schedule_count >= PrescriptConst::MAX_SCHEDULES) {
+    bool recycledExpired = false;
+    if (sysConfig.schedule_count >= PrescriptConst::MAX_SCHEDULES)
+    {
         bool freed = false;
-        // 如果 15 个槽位满了，强行找一个已经过期的常规日程清理掉，给新指令腾位置
-        for (int i = 0; i < sysConfig.schedule_count; i++) {
-            if (sysConfig.schedules[i].is_expired) {
-                // 覆盖删除
-                for (int j = i; j < sysConfig.schedule_count - 1; j++) {
+        for (int i = 0; i < sysConfig.schedule_count; i++)
+        {
+            if (sysConfig.schedules[i].is_expired)
+            {
+                for (int j = i; j < sysConfig.schedule_count - 1; j++)
                     sysConfig.schedules[j] = sysConfig.schedules[j + 1];
-                }
                 sysConfig.schedule_count--;
                 freed = true;
-                break; // 腾出一个位置就够了
+                recycledExpired = true;
+                break;
             }
         }
-        if (!freed) return; // 如果实在全是未来的未过期任务，只能放弃添加
+        if (!freed)
+        {
+            SysCmdResult_Error("FULL");
+            return;
+        }
     }
 
     int idx = sysConfig.schedule_count;
     sysConfig.schedules[idx].target_time = target_time;
-    sysConfig.schedules[idx].title = title;
-    sysConfig.schedules[idx].prescript = text;
+    sysConfig.schedules[idx].title = safeTitle;
+    sysConfig.schedules[idx].prescript = text ? text : "";
     sysConfig.schedules[idx].is_expired = false;
     sysConfig.schedules[idx].is_restored = false;
-    sysConfig.schedules[idx].is_hidden = is_hidden; 
+    sysConfig.schedules[idx].is_hidden = is_hidden;
     sysConfig.schedule_count++;
     Sort_Schedules();
     sysConfig.save();
+
+    if (recycledExpired)
+        SysCmdResult_Warn("ADDED_RECYCLED_EXPIRED", safeTitle);
+    else
+        SysCmdResult_Ok("ADDED", safeTitle);
 }
 
 class AppScheduleEdit : public AppBase
@@ -111,6 +157,7 @@ class AppScheduleEdit : public AppBase
     DialAnimator dialAnim;       // 实例化刻度盘引擎
     TacticalLinkEngine linkAnim; // 实例化战术链路引擎
 
+    // 【函数说明】绘制日程编辑器：顶部流程链路显示月/日/时/分/类型，中部滚轮显示当前字段，底部提示确认或保存。
     void drawUI()
     {
         HAL_Sprite_Clear();
@@ -183,6 +230,7 @@ class AppScheduleEdit : public AppBase
     }
 
 public:
+    // 【函数说明】进入日程编辑页：新增时用当前日期时间作为默认值，编辑时载入已有日程时间和类型。
     void onCreate() override
     {
         time_t now;
@@ -217,6 +265,7 @@ public:
         drawUI();
     }
 
+    // 【函数说明】从子页面返回时重绘日程编辑器。
     void onResume() override { drawUI(); }
 
     void onLoop() override
@@ -227,6 +276,7 @@ public:
             drawUI();
     }
 
+    // 【函数说明】离开编辑器不做额外释放，编辑结果只在保存阶段写入配置。
     void onDestroy() override {}
 
     void onKnob(int delta) override
@@ -287,6 +337,7 @@ public:
         drawUI();
     }
 
+    // 【函数说明】短按推进编辑阶段；最后保存 timestamp、标题、文本和隐藏标志到日程数组。
     void onKeyShort() override
     {
         SYS_SOUND_CONFIRM();
@@ -347,6 +398,7 @@ public:
         }
     }
 
+    // 【函数说明】长按取消编辑并返回上一级。
     void onKeyLong() override
     {
         if (phase == 6)
@@ -388,6 +440,7 @@ class AppScheduleExpired : public AppMenuBase
     int expired_count;
 
 protected:
+    // 【函数说明】返回菜单条目数：有效日程数量加新增、过期列表、返回等固定入口。
     int getMenuCount() override { return expired_count + 1; }
     const char *getTitle() override { return appManager.getLanguage() == LANG_ZH ? "已过期日程收容所" : "EXPIRED ARCHIVE"; }
     const char *getItemText(int index) override
@@ -405,6 +458,7 @@ protected:
         sprintf(buf, "%02d/%02d %02d:%02d %s %s%s", t_info.tm_mon + 1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min, s.title.c_str(), zh ? "(过期)" : "(EXP)", mark);
         return buf;
     }
+    // 【函数说明】日程菜单点击入口：选择已有日程编辑，选择新增进入编辑器，选择过期列表进入清理页。
     void onItemClicked(int index) override
     {
         if (index < expired_count)
@@ -415,6 +469,7 @@ protected:
         else
             appManager.popApp();
     }
+    // 【函数说明】日程菜单长按返回上一级。
     void onLongPressed() override { appManager.popApp(); }
 
 public:
@@ -443,6 +498,7 @@ class AppScheduleMenu : public AppMenuBase
     int active_count;
 
 protected:
+    // 【函数说明】返回菜单条目数：有效日程数量加新增、过期列表、返回等固定入口。
     int getMenuCount() override { return active_count + 3; }
     const char *getTitle() override { return appManager.getLanguage() == LANG_ZH ? "都市日程计划" : "SCHEDULES"; }
     uint16_t getItemColor(int index) override
@@ -474,6 +530,7 @@ protected:
         sprintf(buf, "%02d/%02d %02d:%02d %s%s", t_info.tm_mon + 1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min, s.title.c_str(), mark);
         return buf;
     }
+    // 【函数说明】日程菜单点击入口：选择已有日程编辑，选择新增进入编辑器，选择过期列表进入清理页。
     void onItemClicked(int index) override
     {
         if (index == 0)
@@ -495,6 +552,7 @@ protected:
             appManager.popApp();
         }
     }
+    // 【函数说明】日程菜单长按返回上一级。
     void onLongPressed() override { appManager.popApp(); }
 
 public:
@@ -510,6 +568,7 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
+    // 【函数说明】订阅日程添加/删除/同步事件并注册后台 tick，让日程到点能在任意页面触发。
     void onSystemInit() override {
         // 1. 去邮局订阅自己的频道
         SysEvent_Subscribe(EVT_SCHEDULE_ADD, _Cb_SchAdd);
@@ -583,12 +642,14 @@ public:
 
 };
 // === 日程表专用的邮局拆包回调 ===
+// 【函数说明】事件回调：把 Router 传入的时间戳、标题、文本、隐藏标志交给 Schedule_AddMobile。
 void _Cb_SchAdd(void *payload)
 {
     Evt_SchAdd_t *p = (Evt_SchAdd_t *)payload;
     Schedule_AddMobile(p->tt, p->title, p->text, p->is_hidden);
 }
 
+// 【函数说明】事件回调：把 Router 传入的标题交给 Schedule_DeleteMobile。
 void _Cb_SchDel(void *payload)
 {
     Evt_SchDel_t *p = (Evt_SchDel_t *)payload;
@@ -596,6 +657,7 @@ void _Cb_SchDel(void *payload)
 }
 
 // 收到路由器的同步口哨声，日程表自己把自己的数据发给蓝牙！
+// 【函数说明】WebBLE 同步回调：把日程数组打包成 SYNC:SCH JSON 回传网页。
 void _Cb_SchSync(void *payload)
 {
     for (int i = 0; i < sysConfig.schedule_count; i++)

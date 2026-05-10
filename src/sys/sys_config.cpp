@@ -1,3 +1,7 @@
+/*
+【模块职责】配置持久化实现。把 SysConfig 序列化到 LittleFS 的 config.json，启动时读取并补默认值，同时限制数组计数避免损坏配置导致越界。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/sys/sys_config.cpp
 #include "sys_config.h"
 #include "sys_fs.h"      // 引入我们上一版的 LittleFS 中枢
@@ -7,6 +11,7 @@ SysConfig sysConfig;
 
 // 配置文件路径在 sys_constants.h 中统一定义。
 
+// 【函数说明】从 /assets/config.json 读取配置；缺失或解析失败时使用默认值，并对数组计数做上限钳制。
 void SysConfig::load()
 {
     // 1. 从 LittleFS 硬盘读取 JSON 文本
@@ -32,6 +37,10 @@ void SysConfig::load()
         auto_push_enable = false;
         auto_push_min_min = 30;
         auto_push_max_min = 120;
+        // 时间系统默认开启周期轻量校时。
+        // 默认 15 分钟是为了压低 ESP32 本地时钟长时间运行后的可见漂移。
+        time_auto_resync = true;
+        time_resync_interval_min = 15;
         coin_data.mode = 0;
         coin_data.sanity = 0;
         pomodoro_current_idx = 0;
@@ -79,6 +88,14 @@ void SysConfig::load()
     auto_push_enable = doc["auto_push_enable"] | false;
     auto_push_min_min = doc["auto_push_min_min"] | 30;
     auto_push_max_min = doc["auto_push_max_min"] | 120;
+    // 时间系统策略。
+    // 旧配置文件没有这些字段时，默认开启周期校时，间隔 15 分钟。
+    time_auto_resync = doc["time_auto_resync"] | true;
+    time_resync_interval_min = doc["time_resync_interval_min"] | 15;
+
+    // 防止 config.json 被手动改坏后出现过短或过长的校时间隔。
+    if (time_resync_interval_min < 5) time_resync_interval_min = 5;
+    if (time_resync_interval_min > 240) time_resync_interval_min = 240;
     volume = doc["volume"] | 40;
     if (volume > 100)
         volume = 100;
@@ -202,6 +219,7 @@ void SysConfig::load()
     }
 }
 
+// 【函数说明】把当前 sysConfig 序列化成 JSON 写回 LittleFS，包含 WiFi、语言、音量、震动、日程、闹钟、硬币等配置。
 void SysConfig::save()
 {
     JsonDocument doc;
@@ -219,6 +237,9 @@ void SysConfig::save()
     doc["auto_push_enable"] = auto_push_enable;
     doc["auto_push_min_min"] = auto_push_min_min;
     doc["auto_push_max_min"] = auto_push_max_min;
+    // 保存周期校时策略。这里只保存策略，不保存当前时间本身。
+    doc["time_auto_resync"] = time_auto_resync;
+    doc["time_resync_interval_min"] = time_resync_interval_min;
     doc["volume"] = volume; // 【新增】：打包音量数据
     doc["pom_idx"] = pomodoro_current_idx;
     JsonArray pm_arr = doc["pom_presets"].to<JsonArray>();

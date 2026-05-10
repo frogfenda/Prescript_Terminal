@@ -1,3 +1,7 @@
+/*
+【模块职责】运行配置数据结构。集中保存 WiFi、语言、休眠、音量、震动、日程、闹钟、硬币、番茄钟、抽卡统计和特殊指令进度。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/sys/sys_config.h (覆盖整个文件)
 #ifndef __SYS_CONFIG_H
 #define __SYS_CONFIG_H
@@ -66,6 +70,16 @@ public:
     bool auto_push_enable;
     uint32_t auto_push_min_min;
     uint32_t auto_push_max_min;
+    /*
+     * 时间系统配置。
+     * time_auto_resync：是否允许 Network_Update() 在设备运行中周期性启动轻量 NTP 校时。
+     * time_resync_interval_min：周期校时间隔，单位分钟；当前时间设置 UI 只允许 5/15/30/60。
+     *
+     * 注意：这里不保存“当前时间”。断电后无法可靠推算断电期间经过了多久，
+     * 所以只保存策略，不保存用户手动设置过的 epoch。
+     */
+    bool time_auto_resync;
+    uint16_t time_resync_interval_min;
     CoinSaveData coin_data;
     uint8_t pomodoro_current_idx;
     PomodoroPreset pomodoro_presets[PrescriptConst::MAX_POMODORO_PRESETS];
@@ -84,6 +98,7 @@ public:
     uint8_t nfc_mode;
     uint32_t special_toggles; // 开关位掩码 (默认 0xFFFFFFFF 全开)
     uint8_t char_progress[PrescriptConst::MAX_CHAR_CHAINS]; // 人物链条进度表 (最多支持 8 个特殊人物)
+    // 【接口说明】读取 config.json 并填充 SysConfig 字段。
     void load();
     void save();
 };

@@ -1,3 +1,7 @@
+/*
+【模块职责】通用滚轮菜单基类。子类只提供标题、条目文本和点击动作，本类统一绘制左侧 HUD、右侧 3D 滚轮、选中框、尾随方块和旋钮滑动插值。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_menu_base.h
 #ifndef __APP_MENU_BASE_H
 #define __APP_MENU_BASE_H
@@ -15,23 +19,28 @@ protected:
     int current_selection;
     float visual_selection;
 
+    // 【接口说明】子类返回菜单真实条目数，AppMenuBase 用它处理循环滚动和点击取模。
     virtual int getMenuCount() = 0;
     virtual const char *getTitle() = 0;
     virtual const char *getItemText(int index) = 0;
+    // 【接口说明】子类处理当前条目的短按确认动作。
     virtual void onItemClicked(int index) = 0;
     virtual void onLongPressed() = 0;
     uint32_t menu_anim_last_tick = 0;
 
+    // 【函数说明】子类可把条目拆成前缀、动态值、后缀，让当前项的数值部分拥有跳动动画。
     virtual bool getItemEditParts(int index, const char **prefix, const char **anim_val, const char **suffix)
     {
         return false;
     }
 
+    // 【函数说明】子类可为条目提供颜色，默认青色。
     virtual uint16_t getItemColor(int index)
     {
         return TFT_CYAN;
     }
 
+    // 【函数说明】绘制完整菜单页：先画左侧 HUD，再画右侧选中框、指针、动态方块和 5 个弧形滚轮条目。
     void drawMenuUI(float v_pos)
     {
         HAL_Sprite_Clear();
@@ -144,6 +153,7 @@ protected:
     }
 
 public:
+    // 【函数说明】菜单首次进入时把选中项和视觉位置归零，并立刻绘制菜单。
     void onCreate() override
     {
         current_selection = 0;
@@ -151,9 +161,11 @@ public:
         onResume();
     }
 
+    // 【接口说明】从子页面返回时按当前 visual_selection 重绘菜单。
     void onResume() override { drawMenuUI(visual_selection); }
     void onBackground() override {}
 
+    // 【函数说明】推进菜单滑动插值、编辑值跳动动画，并在 HUD/电量变化时重绘页面。
     void onLoop() override
     {
         bool needs_redraw = updateEditAnimation();
@@ -210,6 +222,7 @@ public:
         }
     }
 
+    // 【函数说明】菜单销毁时不释放资源，静态 App 实例保留状态。
     void onDestroy() override {}
 
     void onKnob(int delta) override
@@ -225,6 +238,7 @@ public:
         }
     }
 
+    // 【函数说明】短按确认当前条目，先播放确认反馈再调用子类 onItemClicked。
     void onKeyShort() override
     {
         SYS_SOUND_CONFIRM();
@@ -235,6 +249,7 @@ public:
         }
     }
 
+    // 【接口说明】长按交给子类 onLongPressed，实现返回、保存退出等页面规则。
     void onKeyLong() override { onLongPressed(); }
 };
 

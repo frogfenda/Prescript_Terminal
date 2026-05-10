@@ -1,3 +1,7 @@
+/*
+【模块职责】抽卡统计页。用菜单查看总抽数、各星级、瓦夜统计，并支持清空统计。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
 // 文件：src/apps/app_gacha_stats.cpp
 #include "app_menu_base.h"
 #include "app_manager.h"
@@ -9,20 +13,21 @@ class AppGachaStats : public AppMenuBase {
 protected:
     int getMenuCount() override { return 8; } 
     
-    const char *getTitle() override { return ">> 提取部数据库"; }
+    const char *getTitle() override { return appManager.getLanguage() == LANG_ZH ? ">> 提取部数据库" : ">> EXTRACTION DATABASE"; }
     
     const char *getItemText(int index) override {
         static char buf[64];
+        bool zh = appManager.getLanguage() == LANG_ZH;
         float t = sysConfig.gacha_stats.total > 0 ? (float)sysConfig.gacha_stats.total : 1.0f; 
         
-        if (index == 0) sprintf(buf, "总计提取: %d 次", sysConfig.gacha_stats.total);
+        if (index == 0) sprintf(buf, zh ? "总计提取: %d 次" : "TOTAL PULLS: %d", sysConfig.gacha_stats.total);
         else if (index == 1) sprintf(buf, "★★★: %d (%.1f%%)", sysConfig.gacha_stats.s3, sysConfig.gacha_stats.s3 / t * 100.0f);
         else if (index == 2) sprintf(buf, "★★: %d (%.1f%%)", sysConfig.gacha_stats.s2, sysConfig.gacha_stats.s2 / t * 100.0f);
         else if (index == 3) sprintf(buf, "★: %d (%.1f%%)", sysConfig.gacha_stats.s1, sysConfig.gacha_stats.s1 / t * 100.0f);
-        else if (index == 4) sprintf(buf, "[W] 瓦夜总计: %d", sysConfig.gacha_stats.w3 + sysConfig.gacha_stats.w2);
+        else if (index == 4) sprintf(buf, zh ? "[W] 瓦夜总计: %d" : "[W] WALPURGIS: %d", sysConfig.gacha_stats.w3 + sysConfig.gacha_stats.w2);
         else if (index == 5) sprintf(buf, "  - [W] ★★★: %d", sysConfig.gacha_stats.w3);
         else if (index == 6) sprintf(buf, "  - [W] ★★: %d", sysConfig.gacha_stats.w2);
-        else if (index == 7) sprintf(buf, "[ 按下清除所有记录 ]");
+        else if (index == 7) sprintf(buf, zh ? "[ 按下清除所有记录 ]" : "[ PRESS TO CLEAR RECORDS ]");
         
         return buf;
     }
@@ -39,7 +44,7 @@ protected:
     void onItemClicked(int index) override {
         if (index == 7) { 
             SYS_SOUND_GLITCH();  
-            sysHaptic.playTick();
+            Feedback_PlayKnobTick();
             // 一键清空并写盘
             sysConfig.gacha_stats.total = 0;
             sysConfig.gacha_stats.s3 = 0; sysConfig.gacha_stats.s2 = 0; sysConfig.gacha_stats.s1 = 0;
