@@ -48,12 +48,12 @@ protected:
         int sh = HAL_Get_Screen_Height();
 
         // 共享菜单布局常数集中在 UITheme，避免菜单视觉参数散落。
-        constexpr int UI_PADDING_X = UITheme::Menu::PaddingX;
-        constexpr int UI_ITEM_SPACING_Y = UITheme::Menu::ItemSpacingY;
-        constexpr int UI_SCAN_BOX_PAD_X = UITheme::Menu::ScanBoxPadX;
-        constexpr int UI_SCAN_BOX_H = UITheme::Menu::ScanBoxHeight;
-        constexpr int UI_SCROLL_BAR_W = UITheme::Menu::ScrollBarWidth;
-        constexpr float UI_3D_CURVE_FACTOR = UITheme::Menu::CurveFactor;
+        const int UI_PADDING_X = UITheme::Menu::PaddingX();
+        const int UI_ITEM_SPACING_Y = UITheme::Menu::ItemSpacingY();
+        const int UI_SCAN_BOX_PAD_X = UITheme::Menu::ScanBoxPadX();
+        const int UI_SCAN_BOX_H = UITheme::Menu::ScanBoxHeight();
+        const int UI_SCROLL_BAR_W = UITheme::Menu::ScrollBarWidth();
+        const float UI_3D_CURVE_FACTOR = UITheme::Menu::CurveFactor();
 
         // ==========================================
         // 1. 左侧 HUD 面板

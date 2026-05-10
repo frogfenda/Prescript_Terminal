@@ -81,16 +81,16 @@ private:
             const char **names = zh ? names_zh : names_en;
 
             // 1. 顶部战术链路
-            linkAnim.draw(UITheme::EditFlow::LinkY, names, 3, phase, 85);
+            linkAnim.draw(UITheme::EditFlow::LinkY(), names, 3, phase, 85);
 
             // 2. 中间机甲分隔线 (Y=18)
-            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
+            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
 
             // 3. 底部动态内容区 (Y=28/32)
             if (phase == 0) {
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, m, 0, 99, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), m, 0, 99, "");
             } else if (phase == 1) {
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, s, 0, 59, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), s, 0, 59, "");
             } else if (phase == 2) {
                 int remain = 0;
                 if (g_countdown_active && g_countdown_end_time > millis()) {

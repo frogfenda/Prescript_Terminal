@@ -71,11 +71,11 @@ public:
     void drawNumberDial(int center_y, int current_val, int min_val, int max_val, const char* suffix = "") {
         int sw = HAL_Get_Screen_Width();
         int cx = sw / 2;
-        float R = 150.0f;          
+        float R = UITheme::Dial::NumberRadius();
         float angle_step = 0.22f;  
 
         // 【新增】：16像素绝对安全区，禁止任何字符靠近屏幕物理边缘！
-        int safe_margin = UITheme::SAFE_MARGIN_X; 
+        int safe_margin = UITheme::SafeMarginX(); 
 
         for (int i = -6; i <= 6; i++) {
             float item_offset = i + offset;
@@ -101,10 +101,11 @@ public:
             }
         }
 
-        int bx1 = cx - 22;
-        int bx2 = cx + 22;
+        int half_w = UITheme::Dial::NumberBoxHalfW();
+        int bx1 = cx - half_w;
+        int bx2 = cx + half_w;
         int top_y = center_y - 2;
-        int bot_y = center_y + 14;
+        int bot_y = center_y + UITheme::Dial::BoxHeight();
         
         HAL_Draw_Line(bx1, top_y, bx1 + 4, top_y, 1); HAL_Draw_Line(bx1, top_y, bx1, top_y + 4, 1);
         HAL_Draw_Line(bx1, bot_y, bx1 + 4, bot_y, 1); HAL_Draw_Line(bx1, bot_y, bx1, bot_y - 4, 1);
@@ -112,7 +113,7 @@ public:
         HAL_Draw_Line(bx2, bot_y, bx2 - 4, bot_y, 1); HAL_Draw_Line(bx2, bot_y, bx2, bot_y - 4, 1);
         
         if (strlen(suffix) > 0) {
-            HAL_Screen_ShowChineseLine(cx + 30, center_y, suffix);
+            HAL_Screen_ShowChineseLine(cx + UITheme::Dial::SuffixGap(), center_y, suffix);
         }
     }
     
@@ -120,9 +121,9 @@ public:
     void drawStringDial(int center_y, int current_idx, const char** str_array, int max_count) {
         int sw = HAL_Get_Screen_Width();
         int cx = sw / 2;
-        float R = 160.0f; 
+        float R = UITheme::Dial::StringRadius(); 
         float angle_step = 0.40f; 
-        int safe_margin = UITheme::SAFE_MARGIN_X;
+        int safe_margin = UITheme::SafeMarginX();
         
         for (int i = -4; i <= 4; i++) {
             float item_offset = i + offset;
@@ -145,10 +146,11 @@ public:
             }
         }
         
-        int bx1 = cx - 42;
-        int bx2 = cx + 42;
+        int half_w = UITheme::Dial::StringBoxHalfW();
+        int bx1 = cx - half_w;
+        int bx2 = cx + half_w;
         int top_y = center_y - 2;
-        int bot_y = center_y + 14;
+        int bot_y = center_y + UITheme::Dial::BoxHeight();
         
         HAL_Draw_Line(bx1, top_y, bx1 + 4, top_y, 1); HAL_Draw_Line(bx1, top_y, bx1, top_y + 4, 1);
         HAL_Draw_Line(bx1, bot_y, bx1 + 4, bot_y, 1); HAL_Draw_Line(bx1, bot_y, bx1, bot_y - 4, 1);
@@ -248,7 +250,8 @@ public:
         int bot_y = text_y + 14;
 
         for (int i = 0; i < count; i++) {
-            float dx = (i - offset) * spacing;
+            int effective_spacing = UITheme::Link::Spacing(count, spacing);
+            float dx = (i - offset) * effective_spacing;
             int node_x = cx + (int)dx;
             
             int tw = getWordWidth(names[i]);
@@ -273,7 +276,7 @@ public:
             }
             
             if (i < count - 1) {
-                float next_dx = (i + 1 - offset) * spacing;
+                float next_dx = (i + 1 - offset) * effective_spacing;
                 int next_node_x = cx + (int)next_dx;
                 int next_tw = HAL_Get_Text_Width(names[i+1]);
                 

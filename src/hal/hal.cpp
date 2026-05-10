@@ -1,5 +1,5 @@
 /*
-【模块职责】硬件抽象实现。负责 ST7789+U8g2 显示、旋钮 A/B 相中断计数、两个按键的短按/长按/双击识别、背光/功放使能、Light Sleep 前后的屏幕和外设恢复。
+【模块职责】硬件抽象实现。负责 NV3007 长条屏 + U8g2 显示、旋钮 A/B 相中断计数、两个按键的短按/长按/双击识别、背光/功放使能、Light Sleep 前后的屏幕和外设恢复。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/hal/hal.cpp
@@ -13,6 +13,7 @@
 #include "../sys/sys_haptic.h"
 #include "../sys/sys_audio.h"
 #include "../sys/sys_nfc.h"
+#include "../ui/ui_font_config.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -25,12 +26,12 @@ volatile int raw_knob_counter = 0;
 /*
  * 将逻辑 UI 坐标转换为 NV3007 实际写屏坐标。
  *
- * UI_PUSH_X / UI_PUSH_Y 表示旧 284×76 Sprite 在新横屏 428×142 画面中的几何位置；
+ * UI_PUSH_X / UI_PUSH_Y 表示逻辑 Sprite 在新横屏 428×142 可视区域中的位置；当前全屏适配阶段为 0,0；
  * DISPLAY_RAM_OFFSET_X / DISPLAY_RAM_OFFSET_Y 表示 NV3007 控制器内部 GRAM 可视区偏移。
  *
  * 这两个偏移必须分开：
- * - 想调整画面是否视觉居中，改 UI_PUSH_X / UI_PUSH_Y；
- * - 想修正底部花屏、控制器写窗口错位，改 DISPLAY_RAM_OFFSET_*。
+ * - 想调整 UI 在可视区中的位置，改 UI_PUSH_X / UI_PUSH_Y；
+ * - 想修正 NV3007 控制器写窗口错位，改 DISPLAY_RAM_OFFSET_*。
  */
 static inline int16_t HAL_DisplayRawX(int16_t logical_x)
 {
@@ -43,7 +44,7 @@ static inline int16_t HAL_DisplayRawY(int16_t logical_y)
 }
 
 // 【新屏幕适配】2.79 寸 142×428 长条屏使用 NV3007/NV3006A1 类初始化序列。
-// TFT_eSPI 当前仍按 ST7789 驱动建立 SPI 事务和基本绘图接口，随后这里补发屏厂例程里的
+// TFT_eSPI 当前借用 ST7789 驱动建立 SPI 事务和基本绘图接口，随后这里补发屏厂例程里的
 // NV3007 初始化命令。这样可以在不重写 HAL 推图体系的前提下，先让新屏完成点亮和 RGB565 显示。
 static void HAL_NV3007_SendCmd(uint8_t cmd)
 {
@@ -66,7 +67,7 @@ static void HAL_NV3007_Init_142x428()
     auto nvCmd = HAL_NV3007_SendCmd;
     auto nvData = HAL_NV3007_SendData;
 
-    Serial.println("[显示] 使用 NV3007/NV3006A1 142x428 初始化序列。厂家例程 column offset=12，当前为简单居中适配。");
+    Serial.println("[显示] 使用 NV3007/NV3006A1 142x428 初始化序列。当前逻辑画布为 428x142 全屏模式。");
 
     delay(100);
     delay(120);
@@ -335,13 +336,13 @@ IRAM_ATTR void ISR_Knob_Turn()
     raw_knob_counter += enc_states[(old_AB & 0x0f)];
 }
 
-// 【函数说明】配置显示、旋钮、按键、背光、功放、ADC 等底层资源；创建 284×76 Sprite 并设置中文字体。
+// 【函数说明】配置显示、旋钮、按键、背光、功放、ADC 等底层资源；创建 428×142 全屏 Sprite 并设置中文字体。
 void HAL_Init()
 {
     tft.init();
 
     /*
-     * 2.79 寸 142×428 新屏不是原来的 ST7789 初始化序列。
+     * 2.79 寸 142×428 新屏不是原来的小屏初始化序列。
      * 这里在 TFT_eSPI 建立 SPI/引脚能力后，补发厂家例程中的 NV3007 初始化命令。
      * 初始化后再设置 rotation=1，把竖屏 142×428 转成横向 428×142 坐标系。
      */
@@ -364,7 +365,15 @@ void HAL_Init()
     uint16_t sh = HAL_Get_Screen_Height();
     void *ptr = textSprite.createSprite(sw, sh);
     if (ptr == NULL)
-        Serial.println("!!! Sprite 内存不足 !!!");
+    {
+        Serial.printf("[显示] Sprite 创建失败：需要约 %lu 字节，当前画布=%ux%u。\n",
+                      (unsigned long)sw * sh * 2UL, sw, sh);
+    }
+    else
+    {
+        Serial.printf("[显示] Sprite 创建成功：画布=%ux%u，约 %lu 字节。\n",
+                      sw, sh, (unsigned long)sw * sh * 2UL);
+    }
 
     textSprite.fillSprite(TFT_BLACK);
     textSprite.setTextWrap(false);
@@ -379,7 +388,9 @@ void HAL_Init()
     u8f.setFontMode(1);
     u8f.setFontDirection(0);
     u8f.setBackgroundColor(TFT_BLACK);
-    u8f.setFont(u8g2_font_wqy12_t_gb2312);
+    // 默认字体使用正文角色。
+    // 当前单字体策略下，Small / Body / Title 都会落到 ui_font_config.h 中同一套 TERMINAL_FONT。
+    u8f.setFont(UIFontConfig::Body().font);
 }
 
 // 【函数说明】原子读取并清零旋钮累计步数，把中断层的脉冲转换为 AppManager 每帧可消费的 delta。
@@ -411,42 +422,153 @@ void HAL_Screen_DrawHeader()
     textSprite.print("[ PRESCRIPT ]");
 }
 
+// 【函数说明】绘制待机图。
+// 新屏全屏模式下，standby.bin 必须是 428×142 的 RGB565 原始图，文件大小应为 428*142*2=121552 字节。
+// 如果仍然使用旧 284×76 待机图，本函数不会强行读取，避免读越界或显示错乱，而是在屏幕上给出尺寸提示。
 void HAL_Screen_DrawStandbyImage()
 {
     textSprite.fillSprite(TFT_BLACK);
+
+    const size_t expected_bytes = (size_t)HAL_Get_Screen_Width() * HAL_Get_Screen_Height() * 2;
     File file = LittleFS.open(PrescriptConst::STANDBY_IMAGE_BIN, "r");
+
     if (!file)
     {
+        Serial.println("[显示] 待机图不存在：/assets/standby.bin。");
         textSprite.drawRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_RED);
         textSprite.setTextColor(TFT_RED, TFT_BLACK);
-        textSprite.drawString("ERR: NO standby.bin", 10, 10);
+        textSprite.drawString("NO standby.bin", 12, 12);
+        textSprite.drawString("need 428x142 RGB565", 12, 28);
         return;
     }
+
+    if ((size_t)file.size() < expected_bytes)
+    {
+        Serial.printf("[显示] 待机图尺寸过小：当前 %lu 字节，需要 %lu 字节。请重新导出 428x142 RGB565。\n",
+                      (unsigned long)file.size(),
+                      (unsigned long)expected_bytes);
+        file.close();
+
+        textSprite.drawRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_ORANGE);
+        textSprite.setTextColor(TFT_ORANGE, TFT_BLACK);
+        textSprite.drawString("standby.bin size mismatch", 12, 12);
+        textSprite.drawString("need 428x142 RGB565", 12, 28);
+        return;
+    }
+
     uint16_t *sprite_ptr = (uint16_t *)textSprite.getPointer();
     if (sprite_ptr != nullptr)
     {
-        size_t bytes_to_read = HAL_Get_Screen_Width() * HAL_Get_Screen_Height() * 2;
-        file.read((uint8_t *)sprite_ptr, bytes_to_read);
+        file.read((uint8_t *)sprite_ptr, expected_bytes);
     }
     file.close();
 }
 
+
+/**
+ * 根据 HAL 字体角色取得字体配置。
+ *
+ * 这里是 HAL 字体系统的唯一入口：
+ * - 字体数组、baseline、lineHeight 都来自 ui_font_config.h；
+ * - 当前项目采用开发端固定单字体，Small/Body/Title 三个角色最终会返回同一字体；
+ * - 页面不直接接触 u8g2_font_xxx，后续换字体只改配置文件和字体头文件；
+ * - 返回值按值传递，避免跨文件静态对象初始化顺序问题。
+ */
+static UIFontConfig::FontSpec HAL_GetFontSpec(HALFontRole role)
+{
+    switch (role)
+    {
+    case HAL_FONT_SMALL:
+        return UIFontConfig::Small();
+    case HAL_FONT_TITLE:
+        return UIFontConfig::Title();
+    case HAL_FONT_BODY:
+    default:
+        return UIFontConfig::Body();
+    }
+}
+
+/**
+ * 设置 U8g2 当前字体角色。
+ *
+ * U8g2_for_TFT_eSPI 每次绘制前都可以切换字体；这里集中封装，
+ * 保证所有中文、英文、数字都走同一套 UTF-8 字体管线，不再混用 TFT_eSPI 默认 6×8 小字。
+ * 当前单字体策略下，不同角色只影响语义和度量读取，不会切换到不同字体。
+ */
+static void HAL_ApplyFontRole(HALFontRole role)
+{
+    UIFontConfig::FontSpec spec = HAL_GetFontSpec(role);
+    u8f.setFont(spec.font);
+}
+
+int HAL_Get_Font_Baseline(HALFontRole role)
+{
+    return HAL_GetFontSpec(role).baseline;
+}
+
+int HAL_Get_Font_Line_Height(HALFontRole role)
+{
+    return HAL_GetFontSpec(role).lineHeight;
+}
+
+int HAL_Get_Text_Width_Font(const char *str, HALFontRole role)
+{
+    if (!str)
+        return 0;
+
+    HAL_ApplyFontRole(role);
+    return u8f.getUTF8Width(str);
+}
+
+int HAL_Get_Text_Width_Small(const char *str)
+{
+    return HAL_Get_Text_Width_Font(str, HAL_FONT_SMALL);
+}
+
+/**
+ * 按指定字体角色绘制一行 UTF-8 文本。
+ *
+ * 参数约定：
+ * - x/y 是文本框左上角；
+ * - baseline 由字体角色决定，避免以前 y+12 写死后换字号导致裁切；
+ * - color 是 RGB565 颜色；
+ * - 字体角色由 UI 层决定，HAL 只负责准确落字。
+ */
+void HAL_Screen_ShowLine_Font(int32_t x, int32_t y, const char *str, HALFontRole role, uint16_t color)
+{
+    if (!str)
+        return;
+
+    HAL_ApplyFontRole(role);
+    u8f.setForegroundColor(color);
+    u8f.setCursor(x, y + HAL_Get_Font_Baseline(role));
+    u8f.print(str);
+}
+
 void HAL_Screen_ShowTextLine(int32_t x, int32_t y, const char *str)
 {
-    textSprite.setTextColor(TFT_CYAN, TFT_BLACK);
-    textSprite.setTextSize(1);
-    textSprite.setCursor(x, y);
-    textSprite.print(str);
+    HAL_Screen_ShowLine_Font(x, y, str, HAL_FONT_BODY, TFT_CYAN);
 }
 
 void HAL_Screen_ShowChineseLine(int32_t x, int32_t y, const char *str)
 {
-    u8f.setForegroundColor(TFT_CYAN);
-    u8f.setCursor(x, y + 12);
-    u8f.print(str);
+    HAL_Screen_ShowLine_Font(x, y, str, HAL_FONT_BODY, TFT_CYAN);
 }
 
-int HAL_Get_Text_Width(const char *str) { return u8f.getUTF8Width(str); }
+int HAL_Get_Text_Width(const char *str)
+{
+    return HAL_Get_Text_Width_Font(str, HAL_FONT_BODY);
+}
+
+void HAL_Screen_ShowSmallLine(int32_t x, int32_t y, const char *str)
+{
+    HAL_Screen_ShowLine_Font(x, y, str, HAL_FONT_SMALL, TFT_CYAN);
+}
+
+void HAL_Screen_ShowSmallLine_Color(int32_t x, int32_t y, const char *str, uint16_t color)
+{
+    HAL_Screen_ShowLine_Font(x, y, str, HAL_FONT_SMALL, color);
+}
 
 void HAL_Screen_ShowChineseLine_Faded(int32_t x, int32_t y, const char *str, float distance)
 {
@@ -469,9 +591,7 @@ void HAL_Screen_ShowChineseLine_Faded_Color(int32_t x, int32_t y, const char *st
 
     uint16_t faded_color = tft.color565(final_r, final_g, final_b);
 
-    u8f.setForegroundColor(faded_color);
-    u8f.setCursor(x, y + 12);
-    u8f.print(str);
+    HAL_Screen_ShowLine_Font(x, y, str, HAL_FONT_BODY, faded_color);
 }
 
 void HAL_Screen_Scroll_Up(uint8_t scroll_pixels) { textSprite.scroll(0, -scroll_pixels); }
@@ -650,7 +770,7 @@ ButtonEngine engineBtn2(PrescriptConst::BUTTON_LONG_MS, PrescriptConst::BUTTON_D
 // ==========================================
 // 【休眠系统原子化】：将休眠拆解，供 AppStandby 统一调度
 // ==========================================
-// 【函数说明】关背光、关功放、让 ST7789 进入 sleep，并准备 Light Sleep 前的硬件静默状态。
+// 【函数说明】关背光、关功放、让显示控制器进入 sleep，并准备 Light Sleep 前的硬件静默状态。
 void HAL_Sleep_Enter_Prepare()
 {
     // 1. 熄灭背光与关断功放
@@ -678,12 +798,12 @@ void HAL_Sleep_Wakeup_Post()
     // 1. 唤醒屏幕驱动 IC
     tft.writecommand(0x11);
 
-    // 2. 【核心优化】：趁着灯还没亮，赶紧把待机图刷进屏幕显存 (GRAM)
-    // 这样开灯的一瞬间，画面就是完整的，而不是黑屏或噪点
+    // 2. 趁着背光还没点亮，先把待机画面刷进屏幕 GRAM。
+    // 这样开灯瞬间就能看到完整画面，而不是黑屏或随机显存噪点。
     HAL_Screen_DrawStandbyImage();
     HAL_Screen_Update();
 
-    // 3. 必须等待 120ms，让 ST7789 内部的电荷泵和液晶分子稳定
+    // 3. 等待面板从 sleep out 恢复。NV3007 也需要一段液晶/电荷泵稳定时间。
     delay(120);
 
     // 4. 画面稳了，再解锁并点亮背光
@@ -735,16 +855,12 @@ BtnEvent HAL_Get_Btn2_Event()
 
 void HAL_Screen_ShowChineseLine_Color(int32_t x, int32_t y, const char *str, uint16_t color)
 {
-    u8f.setForegroundColor(color);
-    u8f.setCursor(x, y + 12);
-    u8f.print(str);
+    HAL_Screen_ShowLine_Font(x, y, str, HAL_FONT_BODY, color);
 }
+
 void HAL_Screen_ShowTextLine_Color(int32_t x, int32_t y, const char *str, uint16_t color)
 {
-    textSprite.setTextColor(color, TFT_BLACK);
-    textSprite.setTextSize(1);
-    textSprite.setCursor(x, y);
-    textSprite.print(str);
+    HAL_Screen_ShowLine_Font(x, y, str, HAL_FONT_BODY, color);
 }
 
 void HAL_Sprite_Clear() { textSprite.fillSprite(TFT_BLACK); }

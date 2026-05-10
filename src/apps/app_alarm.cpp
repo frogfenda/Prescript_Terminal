@@ -139,16 +139,16 @@ class AppAlarmEdit : public AppBase
             const char **names = zh ? names_zh : names_en;
 
             // 1. 顶部战术链路：Y坐标从 6 调高到了 2
-            linkAnim.draw(UITheme::EditFlow::LinkY, names, 2, phase, 120);
+            linkAnim.draw(UITheme::EditFlow::LinkY(), names, 2, phase, 120);
 
             // 2. 中间机甲分隔线：Y坐标从 24 调高到了 18
-            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
+            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
 
             // 3. 底部机械刻度盘：Y坐标从 36 调高到了 28
             if (phase == 0)
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, h, 0, 23, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), h, 0, 23, "");
             else
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, m, 0, 59, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), m, 0, 59, "");
 
             // 4. 操作提示停留在底部：Y坐标 56
             const char *tip;

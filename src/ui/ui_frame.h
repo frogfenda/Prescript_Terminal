@@ -11,10 +11,10 @@
 namespace UIFrame {
 
 // 【接口说明】绘制中间折角的水平分隔线，编辑页用它把标题链路和滚轮区域分开。
-void DrawTacticalDivider(int y = UITheme::EditFlow::DividerY, uint16_t color = UITheme::COLOR_ACCENT);
-void DrawTip(const char* text, int y = UITheme::EditFlow::TipY, float fade = UITheme::EditFlow::TipFade);
+void DrawTacticalDivider(int y = -1, uint16_t color = UITheme::COLOR_ACCENT);
+void DrawTip(const char* text, int y = -1, float fade = -1.0f);
 // 【接口说明】绘制危险确认弹窗：标题、消息、底部提示和外框，用于删除/清空等二次确认。
 void DrawDangerConfirm(const char* title, const char* message, const char* tip);
-void DrawCornerBox(int x1, int x2, int center_y, int half_w, int h = 16, uint16_t color = UITheme::COLOR_ACCENT);
+void DrawCornerBox(int x1, int x2, int center_y, int half_w, int h = -1, uint16_t color = UITheme::COLOR_ACCENT);
 
 }

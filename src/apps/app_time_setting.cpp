@@ -93,14 +93,14 @@ private:
 
         const char *names_zh[] = {"设定小时", "设定分钟"};
         const char *names_en[] = {"SET HOUR", "SET MIN"};
-        linkAnim.draw(UITheme::EditFlow::LinkY, zh ? names_zh : names_en, 2, phase, 95);
+        linkAnim.draw(UITheme::EditFlow::LinkY(), zh ? names_zh : names_en, 2, phase, 95);
 
-        UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
+        UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
 
         if (phase == 0)
-            dialAnim.drawNumberDial(UITheme::EditFlow::DialY, hour, 0, 23, "");
+            dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), hour, 0, 23, "");
         else
-            dialAnim.drawNumberDial(UITheme::EditFlow::DialY, minute, 0, 59, "");
+            dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), minute, 0, 59, "");
 
         UIFrame::DrawTip(zh ? "短按下一步/保存  长按返回" : "CLICK: NEXT/SAVE  LONG: BACK");
         HAL_Screen_Update();
@@ -237,22 +237,22 @@ private:
 
         const char *names_zh[] = {"设定年份", "设定月份", "设定日期"};
         const char *names_en[] = {"SET YEAR", "SET MONTH", "SET DAY"};
-        linkAnim.draw(UITheme::EditFlow::LinkY, zh ? names_zh : names_en, 3, phase, 90);
+        linkAnim.draw(UITheme::EditFlow::LinkY(), zh ? names_zh : names_en, 3, phase, 90);
 
-        UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
+        UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
 
         if (phase == 0)
         {
-            dialAnim.drawNumberDial(UITheme::EditFlow::DialY, year, YEAR_MIN, YEAR_MAX, "");
+            dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), year, YEAR_MIN, YEAR_MAX, "");
         }
         else if (phase == 1)
         {
-            dialAnim.drawNumberDial(UITheme::EditFlow::DialY, month, 1, 12, zh ? "月" : "M");
+            dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), month, 1, 12, zh ? "月" : "M");
         }
         else
         {
             uint8_t max_day = SysTime_DaysInMonth(year, month);
-            dialAnim.drawNumberDial(UITheme::EditFlow::DialY, day, 1, max_day, zh ? "日" : "D");
+            dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), day, 1, max_day, zh ? "日" : "D");
         }
 
         UIFrame::DrawTip(zh ? "短按下一步/保存  长按返回" : "CLICK: NEXT/SAVE  LONG: BACK");

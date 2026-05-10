@@ -195,7 +195,7 @@ public:
         if (!force_redraw && !animating)
             return;
 
-        if (!force_redraw && !UIClock_Due(frame_last, UITheme::Volume::FrameMs))
+        if (!force_redraw && !UIClock_Due(frame_last, UITheme::Volume::FrameMs()))
             return;
 
         // 核心动画：锁帧后向目标逼近，避免主循环跑多快就刷多快。
@@ -209,13 +209,13 @@ public:
         bool zh = appManager.getLanguage() == LANG_ZH;
 
         // 绘制屏幕中线
-        HAL_Draw_Line(UITheme::Volume::DividerX, UITheme::Volume::DividerTopY,
-                      UITheme::Volume::DividerX, UITheme::Volume::DividerBottomY, UITheme::COLOR_DARK);
+        HAL_Draw_Line(UITheme::Volume::DividerX(), UITheme::Volume::DividerTopY(),
+                      UITheme::Volume::DividerX(), UITheme::Volume::DividerBottomY(), UITheme::COLOR_DARK);
 
         // 渲染进度条
-        drawTacticalSlider(UITheme::Volume::LeftX, UITheme::Volume::SliderY, UITheme::Volume::SliderW, UITheme::Volume::SliderH,
+        drawTacticalSlider(UITheme::Volume::LeftX(), UITheme::Volume::SliderY(), UITheme::Volume::SliderW(), UITheme::Volume::SliderH(),
                            display_vol, focus_idx == 0, zh ? "音量输出" : "VOLUME", true);
-        drawTacticalSlider(UITheme::Volume::RightX, UITheme::Volume::SliderY, UITheme::Volume::SliderW, UITheme::Volume::SliderH,
+        drawTacticalSlider(UITheme::Volume::RightX(), UITheme::Volume::SliderY(), UITheme::Volume::SliderW(), UITheme::Volume::SliderH(),
                            display_haptic, focus_idx == 1, zh ? "触感反馈" : "HAPTIC", false);
 
         HAL_Screen_Update();

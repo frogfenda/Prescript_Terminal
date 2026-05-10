@@ -180,31 +180,31 @@ class AppScheduleEdit : public AppBase
             const char **names = zh ? names_zh : names_en;
 
             // 节点较多，间距设为 95
-            linkAnim.draw(UITheme::EditFlow::LinkY, names, 6, phase, 95);
+            linkAnim.draw(UITheme::EditFlow::LinkY(), names, 6, phase, 95);
 
             // 2. 中间机甲分隔线
-            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
+            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
 
             // 3. 底部动态机械刻度盘
             if (phase == 0)
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, mo, 1, 12, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), mo, 1, 12, "");
             else if (phase == 1)
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, d, 1, 31, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), d, 1, 31, "");
             else if (phase == 2)
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, h, 0, 23, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), h, 0, 23, "");
             else if (phase == 3)
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY, m, 0, 59, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), m, 0, 59, "");
             else if (phase == 4)
             {
                 const char *t_zh[] = {"常规待办", "高维会议", "系统维护", "突发任务"};
                 const char *t_en[] = {"ROUTINE", "MEETING", "MAINTAIN", "EMERGENCY"};
-                dialAnim.drawStringDial(UITheme::EditFlow::DialY, t_idx, zh ? t_zh : t_en, 4);
+                dialAnim.drawStringDial(UITheme::EditFlow::DialY(), t_idx, zh ? t_zh : t_en, 4);
             }
             else if (phase == 5)
             {
                 const char *p_zh[] = {"随机指令", "固定提醒"};
                 const char *p_en[] = {"RANDOM", "FIXED MSG"};
-                dialAnim.drawStringDial(UITheme::EditFlow::DialY, p_idx, zh ? p_zh : p_en, 2);
+                dialAnim.drawStringDial(UITheme::EditFlow::DialY(), p_idx, zh ? p_zh : p_en, 2);
             }
 
             // 4. 底部状态与操作指引

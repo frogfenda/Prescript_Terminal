@@ -712,17 +712,17 @@ private:
             const char *names_en[] = {"BASE", "COIN", "COUNT", "MAT"};
             const char **names = zh ? names_zh : names_en;
 
-            linkAnim.draw(UITheme::EditFlow::LinkY, names, 4, phase, 58);
+            linkAnim.draw(UITheme::EditFlow::LinkY(), names, 4, phase, 58);
 
-            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY);
+            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
 
-            if (phase == 0) dialAnim.drawNumberDial(UITheme::EditFlow::DialY, bp, 0, 99, "");
-            else if (phase == 1) dialAnim.drawNumberDial(UITheme::EditFlow::DialY, cp, -20, 99, "");
-            else if (phase == 2) dialAnim.drawNumberDial(UITheme::EditFlow::DialY, cc, 1, 9, "");
+            if (phase == 0) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), bp, 0, 99, "");
+            else if (phase == 1) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), cp, -20, 99, "");
+            else if (phase == 2) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), cc, 1, 9, "");
             else if (phase == 3) {
                 const char *c_zh[] = {"经典金", "狂气红", "沉稳绿"};
                 const char *c_en[] = {"GOLD", "RED", "GREEN"};
-                dialAnim.drawStringDial(UITheme::EditFlow::DialY, cl, zh ? c_zh : c_en, 3); 
+                dialAnim.drawStringDial(UITheme::EditFlow::DialY(), cl, zh ? c_zh : c_en, 3); 
             }
 
             const char *tip = zh ? "长按返回 / 单击下一步" : "LONG: BACK / CLICK: NEXT";
