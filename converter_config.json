@@ -1,1 +1,10 @@
-{"output_dir": "E:/develop/esp_projects/ESP32_Prescript_Terminal/data", "img_name": "standby", "audio_name": "sound_Coin_Fail__5_"}
+{
+  "output_dir": "C:/Users/Qingwa/Desktop",
+  "img_name": "standby",
+  "audio_name": "sound_Coin_Fail__5_",
+  "map_output_path": "C:/Users/Qingwa/Desktop/map_unicode_map.txt",
+  "map_encoding": "自动识别",
+  "map_include_ascii": true,
+  "map_sort_unicode": true,
+  "map_keep_existing": true
+}

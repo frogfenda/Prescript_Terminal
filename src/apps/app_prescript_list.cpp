@@ -1,470 +1,421 @@
-/*
-【模块职责】指令档案页。管理普通指令库的添加、删除、浏览、换行和滚动显示，并接收 PRE/PRE_DEL 事件。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
-*/
 // 文件：src/apps/app_prescript_list.cpp
+/*
+【模块职责】指令档案 App。
+
+本文件负责：
+1. 显示当前语言的指令库文本；
+2. 用旋钮在“当前指令内部滚动”和“上一条/下一条指令”之间连续切换；
+3. 提供二次确认删除流程；
+4. 接收 BLE/NFC/Web 路由发布的 PRE / PRE_DEL 事件并写入 LittleFS。
+
+大屏适配说明：
+- 旧版本按 284×76 写死 3~4 行显示、固定 40px 滚动条；
+- 当前版本按 HAL_Get_Screen_Width/Height 和当前字体行高计算可见行数、正文宽度和滚动条；
+- 删除交互改为“短按进入确认 → 短按继续删除 → 长按取消删除”，与用户当前交互约定一致。
+*/
 #include "app_base.h"
 #include "app_manager.h"
 #include "sys_fs.h"
 #include "sys_config.h"
 #include "sys/sys_event.h"
-#include "sys/sys_command_result.h"
-#include "../lang/terminal_lang.h"
+#include "hal/hal.h"
+#include "../ui/ui_theme.h"
 
 // ========================================================
-// 【新增】：独立的数据操作接口（暴露给未来的蓝牙、网络模块调用）
+// 指令库文件写入接口：BLE/NFC/Web 与 App 页面共用
 // ========================================================
-// 【函数说明】把当前语言的指令池重写回 prescripts_zh/en.txt，每条指令一行，删除和新增后都通过它持久化。
-bool DBArchive_SaveToFile(SystemLang_t lang)
+void DBArchive_SaveToFile(SystemLang_t lang)
 {
     std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    const char *path = TerminalLang::PrescriptPath(lang);
+    const char *path = (lang == LANG_ZH) ? "/assets/prescripts_zh.txt" : "/assets/prescripts_en.txt";
+
     File f = LittleFS.open(path, "w");
     if (!f)
-        return false;
+    {
+        Serial.printf("[指令档案] 保存失败，无法打开文件：%s\n", path);
+        return;
+    }
 
     for (size_t i = 0; i < p->size(); i++)
     {
         f.println((*p)[i]);
     }
     f.close();
-    return true;
+
+    Serial.printf("[指令档案] 已写入 %s，共 %u 条。\n", path, (unsigned)p->size());
 }
 
-// ==========================================
-// 邮局拆包回调：接收到蓝牙/NFC传来的新指令
-// ==========================================
-// 【函数说明】处理 PRE 命令：检查语言锁定、去重后加入对应指令池，保存文件并写业务 ACK。
+// 【事件回调】收到 PRE 添加事件后，把新指令追加到当前语言对应的文本库。
 void _Cb_PreAdd(void *payload)
 {
     Evt_PreAdd_t *p = (Evt_PreAdd_t *)payload;
-
-    if (!TerminalLang::Accepts((SystemLang_t)p->lang))
-    {
-        SysCmdResult_Error("LANG_LOCKED", TerminalLang::BUILD_CODE);
+    if (!p || !p->text)
         return;
-    }
 
     String new_text = String(p->text);
     new_text.trim();
     if (new_text.length() == 0)
-    {
-        SysCmdResult_Error("EMPTY_TEXT");
         return;
-    }
 
-    // 【函数说明】向指定语言指令池追加一条文本；先去重，再写文件，成功后内存池和 LittleFS 保持一致。
-    extern bool DBArchive_AddRecord(SystemLang_t lang, const String &text);
-    bool added = DBArchive_AddRecord((SystemLang_t)p->lang, new_text);
+    extern void DBArchive_AddRecord(SystemLang_t lang, const String &text);
+    DBArchive_AddRecord((SystemLang_t)p->lang, new_text);
 
-    Serial.printf("[指令库] %s添加指令到 %s 库: %s\n",
-                  added ? "成功" : "未",
+    Serial.printf("[指令档案] 已添加到%s库：%s\n",
                   (p->lang == LANG_ZH) ? "中文" : "英文",
                   new_text.c_str());
 }
 
-// 接口 1：从外部添加一条新指令到硬盘
-// 【函数说明】向指定语言指令池追加一条文本；先去重，再写文件，成功后内存池和 LittleFS 保持一致。
-bool DBArchive_AddRecord(SystemLang_t lang, const String &text)
+// 【外部接口】添加一条指令并立即写回 LittleFS。
+void DBArchive_AddRecord(SystemLang_t lang, const String &text)
 {
-    if (!TerminalLang::Accepts(lang))
-    {
-        SysCmdResult_Error("LANG_LOCKED", TerminalLang::BUILD_CODE);
-        return false;
-    }
     std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    for (size_t i = 0; i < p->size(); i++)
-    {
-        if ((*p)[i] == text)
-        {
-            SysCmdResult_Warn("EXISTS");
-            return false;
-        }
-    }
-
     p->push_back(text);
-    if (!DBArchive_SaveToFile(lang))
-    {
-        p->pop_back();
-        SysCmdResult_Error("SAVE_FAILED");
-        return false;
-    }
-
-    SysCmdResult_Ok("ADDED");
-    return true;
+    DBArchive_SaveToFile(lang);
 }
 
-// 接口 2：从外部物理删除某一条指令
-// 【函数说明】按索引从指定语言指令池删除一条记录，删除后重写文件。
+// 【外部接口】按索引删除指令；删除成功后立即写回 LittleFS。
 bool DBArchive_DeleteRecord(SystemLang_t lang, int index)
 {
-    if (!TerminalLang::Accepts(lang))
-    {
-        SysCmdResult_Error("LANG_LOCKED", TerminalLang::BUILD_CODE);
-        return false;
-    }
     std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
     if (index >= 0 && index < (int)p->size())
     {
         String removed = (*p)[index];
         p->erase(p->begin() + index);
-        if (!DBArchive_SaveToFile(lang))
-        {
-            p->insert(p->begin() + index, removed);
-            SysCmdResult_Error("SAVE_FAILED");
-            return false;
-        }
-        SysCmdResult_Ok("DELETED");
+        DBArchive_SaveToFile(lang);
+        Serial.printf("[指令档案] 已删除记录：%s\n", removed.c_str());
         return true;
     }
-    SysCmdResult_Error("NOT_FOUND");
+
+    Serial.printf("[指令档案] 删除失败，索引越界：%d\n", index);
     return false;
 }
 
-// 【函数说明】处理 PRE_DEL 命令：按文本找到对应语言池中的条目，删除并保存，找不到则返回 WARN。
-void _Cb_PreDel(void* payload) {
+// 【事件回调】收到 PRE_DEL 事件后，按文本内容查找并删除第一条完全匹配的指令。
+void _Cb_PreDel(void* payload)
+{
     Evt_PreDel_t* p = (Evt_PreDel_t*)payload;
-    String target = String(p->text);
-    target.trim();
-    if (target.length() == 0)
-    {
-        SysCmdResult_Error("EMPTY_TEXT");
+    if (!p || !p->text)
         return;
-    }
-    SystemLang_t target_lang = (SystemLang_t)p->lang;
-    if (!TerminalLang::Accepts(target_lang))
-    {
-        SysCmdResult_Error("LANG_LOCKED", TerminalLang::BUILD_CODE);
-        return;
-    }
 
-    // 【函数说明】按索引从指定语言指令池删除一条记录，删除后重写文件。
-    extern bool DBArchive_DeleteRecord(SystemLang_t lang, int index);
-    extern std::vector<String> sys_prescripts_zh;
-    extern std::vector<String> sys_prescripts_en;
+    String target = String(p->text);
+    SystemLang_t target_lang = (SystemLang_t)p->lang;
 
     std::vector<String> *target_pool = (target_lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
 
-    for (int i = 0; i < (int)target_pool->size(); i++) {
-        if ((*target_pool)[i] == target) {
-            if (DBArchive_DeleteRecord(target_lang, i))
-                Serial.printf("[指令库] 成功抹除指令: %s\n", target.c_str());
+    for (int i = 0; i < (int)target_pool->size(); i++)
+    {
+        if ((*target_pool)[i] == target)
+        {
+            DBArchive_DeleteRecord(target_lang, i);
+            Serial.printf("[指令档案] 已按文本删除：%s\n", target.c_str());
             return;
         }
     }
 
-    SysCmdResult_Error("NOT_FOUND");
+    Serial.printf("[指令档案] 未找到待删除文本：%s\n", target.c_str());
 }
-// ========================================================
 
 class AppPrescriptList : public AppBase
 {
 private:
-    std::vector<String> *pool;
-    const char *file_path;
+    std::vector<String> *pool = nullptr;
+    const char *file_path = nullptr;
 
     int current_idx = 0;
     int m_scroll_offset = 0;
     bool m_is_deleting = false;
 
-    static const int MAX_LINES = 30;
-    char m_lines[MAX_LINES][128];
+    // 大屏下每行可容纳更多字符，因此单行缓存从 128 增加到 192。
+    // MAX_LINES 用于限制极长指令的换行缓存，避免单条指令占用过多 RAM。
+    static const int MAX_LINES = 40;
+    static const int LINE_BUF_LEN = 192;
+    char m_lines[MAX_LINES][LINE_BUF_LEN];
     int m_actual_lines = 0;
 
-    // 【函数说明】返回当前 UTF-8 字符字节数，指令档案分行时避免切断中文字符。
     int get_utf8_char_len(char c)
     {
         unsigned char uc = (unsigned char)c;
-        if ((uc & 0x80) == 0)
-            return 1;
-        if ((uc & 0xE0) == 0xC0)
-            return 2;
-        if ((uc & 0xF0) == 0xE0)
-            return 3;
-        if ((uc & 0xF8) == 0xF0)
-            return 4;
+        if ((uc & 0x80) == 0) return 1;
+        if ((uc & 0xE0) == 0xC0) return 2;
+        if ((uc & 0xF0) == 0xE0) return 3;
+        if ((uc & 0xF8) == 0xF0) return 4;
         return 1;
     }
 
-    // 【函数说明】把当前选中的指令按屏幕宽度拆成多行，计算可滚动行数和 m_actual_lines。
+    int bodyRowHeight() const
+    {
+        return HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 2;
+    }
+
+    int bottomHintY() const
+    {
+        return HAL_Get_Screen_Height() - HAL_Get_Font_Line_Height(HAL_FONT_SMALL) - 5;
+    }
+
+    int contentTopY() const
+    {
+        return HAL_Get_Font_Line_Height(HAL_FONT_SMALL) + 13;
+    }
+
+    int visibleLineCount() const
+    {
+        int available_h = bottomHintY() - contentTopY() - 8;
+        int count = available_h / bodyRowHeight();
+        return max(1, count);
+    }
+
+    int contentMaxWidth() const
+    {
+        int sw = HAL_Get_Screen_Width();
+        int margin = max(22, sw / 16);
+        int scroll_reserved = 14;
+        return sw - margin * 2 - scroll_reserved;
+    }
+
+    void pushFormattedLine(const String& line)
+    {
+        if (m_actual_lines >= MAX_LINES)
+            return;
+
+        String safe = line;
+        safe.trim();
+        safe.toCharArray(m_lines[m_actual_lines], LINE_BUF_LEN);
+        m_actual_lines++;
+    }
+
+    /**
+     * 按当前字体真实像素宽度给当前指令换行。
+     *
+     * 旧版本按“中文 2、英文 1”的字符宽度估算，适配旧屏还可以，换成自定义字体后会不准。
+     * 当前实现每次追加 UTF-8 字符前用 HAL_Get_Text_Width() 测量候选行宽，
+     * 因此字体、字号或屏幕宽度变化后，换行会自动跟随。
+     */
     void FormatCurrent()
     {
-        if (pool->empty())
-        {
-            m_actual_lines = 0;
-            return;
-        }
-        const char *text = (*pool)[current_idx].c_str();
         m_actual_lines = 0;
 
-        if (appManager.getLanguage() == LANG_ZH)
+        if (!pool || pool->empty())
+            return;
+
+        const String text = (*pool)[current_idx];
+        const int max_px = contentMaxWidth();
+        String line = "";
+
+        for (int i = 0; i < (int)text.length() && m_actual_lines < MAX_LINES;)
         {
-            int max_w = 42;
-            char line_buf[128];
-            int buf_idx = 0;
-            int current_w = 0;
-
-            for (int i = 0; text[i] != '\0';)
+            if (text[i] == '\n')
             {
-                int clen = get_utf8_char_len(text[i]);
-                int cw = (clen > 1) ? 2 : 1;
-
-                if (current_w + cw > max_w || text[i] == '\n')
-                {
-                    line_buf[buf_idx] = '\0';
-                    strncpy(m_lines[m_actual_lines++], line_buf, 128);
-                    buf_idx = 0;
-                    current_w = 0;
-                    if (m_actual_lines >= MAX_LINES)
-                        break;
-                    if (text[i] == '\n')
-                    {
-                        i++;
-                        continue;
-                    }
-                }
-
-                for (int b = 0; b < clen; b++)
-                {
-                    if (buf_idx < 127)
-                        line_buf[buf_idx++] = text[i];
-                    i++;
-                }
-                current_w += cw;
+                pushFormattedLine(line);
+                line = "";
+                i++;
+                continue;
             }
-            if (buf_idx > 0 && m_actual_lines < MAX_LINES)
+
+            int clen = get_utf8_char_len(text[i]);
+            String token = text.substring(i, i + clen);
+            String candidate = line + token;
+
+            if (line.length() > 0 && HAL_Get_Text_Width(candidate.c_str()) > max_px)
             {
-                line_buf[buf_idx] = '\0';
-                strncpy(m_lines[m_actual_lines++], line_buf, 128);
+                pushFormattedLine(line);
+                line = token;
             }
+            else
+            {
+                line = candidate;
+            }
+
+            i += clen;
         }
-        else
+
+        if (line.length() > 0 && m_actual_lines < MAX_LINES)
         {
-            int max_w = 46;
-            char line_buf[128];
-            int buf_idx = 0;
-            int current_w = 0;
-            int i = 0;
-
-            while (text[i] != '\0' && m_actual_lines < MAX_LINES)
-            {
-                if (text[i] == '\n')
-                {
-                    line_buf[buf_idx] = '\0';
-                    strncpy(m_lines[m_actual_lines++], line_buf, 128);
-                    buf_idx = 0;
-                    current_w = 0;
-                    i++;
-                    continue;
-                }
-                if (current_w == 0 && text[i] == ' ')
-                {
-                    i++;
-                    continue;
-                }
-
-                int scan_i = i;
-                int w_len = 0;
-                while (text[scan_i] != '\0' && text[scan_i] != ' ' && text[scan_i] != '\n')
-                {
-                    w_len += (get_utf8_char_len(text[scan_i]) > 1) ? 2 : 1;
-                    scan_i += get_utf8_char_len(text[scan_i]);
-                }
-
-                if (current_w > 0 && current_w + w_len > max_w)
-                {
-                    line_buf[buf_idx] = '\0';
-                    strncpy(m_lines[m_actual_lines++], line_buf, 128);
-                    buf_idx = 0;
-                    current_w = 0;
-                    continue;
-                }
-
-                while (i < scan_i)
-                {
-                    int clen = get_utf8_char_len(text[i]);
-                    int cw = (clen > 1) ? 2 : 1;
-                    if (current_w + cw > max_w)
-                    {
-                        line_buf[buf_idx] = '\0';
-                        if (m_actual_lines < MAX_LINES)
-                            strncpy(m_lines[m_actual_lines++], line_buf, 128);
-                        buf_idx = 0;
-                        current_w = 0;
-                    }
-                    for (int b = 0; b < clen; b++)
-                    {
-                        if (buf_idx < 127)
-                            line_buf[buf_idx++] = text[i];
-                        i++;
-                    }
-                    current_w += cw;
-                }
-
-                if (text[i] == ' ')
-                {
-                    if (current_w < max_w && buf_idx < 127)
-                    {
-                        line_buf[buf_idx++] = ' ';
-                        current_w++;
-                    }
-                    i++;
-                }
-            }
-            if (buf_idx > 0 && m_actual_lines < MAX_LINES)
-            {
-                line_buf[buf_idx] = '\0';
-                strncpy(m_lines[m_actual_lines++], line_buf, 128);
-            }
+            pushFormattedLine(line);
         }
     }
 
-    // 【函数说明】绘制指令档案页：顶部显示编号/总数，中间显示当前指令多行文本，右侧显示滚动条，删除模式显示危险确认。
+    void drawSmallText(int x, int y, const char* text, uint16_t color = TFT_DARKGREY)
+    {
+        HAL_Screen_ShowLine_Font(x, y, text, HAL_FONT_SMALL, color);
+    }
+
+    void drawCenteredSmall(int y, const char* text, uint16_t color = TFT_DARKGREY)
+    {
+        int sw = HAL_Get_Screen_Width();
+        int x = (sw - HAL_Get_Text_Width_Font(text, HAL_FONT_SMALL)) / 2;
+        drawSmallText(x, y, text, color);
+    }
+
+    void drawBottomHints(const char* left, const char* right, uint16_t color = TFT_DARKGREY)
+    {
+        int sw = HAL_Get_Screen_Width();
+        int y = bottomHintY();
+        drawSmallText(8, y, left, color);
+        int rw = HAL_Get_Text_Width_Font(right, HAL_FONT_SMALL);
+        drawSmallText(sw - rw - 8, y, right, color);
+    }
+
+    void drawDeleteConfirm()
+    {
+        int sw = HAL_Get_Screen_Width();
+        int sh = HAL_Get_Screen_Height();
+        bool zh = (appManager.getLanguage() == LANG_ZH);
+
+        int box_w = sw - 72;
+        int box_h = max(52, HAL_Get_Font_Line_Height(HAL_FONT_BODY) * 2 + 16);
+        int box_x = (sw - box_w) / 2;
+        int box_y = (sh - box_h) / 2;
+
+        HAL_Fill_Rect(box_x, box_y, box_w, box_h, TFT_BLACK);
+        HAL_Draw_Rect(box_x, box_y, box_w, box_h, TFT_RED);
+
+        const char* title = zh ? "确认删除此指令？" : "DELETE THIS RECORD?";
+        const char* msg = zh ? "短按删除 / 长按取消" : "CLICK DELETE / HOLD CANCEL";
+
+        int tx = (sw - HAL_Get_Text_Width(title)) / 2;
+        HAL_Screen_ShowLine_Font(tx, box_y + 9, title, HAL_FONT_BODY, TFT_RED);
+
+        int mx = (sw - HAL_Get_Text_Width_Font(msg, HAL_FONT_SMALL)) / 2;
+        HAL_Screen_ShowLine_Font(mx, box_y + box_h - HAL_Get_Font_Line_Height(HAL_FONT_SMALL) - 7,
+                                 msg, HAL_FONT_SMALL, TFT_DARKGREY);
+    }
+
+    void drawArchiveEmpty()
+    {
+        bool zh = (appManager.getLanguage() == LANG_ZH);
+        int sw = HAL_Get_Screen_Width();
+        int sh = HAL_Get_Screen_Height();
+
+        const char *empty_str = zh ? "数据库为空" : "DB ARCHIVE EMPTY";
+        int ew = HAL_Get_Text_Width(empty_str);
+        HAL_Screen_ShowLine_Font((sw - ew) / 2,
+                                 (sh - HAL_Get_Font_Line_Height(HAL_FONT_BODY)) / 2,
+                                 empty_str,
+                                 HAL_FONT_BODY,
+                                 TFT_CYAN);
+    }
+
     void drawUI()
     {
         HAL_Sprite_Clear();
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
+        bool zh = (appManager.getLanguage() == LANG_ZH);
 
-        SystemLang_t lang = appManager.getLanguage();
-
-        if (pool->empty())
+        if (!pool || pool->empty())
         {
-            const char *empty_str = (lang == LANG_ZH) ? "数据库为空" : "DB ARCHIVE EMPTY";
-            int ew = HAL_Get_Text_Width(empty_str);
-            if (lang == LANG_ZH)
-                HAL_Screen_ShowChineseLine((sw - ew) / 2, sh / 2 - 12, empty_str);
-            else
-                HAL_Screen_ShowTextLine((sw - ew) / 2, sh / 2 - 6, empty_str);
+            drawArchiveEmpty();
+            drawBottomHints(zh ? "短按返回" : "CLICK BACK", zh ? "长按返回" : "HOLD BACK");
             HAL_Screen_Update();
             return;
         }
 
-        int max_vis = (lang == LANG_ZH) ? 3 : 4;
-        int row_h = (lang == LANG_ZH) ? 16 : 12;
+        // 顶部显示当前页码。它使用小字体，不抢正文空间。
+        char page_buf[40];
+        snprintf(page_buf, sizeof(page_buf), "%d / %d", current_idx + 1, (int)pool->size());
+        drawCenteredSmall(5, page_buf, TFT_DARKGREY);
 
-        int draw_count = (m_actual_lines - m_scroll_offset > max_vis) ? max_vis : (m_actual_lines - m_scroll_offset);
+        int max_vis = visibleLineCount();
+        int draw_count = min(max_vis, m_actual_lines - m_scroll_offset);
         if (draw_count < 0)
             draw_count = 0;
 
-        int block_h = draw_count * row_h;
-        int start_y = (60 - block_h) / 2;
-        if (start_y < 2)
-            start_y = 2;
-
-        int base_x = 4;
-        if (lang == LANG_ZH)
-        {
-            int max_line_w = 0;
-            for (int i = 0; i < draw_count; i++)
-            {
-                int w = HAL_Get_Text_Width(m_lines[m_scroll_offset + i]);
-                if (w > max_line_w)
-                    max_line_w = w;
-            }
-            base_x = (sw - max_line_w) / 2;
-            if (base_x < 6)
-                base_x = 6;
-        }
+        int row_h = bodyRowHeight();
+        int content_top = contentTopY();
+        int content_h = max_vis * row_h;
+        int start_y = content_top + max(0, (bottomHintY() - content_top - content_h - 8) / 2);
 
         for (int i = 0; i < draw_count; i++)
         {
             int line_idx = m_scroll_offset + i;
             if (line_idx < m_actual_lines)
             {
-                if (lang == LANG_ZH)
-                {
-                    HAL_Screen_ShowChineseLine(base_x, start_y, m_lines[line_idx]);
-                }
-                else
-                {
-                    HAL_Screen_ShowTextLine(base_x, start_y + 2, m_lines[line_idx]);
-                }
-                start_y += row_h;
+                int line_w = HAL_Get_Text_Width(m_lines[line_idx]);
+                int x = (sw - line_w) / 2;
+                if (x < 16) x = 16;
+
+                HAL_Screen_ShowLine_Font(x, start_y + i * row_h, m_lines[line_idx], HAL_FONT_BODY, TFT_CYAN);
             }
         }
 
+        // 右侧滚动条根据正文区域高度计算，显示当前指令内部滚动位置。
         if (m_actual_lines > max_vis)
         {
             int max_offset = m_actual_lines - max_vis;
-            int track_h = 40;
-            int bar_h = track_h * max_vis / m_actual_lines;
-            if (bar_h < 4)
-                bar_h = 4;
-            int bar_y = 10 + (track_h - bar_h) * m_scroll_offset / max_offset;
-            HAL_Fill_Rect(sw - 4, bar_y, 2, bar_h, 1);
+            int track_y = contentTopY();
+            int track_h = bottomHintY() - track_y - 8;
+            int bar_h = max(8, track_h * max_vis / m_actual_lines);
+            int bar_y = track_y + (track_h - bar_h) * m_scroll_offset / max_offset;
+            HAL_Fill_Rect(sw - 8, track_y, 1, track_h, TFT_DARKGREY);
+            HAL_Fill_Rect(sw - 10, bar_y, 4, bar_h, TFT_CYAN);
         }
-
-        int bot_y = sh - 12;
 
         if (m_is_deleting)
         {
-            HAL_Fill_Rect(12, sh / 2 - 16, sw - 24, 32, 0);
-            HAL_Draw_Rect(12, sh / 2 - 16, sw - 24, 32, 1);
-
-            if (lang == LANG_ZH)
-            {
-                const char *warn = "确认永久剥离此记录？";
-                int ww = HAL_Get_Text_Width(warn);
-                HAL_Screen_ShowChineseLine((sw - ww) / 2, sh / 2 - 6, warn);
-
-                HAL_Screen_ShowChineseLine(4, bot_y - 4, "短按取消");
-                const char *right_hint = "长按确认";
-                int rw = HAL_Get_Text_Width(right_hint);
-                HAL_Screen_ShowChineseLine(sw - rw - 4, bot_y - 4, right_hint);
-            }
-            else
-            {
-                const char *warn = "PERMANENTLY DELETE?";
-                int ww = HAL_Get_Text_Width(warn);
-                HAL_Screen_ShowTextLine((sw - ww) / 2, sh / 2 - 4, warn);
-
-                HAL_Screen_ShowTextLine(4, bot_y, "SHORT:CANCEL");
-                const char *right_hint = "HOLD:YES";
-                int rw = HAL_Get_Text_Width(right_hint);
-                HAL_Screen_ShowTextLine(sw - rw - 4, bot_y, right_hint);
-            }
+            drawDeleteConfirm();
         }
         else
         {
-            if (lang == LANG_ZH)
-            {
-                HAL_Screen_ShowChineseLine(4, bot_y - 4, "短按删除");
-                const char *right_hint = "长按退出";
-                int rw = HAL_Get_Text_Width(right_hint);
-                HAL_Screen_ShowChineseLine(sw - rw - 4, bot_y - 4, right_hint);
-            }
-            else
-            {
-                HAL_Screen_ShowTextLine(4, bot_y, "SHORT:DEL");
-                const char *right_hint = "HOLD:QUIT";
-                int rw = HAL_Get_Text_Width(right_hint);
-                HAL_Screen_ShowTextLine(sw - rw - 4, bot_y, right_hint);
-            }
-
-            char page_buf[32];
-            snprintf(page_buf, sizeof(page_buf), "- %d / %d -", current_idx + 1, (int)pool->size());
-            int pw = HAL_Get_Text_Width(page_buf);
-            HAL_Screen_ShowTextLine((sw - pw) / 2, bot_y, page_buf);
+            drawBottomHints(zh ? "短按删除" : "CLICK DELETE",
+                            zh ? "长按退出" : "HOLD EXIT");
         }
 
         HAL_Screen_Update();
     }
 
+    void deleteCurrentRecord()
+    {
+        if (!pool || pool->empty())
+            return;
+
+        HAL_Sprite_Clear();
+        bool zh = (appManager.getLanguage() == LANG_ZH);
+        const char* wipe_msg = zh ? "正在删除指令..." : "PURGING RECORD...";
+        int x = (HAL_Get_Screen_Width() - HAL_Get_Text_Width(wipe_msg)) / 2;
+        int y = (HAL_Get_Screen_Height() - HAL_Get_Font_Line_Height(HAL_FONT_BODY)) / 2;
+        HAL_Screen_ShowLine_Font(x, y, wipe_msg, HAL_FONT_BODY, TFT_RED);
+        HAL_Screen_Update();
+
+        SYS_SOUND_GLITCH();
+        delay(220);
+
+        DBArchive_DeleteRecord(appManager.getLanguage(), current_idx);
+
+        if (!pool || pool->empty())
+        {
+            current_idx = 0;
+            m_scroll_offset = 0;
+            m_is_deleting = false;
+            m_actual_lines = 0;
+            drawUI();
+            return;
+        }
+
+        if (current_idx >= (int)pool->size())
+            current_idx = (int)pool->size() - 1;
+        if (current_idx < 0)
+            current_idx = 0;
+
+        m_is_deleting = false;
+        m_scroll_offset = 0;
+        FormatCurrent();
+        drawUI();
+    }
+
 public:
-    // 【函数说明】进入档案页时读取当前语言指令池，选择第一条并完成第一次分行。
     void onCreate() override
     {
         if (appManager.getLanguage() == LANG_ZH)
         {
             pool = &sys_prescripts_zh;
-            file_path = TerminalLang::PrescriptPath(LANG_ZH);
+            file_path = "/assets/prescripts_zh.txt";
         }
         else
         {
             pool = &sys_prescripts_en;
-            file_path = TerminalLang::PrescriptPath(LANG_EN);
+            file_path = "/assets/prescripts_en.txt";
         }
+
         current_idx = 0;
         m_scroll_offset = 0;
         m_is_deleting = false;
@@ -472,51 +423,32 @@ public:
         drawUI();
     }
 
-    // 【函数说明】返回档案页时重绘当前记录，保留选中项和滚动偏移。
     void onResume() override { drawUI(); }
     void onLoop() override {}
 
     void onKnob(int delta) override
     {
-        if (pool->empty())
+        if (!pool || pool->empty())
             return;
 
+        // 删除确认状态下不响应旋钮，避免用户误转导致删除对象变化。
         if (m_is_deleting)
-        {
-            m_is_deleting = false;
-            SYS_SOUND_NAV();
-            drawUI();
             return;
-        }
 
         m_scroll_offset += delta;
-        int max_vis = (appManager.getLanguage() == LANG_ZH) ? 3 : 4;
+        int max_vis = visibleLineCount();
         int max_offset = (m_actual_lines > max_vis) ? (m_actual_lines - max_vis) : 0;
 
         if (m_scroll_offset < 0)
         {
-            if (current_idx > 0)
-            {
-                current_idx--;
-            }
-            else
-            {
-                current_idx = pool->size() - 1;
-            }
+            current_idx = (current_idx > 0) ? current_idx - 1 : (int)pool->size() - 1;
             FormatCurrent();
             max_offset = (m_actual_lines > max_vis) ? (m_actual_lines - max_vis) : 0;
             m_scroll_offset = max_offset;
         }
         else if (m_scroll_offset > max_offset)
         {
-            if (current_idx < pool->size() - 1)
-            {
-                current_idx++;
-            }
-            else
-            {
-                current_idx = 0;
-            }
+            current_idx = (current_idx < (int)pool->size() - 1) ? current_idx + 1 : 0;
             FormatCurrent();
             m_scroll_offset = 0;
         }
@@ -525,74 +457,47 @@ public:
         drawUI();
     }
 
-    // 【函数说明】普通模式短按进入/确认删除流程；删除确认后删除当前指令并重排索引。
     void onKeyShort() override
     {
-        if (pool->empty())
+        if (!pool || pool->empty())
         {
             appManager.popApp();
             return;
         }
 
+        if (m_is_deleting)
+        {
+            // 新交互：短按进入确认后，再短按才真正删除。
+            deleteCurrentRecord();
+            return;
+        }
+
         SYS_SOUND_NAV();
-        m_is_deleting = !m_is_deleting;
+        m_is_deleting = true;
         drawUI();
     }
 
-    // 【函数说明】普通模式长按退出档案页；删除模式长按取消删除确认。
     void onKeyLong() override
     {
         if (m_is_deleting)
         {
-            if (!pool->empty())
-            {
-                HAL_Sprite_Clear();
-
-                if (appManager.getLanguage() == LANG_ZH)
-                {
-                    const char *wipe_msg = "正在执行物理剥离...";
-                    int wipe_w = HAL_Get_Text_Width(wipe_msg);
-                    HAL_Screen_ShowChineseLine((HAL_Get_Screen_Width() - wipe_w) / 2, 30, wipe_msg);
-                }
-                else
-                {
-                    const char *wipe_msg = "PURGING RECORD...";
-                    int wipe_w = HAL_Get_Text_Width(wipe_msg);
-                    HAL_Screen_ShowTextLine((HAL_Get_Screen_Width() - wipe_w) / 2, 36, wipe_msg);
-                }
-                HAL_Screen_Update();
-
-                SYS_SOUND_GLITCH();
-                delay(300);
-
-                // 【调用全新的外部安全接口进行物理删除】
-                DBArchive_DeleteRecord(appManager.getLanguage(), current_idx);
-
-                if (current_idx >= pool->size())
-                    current_idx = pool->size() - 1;
-                if (current_idx < 0)
-                    current_idx = 0;
-
-                m_is_deleting = false;
-                FormatCurrent();
-                m_scroll_offset = 0;
-                drawUI();
-            }
-        }
-        else
-        {
+            // 新交互：确认界面长按取消删除，不退出档案页。
+            m_is_deleting = false;
             SYS_SOUND_NAV();
-            appManager.popApp();
+            drawUI();
+            return;
         }
+
+        SYS_SOUND_NAV();
+        appManager.popApp();
     }
-    // 【函数说明】离开档案页不释放指令池，池由 sys_fs 和全局 vector 持有。
+
     void onDestroy() override {}
 
-public:
     void onSystemInit() override
     {
         SysEvent_Subscribe(EVT_PRESCRIPT_ADD, _Cb_PreAdd);
-        SysEvent_Subscribe(EVT_PRESCRIPT_DEL, _Cb_PreDel); // 【新增】：认领删除任务
+        SysEvent_Subscribe(EVT_PRESCRIPT_DEL, _Cb_PreDel);
         appManager.registerBackgroundApp(this);
     }
 };

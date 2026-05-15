@@ -1,34 +1,63 @@
-/*
-【模块职责】UI 文本工具接口。封装 UTF-8 字符长度、文本宽度、居中绘制、裁剪绘制和淡出绘制。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
-*/
 #pragma once
 #include <Arduino.h>
 #include "../hal/hal.h"
 
 namespace UIText {
 
-// 【接口说明】根据 UTF-8 首字节判断当前字符占用 1/2/3/4 字节，供逐字测量和裁剪使用。
+/**
+ * 返回 UTF-8 字符首字节对应的字节长度。
+ *
+ * 这个工具被指令解码动画、列表裁剪绘制和文本换行共同使用。
+ * 它只判断首字节模式，不做完整 Unicode 合法性校验；项目内文本来自
+ * LittleFS/云端/网页协议，遇到异常字节时按 1 字节跳过，避免死循环。
+ */
 int Utf8CharLen(unsigned char c);
+
+/**
+ * 估算一个 UTF-8 字符的显示宽度。
+ *
+ * text 指向当前字符首字节，len 是该字符的 UTF-8 字节数。
+ * 函数内部会临时截出一个字符交给 HAL 当前字体测量；如果测量失败，
+ * 空格按较窄宽度处理，避免滚动/换行时空格占用过大。
+ */
 int CharWidth(const char* text, int len);
-// 【接口说明】逐 UTF-8 字符累加宽度，得到与 U8g2 绘制一致的字符串宽度。
+
+/**
+ * 使用 HAL 当前正文/全局字体测量整段文本宽度。
+ * 菜单居中、弹窗标题居中和滚动条布局都会依赖这个结果。
+ */
 int Measure(const char* text);
 
+/** 使用当前全局字体绘制一行普通文本。 */
 void Draw(int x, int y, const char* text);
-// 【接口说明】在指定坐标绘制带 distance 灰度衰减的文本。
+
+/** 使用当前全局字体绘制一行淡出文本，常用于底部提示和低优先级状态。 */
 void DrawFaded(int x, int y, const char* text, float fade);
+
+/** 按屏幕宽度居中绘制一行普通文本。 */
 void DrawCentered(int y, const char* text);
-// 【接口说明】水平居中绘制带灰度衰减的文本。
-void DrawCenteredFaded(int y, const char* text, float fade);
+
+/** 按屏幕宽度居中绘制一行淡出文本。 */
+void DrawCenteredFaded(int y, const char* text, float fade = 0.6f);
+
+/**
+ * 裁剪绘制一行文本。
+ *
+ * 函数会逐个 UTF-8 字符测量宽度，只绘制落在 [min_x, max_x] 范围内的字形。
+ * 主要用于指令档案、滚轮菜单等不希望文字越界覆盖边框的场景。
+ */
 void DrawClipped(int x, int y, const char* text, int min_x = 0, int max_x = -1);
-// 【接口说明】逐字符裁剪绘制淡出文本，刻度盘和流程链路用它避免文字越界。
+
+/** 裁剪绘制淡出文本，用于弱化状态或渐隐列表项。 */
 void DrawClippedFaded(int x, int y, const char* text, float fade, int min_x = 0, int max_x = -1);
 
-// Small wrapper for future bilingual builds. For now it simply returns zh/en by flag,
-// but it keeps call sites from embedding language branching deeper into UI helpers.
-// 【函数说明】根据布尔语言标志返回中文或英文字符串，减少调用点直接写三元表达式。
+/**
+ * 双语文本选择小工具。
+ *
+ * 只做简单三元选择，不访问 appManager，避免 UI 工具层反向依赖 App 层。
+ */
 inline const char* Pick(bool zh, const char* zh_text, const char* en_text) {
     return zh ? zh_text : en_text;
 }
 
-}
+} // namespace UIText

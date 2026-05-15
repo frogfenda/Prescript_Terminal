@@ -2,14 +2,11 @@
 #include <Arduino.h>
 
 /*
- * 终端全局常量表。
- *
- * 这一版是 142×428 新屏分支的“全屏基线”：
- * - 不再保留 284×76 兼容画布；
- * - HAL_Get_Screen_Width()/Height() 直接返回新屏横向可视区域 428×142；
- * - UI 层后续都以 428×142 为唯一逻辑画布继续重排；
- * - NV3007 控制器内部 RAM 偏移单独保留在 DISPLAY_RAM_OFFSET_*，不和 UI 坐标混用。
- */
+【模块职责】系统常量中心。
+
+这里集中保存硬件引脚、屏幕几何、运行容量和协议标识，避免 HAL / SYS / APP 层各自写一套魔法数字。
+当前新屏分支已经不保留 284×76 兼容画布，逻辑 UI 直接使用 428×142 全屏画布。
+*/
 namespace PrescriptConst {
 
 // -----------------------------------------------------------------------------
@@ -40,73 +37,59 @@ constexpr int PIN_NFC_SS    = 15;
 constexpr int PIN_NFC_RESET = 21;
 
 // -----------------------------------------------------------------------------
-// Display profile: 2.79 inch 142×428 NV3007/NV3006A1 strip screen
+// Display and UI geometry
 // -----------------------------------------------------------------------------
-// 面板原生可视区为竖向 142×428。
-constexpr uint16_t DISPLAY_NATIVE_VISIBLE_W = 142;
-constexpr uint16_t DISPLAY_NATIVE_VISIBLE_H = 428;
-
-// 根据厂家例程：可视 column = 12 ~ 153，因此控制器 native RAM 宽度至少为 156。
-// PlatformIO/TFT_eSPI 中需要设置 TFT_WIDTH=156, TFT_HEIGHT=428，避免写入 offset 后底部出现花线。
-constexpr uint16_t DISPLAY_NATIVE_RAM_W = 156;
-constexpr uint16_t DISPLAY_NATIVE_RAM_H = 428;
-
-// 设备横向使用，TFT_eSPI rotation=1 后的可视逻辑方向为 428×142。
-constexpr uint8_t  DISPLAY_ROTATION = 1;
+/*
+ * 新屏幕说明：
+ * - 面板可视区：142×428；设备横向使用后为 428×142；
+ * - TFT_eSPI 仍借用 ST7789 驱动通道，但通过 HAL 补发 NV3007 初始化序列；
+ * - platformio.ini 中 TFT_WIDTH 必须设为 156、TFT_HEIGHT 设为 428；
+ * - 156 不是可视宽度，而是控制器原生方向的 RAM 宽度，用来覆盖 column offset 后的可视范围；
+ * - DISPLAY_RAM_OFFSET_Y=14 是实测后的横屏写入偏移，用来消除底部花线并保持画面居中。
+ */
 constexpr uint16_t DISPLAY_VISIBLE_WIDTH  = 428;
 constexpr uint16_t DISPLAY_VISIBLE_HEIGHT = 142;
+constexpr uint8_t  DISPLAY_ROTATION       = 1;
 
-// 新屏分支不再保留旧 284×76 兼容画布，UI 的唯一逻辑画布就是整块可视区域。
-constexpr uint16_t UI_SCREEN_WIDTH  = DISPLAY_VISIBLE_WIDTH;
-constexpr uint16_t UI_SCREEN_HEIGHT = DISPLAY_VISIBLE_HEIGHT;
-
-// UI 画布已经和可视区域等大，所以不需要额外居中偏移。
-constexpr int16_t UI_PUSH_X = 0;
-constexpr int16_t UI_PUSH_Y = 0;
-
-// NV3007/NV3006A1 内部 GRAM 可视区偏移。
-// 厂家例程在原生竖屏坐标下 column +12；横向 rotation=1 后表现为写屏 Y 方向 +12。
-// 这个偏移只在 HAL pushSprite 写到物理屏幕时叠加，APP/UI 层完全不用感知。
 constexpr int16_t DISPLAY_RAM_OFFSET_X = 0;
 constexpr int16_t DISPLAY_RAM_OFFSET_Y = 14;
 
-// 背光极性：新屏为高电平亮、低电平灭。
-constexpr uint8_t BACKLIGHT_ON_LEVEL  = HIGH;
-constexpr uint8_t BACKLIGHT_OFF_LEVEL = LOW;
+// 逻辑 UI 画布：本分支不保留旧兼容模式，所有页面直接面向 428×142 设计。
+constexpr uint16_t UI_SCREEN_WIDTH  = DISPLAY_VISIBLE_WIDTH;
+constexpr uint16_t UI_SCREEN_HEIGHT = DISPLAY_VISIBLE_HEIGHT;
+constexpr int16_t UI_PUSH_X = 0;
+constexpr int16_t UI_PUSH_Y = 0;
 
-// -----------------------------------------------------------------------------
-// Legacy UI metrics kept for existing APP code.
-// 后续 UITheme 响应式重排时会逐步减少对这些固定值的依赖。
-// -----------------------------------------------------------------------------
-constexpr uint8_t UI_HEADER_HEIGHT = 38;
-constexpr uint8_t UI_MARGIN_LEFT   = 20;
-constexpr uint8_t UI_MARGIN_RIGHT  = 20;
-constexpr uint8_t UI_TEXT_Y_TOP    = 16;
-constexpr uint8_t UI_TIME_SAFE_PAD = 28;
+// 这些旧常量仍作为 AppBase / 老页面的兼容入口，数值按新屏重新给出。
+constexpr uint8_t UI_HEADER_HEIGHT = 46;
+constexpr uint8_t UI_MARGIN_LEFT   = 24;
+constexpr uint8_t UI_MARGIN_RIGHT  = 24;
+constexpr uint8_t UI_TEXT_Y_TOP    = 18;
+constexpr uint8_t UI_TIME_SAFE_PAD = 34;
 constexpr uint8_t UI_FRAME_MS      = 16;
 
-// 旧绘图包装约定：color == 1 表示默认青色强调色。
+// Legacy drawing wrappers treat color == 1 as the default accent color.
 constexpr uint16_t UI_ACCENT_SENTINEL = 1;
 
 // -----------------------------------------------------------------------------
 // Runtime timings and capacities
 // -----------------------------------------------------------------------------
-constexpr uint8_t  CPU_RUNTIME_MHZ          = 80;
+constexpr uint8_t  CPU_RUNTIME_MHZ          = 160;
 constexpr uint32_t DEFAULT_IDLE_SLEEP_MS    = 30000UL;
 constexpr uint32_t NEVER_SLEEP_MS           = 0xFFFFFFFFUL;
 constexpr uint32_t BUTTON_LONG_MS           = 800UL;
 constexpr uint32_t BUTTON_DOUBLE_GAP_MS     = 250UL;
 constexpr uint32_t BUTTON_DEBOUNCE_MS       = 20UL;
 
-constexpr uint8_t MAX_NAV_STACK         = 5;
-constexpr uint8_t MAX_BG_APPS           = 10;
+constexpr uint8_t MAX_NAV_STACK       = 5;
+constexpr uint8_t MAX_BG_APPS         = 10;
 constexpr uint8_t MAX_EVENT_SUBSCRIBERS = 24;
-constexpr uint8_t MAX_POMODORO_PRESETS  = 5;
-constexpr uint8_t MAX_COIN_PRESETS      = 10;
-constexpr uint8_t MAX_ALARMS            = 10;
-constexpr uint8_t MAX_SCHEDULES         = 15;
-constexpr uint8_t MAX_CHAR_CHAINS       = 8;
-constexpr uint8_t MAX_BLE_QUEUE         = 8;
+constexpr uint8_t MAX_POMODORO_PRESETS = 5;
+constexpr uint8_t MAX_COIN_PRESETS    = 10;
+constexpr uint8_t MAX_ALARMS          = 10;
+constexpr uint8_t MAX_SCHEDULES       = 15;
+constexpr uint8_t MAX_CHAR_CHAINS     = 8;
+constexpr uint8_t MAX_BLE_QUEUE       = 8;
 
 // -----------------------------------------------------------------------------
 // Files and BLE protocol identifiers

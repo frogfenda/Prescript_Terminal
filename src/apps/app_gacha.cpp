@@ -1,7 +1,3 @@
-/*
-【模块职责】提取部模拟。执行十连抽、扫描线揭示、结果滚动展示，并将星级与瓦夜统计写入 sysConfig.gacha_stats。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
-*/
 // 文件：src/apps/app_gacha.cpp
 #include "app_base.h"
 #include "app_manager.h"
@@ -28,17 +24,68 @@ private:
     int max_star_pulled = 1;
     bool has_walp_pulled = false;
 
-    // 动画引擎：左到右线性揭晓
-    bool revealed[10];                   // 记录每个方块是否已被扫描线扫过并揭晓
-    static const uint32_t ANIM_DURATION = 1800; // 扫描线扫过全屏的总时长 (1.8秒，节奏紧凑)
-    static const int RESULT_BOX_SIZE = 18;
-    static const int RESULT_BOX_GAP_X = 6;
-    static const int RESULT_BOX_COUNT = 10;
+    // 动画引擎：左到右线性揭晓。
+    // 10 个身份方块按一行排布，扫描线从左到右扫过，扫到方块中心后揭示稀有度颜色。
+    static constexpr int PULL_COUNT = 10;
+    bool revealed[PULL_COUNT];
+    const uint32_t ANIM_DURATION = 1800; // 扫描线扫过全部方块的总时长。
 
-    // 列表引擎参数
+    // 结果列表滚动偏移。可见行数不再写死，drawResultPhase/onKnob 会按当前屏幕高度动态计算。
     int m_scroll_offset = 0;
-    const int MAX_VIS = 4;
-    const int ROW_H = 18;
+
+    struct ScanLayout
+    {
+        int box_size;
+        int gap_x;
+        int total_w;
+        int start_x;
+        int start_y;
+        int title_y;
+        int scan_pad;
+    };
+
+    /**
+     * 计算十连扫描动画的响应式布局。
+     *
+     * 旧版本固定使用 18px 方块和 6px 间距，刚好适配 284×76；
+     * 新屏 428×142 下如果继续使用旧参数，扫描阵列会显得过小且留白过多。
+     * 这里按屏幕宽度重新计算方块大小，让 10 个结果方块仍然一行排满，
+     * 同时限制最大尺寸，避免方块过大后压缩标题和扫描线空间。
+     */
+    ScanLayout calcScanLayout(int sw, int sh)
+    {
+        ScanLayout l;
+        int side_margin = max(24, sw / 14);
+        l.gap_x = max(7, sw / 54);
+        l.box_size = (sw - side_margin * 2 - l.gap_x * (PULL_COUNT - 1)) / PULL_COUNT;
+        l.box_size = constrain(l.box_size, 20, 30);
+        l.total_w = PULL_COUNT * l.box_size + (PULL_COUNT - 1) * l.gap_x;
+        l.start_x = (sw - l.total_w) / 2;
+        l.title_y = max(10, sh / 10);
+        l.start_y = (sh * 58) / 100 - l.box_size / 2;
+        if (l.start_y < l.title_y + HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 8)
+            l.start_y = l.title_y + HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 8;
+        if (l.start_y + l.box_size > sh - 10)
+            l.start_y = sh - l.box_size - 10;
+        l.scan_pad = max(5, l.box_size / 4);
+        return l;
+    }
+
+    /**
+     * 根据当前字体和屏幕高度计算结果列表可见行数。
+     * 每行显示“星级 + 人格名”，行高需要跟随字体放大；右侧滚动条也使用同一行数计算。
+     */
+    int getResultRowHeight() const
+    {
+        return max(22, HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 2);
+    }
+
+    int getResultVisibleRows(int sh) const
+    {
+        int row_h = getResultRowHeight();
+        int visible = (sh - 14) / row_h;
+        return constrain(visible, 3, PULL_COUNT);
+    }
 
     // ==========================================
     // 底层引擎：抽卡概率与数据分配
@@ -75,13 +122,12 @@ private:
         return &g_gacha_pool[selected_idx];
     }
 
-    // 【函数说明】执行十连抽核心逻辑：按概率产生 1/2/3 星结果，第十抽保底 2 星，并更新总抽数、星级和瓦夜统计。
     void executeTenPull()
     {
         max_star_pulled = 1;
         has_walp_pulled = false;
 
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < PULL_COUNT; i++)
         {
             current_pulls[i].id_ptr = rollSingle(i == 9);
             current_pulls[i].is_new = false;
@@ -112,7 +158,6 @@ private:
         sysConfig.save(); // 【新增】：十连结束瞬间，将 config.json 永久覆写至硬盘！
     }
 
-    // 【函数说明】跳过扫描动画，直接把所有结果标记为已揭示并进入结果浏览阶段。
     void skipToResult()
     {
         phase = 2;
@@ -120,11 +165,12 @@ private:
         // 最终结果汇总音效
         if (has_walp_pulled || max_star_pulled == 3)
         {
-            Feedback_PlayConfirm();
+            sysAudio.playTone(2000, 300);
+            sysHaptic.playConfirm();
         }
         else
         {
-            Feedback_PlayBack();
+            sysAudio.playTone(1000, 100);
         }
         drawUI();
     }
@@ -132,43 +178,44 @@ private:
     // ==========================================
     // UI 渲染：待机界面
     // ==========================================
-    // 【函数说明】绘制提取待机界面：显示执行十连提取的操作提示，等待短按开始。
     void drawIdlePhase(int sw, int sh)
     {
         bool zh = appManager.getLanguage() == LANG_ZH;
-        const char* tip = zh ? "[ 单击 ] 执行十连提取" : "[ CLICK ] 10X EXTRACT";
-        HAL_Screen_ShowChineseLine_Faded_Color(sw / 2 - 50, 20, ">> MEPHISTOPHELES", 0.0f, TFT_RED);
-        HAL_Screen_ShowChineseLine_Faded_Color((sw - HAL_Get_Text_Width(tip)) / 2, 45, tip, 0.0f, TFT_WHITE);
+        const char* title = ">> MEPHISTOPHELES";
+        const char* hint = zh ? "[ 单击 ] 执行十连提取" : "[ CLICK ] 10X EXTRACT";
+
+        // 待机页只显示标题和操作提示；使用当前字体宽度居中，避免换字体后仍按旧像素偏移。
+        int title_x = (sw - HAL_Get_Text_Width(title)) / 2;
+        int hint_x = (sw - HAL_Get_Text_Width(hint)) / 2;
+        int title_y = sh / 2 - HAL_Get_Font_Line_Height(HAL_FONT_BODY) - 8;
+        int hint_y = sh / 2 + 8;
+
+        HAL_Screen_ShowChineseLine_Faded_Color(title_x, title_y, title, 0.0f, TFT_RED);
+        HAL_Screen_ShowChineseLine_Faded_Color(hint_x, hint_y, hint, 0.0f, TFT_WHITE);
     }
 
     // ==========================================
     // UI 渲染：【线性阵列解密】硬核扫描动画
     // ==========================================
-    // 【函数说明】绘制扫描线揭示动画：十个结果框横向排列，扫描线扫过时逐个显示身份星级并播放反馈。
     void drawAnimPhase(int sw, int sh)
     {
         uint32_t elapsed = millis() - anim_timer;
+        ScanLayout layout = calcScanLayout(sw, sh);
 
-        // 顶部的暗色文字，留出下方完整的阵列空间
-        HAL_Screen_ShowChineseLine_Faded_Color(sw / 2 - 40, 10, "EXTRACTION...", 0.0f, 0x18E3);
+        // 顶部状态文字表示提取设备正在扫描身份矩阵。
+        // 文字居中绘制，颜色压暗，避免抢走十连扫描方块的视觉焦点。
+        const char* label = "EXTRACTION...";
+        int label_x = (sw - HAL_Get_Text_Width(label)) / 2;
+        HAL_Screen_ShowChineseLine_Faded_Color(label_x, layout.title_y, label, 0.0f, 0x18E3);
 
-        // 1x10 横向阵列参数精算 (完美适配 284 宽度)
-        int box_size = RESULT_BOX_SIZE;
-        int gap_x = RESULT_BOX_GAP_X;
-        int total_w = RESULT_BOX_COUNT * box_size + (RESULT_BOX_COUNT - 1) * gap_x;
-
-        int start_x = (sw - total_w) / 2;
-        int start_y = sh / 2 - box_size / 2 + 8; // 微微偏下放置阵列
-
-        // 绘制 10 个方块
-        for (int i = 0; i < 10; i++)
+        // 绘制 10 个身份方块。未揭示时是暗色空框；扫描线扫过后填充稀有度颜色。
+        for (int i = 0; i < PULL_COUNT; i++)
         {
-            int x = start_x + i * (box_size + gap_x);
-            int y = start_y;
+            int x = layout.start_x + i * (layout.box_size + layout.gap_x);
+            int y = layout.start_y;
 
             if (revealed[i])
             {
-                // 如果扫描线已扫过，展现真实品级颜色
                 IdentityData *p_id = current_pulls[i].id_ptr;
                 uint16_t box_color = TFT_DARKGREY;
                 if (p_id)
@@ -180,35 +227,38 @@ private:
                     else if (p_id->star == 2)
                         box_color = TFT_RED;
                 }
-                HAL_Fill_Rect(x, y, box_size, box_size, box_color);
-                HAL_Draw_Rect(x, y, box_size, box_size, TFT_WHITE); // 加亮边框
+
+                HAL_Fill_Rect(x, y, layout.box_size, layout.box_size, box_color);
+                HAL_Draw_Rect(x, y, layout.box_size, layout.box_size, TFT_WHITE);
             }
             else
             {
-                // 如果扫描线还没到，保持未激活的空心暗框
-                HAL_Draw_Rect(x, y, box_size, box_size, 0x39E7); // 极暗的灰色
+                HAL_Draw_Rect(x, y, layout.box_size, layout.box_size, 0x39E7);
             }
         }
 
-        // 绘制扫描线 (带有科幻的发光残影效果)
+        // 绘制扫描线。扫描线高度随方块尺寸扩展，形成穿过整排方块的“提取扫描”效果。
         if (elapsed < ANIM_DURATION)
         {
-            int scan_x = start_x + (elapsed * total_w / ANIM_DURATION);
-            HAL_Draw_Line(scan_x, start_y - 4, scan_x, start_y + box_size + 4, TFT_CYAN);
-            HAL_Draw_Line(scan_x - 1, start_y - 2, scan_x - 1, start_y + box_size + 2, 0x03E0);
+            int scan_x = layout.start_x + (elapsed * layout.total_w / ANIM_DURATION);
+            HAL_Draw_Line(scan_x, layout.start_y - layout.scan_pad, scan_x, layout.start_y + layout.box_size + layout.scan_pad, TFT_CYAN);
+            HAL_Draw_Line(scan_x - 1, layout.start_y - layout.scan_pad / 2, scan_x - 1, layout.start_y + layout.box_size + layout.scan_pad / 2, 0x03E0);
         }
     }
 
     // ==========================================
     // UI 渲染：提取结算列表
     // ==========================================
-    // 【函数说明】绘制结果浏览界面：显示十连结果列表，旋钮控制纵向滚动查看超出屏幕的身份名称。
     void drawResultPhase(int sw, int sh)
     {
-        for (int i = 0; i < MAX_VIS; i++)
+        int row_h = getResultRowHeight();
+        int visible_rows = getResultVisibleRows(sh);
+        int top_y = max(6, (sh - visible_rows * row_h) / 2);
+
+        for (int i = 0; i < visible_rows; i++)
         {
             int list_idx = m_scroll_offset + i;
-            if (list_idx >= 10)
+            if (list_idx >= PULL_COUNT)
                 break;
 
             IdentityData *p_id = current_pulls[list_idx].id_ptr;
@@ -236,29 +286,29 @@ private:
             String line_text = w_str + star_str + " " + p_id->sinner + " : " + p_id->id_name;
 
             int text_w = HAL_Get_Text_Width(line_text.c_str());
-            int x_pos = (sw - 6 - text_w) / 2;
-            if (x_pos < 2)
-                x_pos = 2;
+            int x_pos = (sw - 14 - text_w) / 2;
+            if (x_pos < 8)
+                x_pos = 8;
 
-            int y_pos = 2 + i * ROW_H;
+            int y_pos = top_y + i * row_h;
             HAL_Screen_ShowChineseLine_Faded_Color(x_pos, y_pos, line_text.c_str(), 0.0f, theme_color);
         }
 
-        // 右侧滚轮进度条
-        int max_offset = 10 - MAX_VIS;
+        // 右侧滚动条按新屏高度计算。旧版本 track_h 固定 64，在 142 高屏幕上会显得短。
+        int max_offset = PULL_COUNT - visible_rows;
         if (max_offset > 0)
         {
-            int track_h = 64;
-            int bar_h = track_h * MAX_VIS / 10;
-            if (bar_h < 4)
-                bar_h = 4;
-            int bar_y = 6 + (track_h - bar_h) * m_scroll_offset / max_offset;
+            int track_top = 8;
+            int track_h = sh - track_top * 2;
+            int bar_h = track_h * visible_rows / PULL_COUNT;
+            if (bar_h < 6)
+                bar_h = 6;
+            int bar_y = track_top + (track_h - bar_h) * m_scroll_offset / max_offset;
 
-            HAL_Fill_Rect(sw - 6, bar_y, 3, bar_h, TFT_WHITE);
+            HAL_Fill_Rect(sw - 8, bar_y, 3, bar_h, TFT_WHITE);
         }
     }
 
-    // 【函数说明】根据当前 phase 分派到待机、扫描动画、结果三种画面并提交屏幕。
     void drawUI()
     {
         HAL_Sprite_Clear();
@@ -276,7 +326,6 @@ private:
     }
 
 public:
-    // 【函数说明】进入抽卡页面时清空上次结果、重置扫描状态和滚动偏移。
     void onCreate() override
     {
         phase = 0;
@@ -286,7 +335,6 @@ public:
 
     void onResume() override { drawUI(); }
 
-    // 【函数说明】扫描阶段按 30FPS 推进动画进度，结果阶段保持静态显示。
     void onLoop() override
     {
         if (phase == 1)
@@ -304,15 +352,15 @@ public:
                 // ==========================================
                 // 【核心逻辑】：物理级精准判断扫描线与方块的交集
                 // ==========================================
-                int box_size = RESULT_BOX_SIZE;
-                int gap_x = RESULT_BOX_GAP_X;
-                int total_w = RESULT_BOX_COUNT * box_size + (RESULT_BOX_COUNT - 1) * gap_x;
+                ScanLayout layout = calcScanLayout(HAL_Get_Screen_Width(), HAL_Get_Screen_Height());
 
-                for (int i = 0; i < RESULT_BOX_COUNT; i++)
+                for (int i = 0; i < PULL_COUNT; i++)
                 {
-                    // 计算出扫描线扫到第 i 个方块“正中心”时所需的时间
-                    int trigger_x = i * (box_size + gap_x) + box_size / 2;
-                    uint32_t trigger_time = trigger_x * ANIM_DURATION / total_w;
+                    // 计算扫描线扫到第 i 个方块中心时所需的时间。
+                    // 方块尺寸和间距与 drawAnimPhase 使用同一套响应式布局，
+                    // 保证视觉扫描线和音效/震动触发点严格一致。
+                    int trigger_x = i * (layout.box_size + layout.gap_x) + layout.box_size / 2;
+                    uint32_t trigger_time = trigger_x * ANIM_DURATION / layout.total_w;
 
                     // 当扫描线压过中心点，且这个方块还没被揭晓时
                     if (elapsed >= trigger_time && !revealed[i])
@@ -323,7 +371,24 @@ public:
                         // 【不同程度的音效震动反馈】
                         if (p_id)
                         {
-                            Feedback_PlayGachaReveal(p_id->star, p_id->walp == 1);
+                            if (p_id->walp == 1)
+                            {
+                                sysAudio.playTone(2500, 160); // 瓦夜：最长、最高亢的异响
+                                sysHaptic.playTick();
+                            }
+                            else if (p_id->star == 3)
+                            {
+                                sysAudio.playTone(3200, 120); // 3星：清脆高音
+                                sysHaptic.playTick();
+                            }
+                            else if (p_id->star == 2)
+                            {
+                                sysAudio.playTone(1500, 70); // 2星：标准中音
+                            }
+                            else
+                            {
+                                sysAudio.playTone(800, 30); // 1星：沉闷短促的“哒”
+                            }
                         }
                     }
                 }
@@ -340,13 +405,13 @@ public:
 
     void onDestroy() override {}
 
-    // 【函数说明】结果阶段旋钮滚动身份列表；待机和扫描阶段旋钮不改变状态。
     void onKnob(int delta) override
     {
         if (phase == 2)
         {
             m_scroll_offset += delta;
-            int max_offset = 10 - MAX_VIS;
+            int max_offset = PULL_COUNT - getResultVisibleRows(HAL_Get_Screen_Height());
+            if (max_offset < 0) max_offset = 0;
 
             if (m_scroll_offset < 0)
                 m_scroll_offset = 0;
@@ -358,7 +423,6 @@ public:
         }
     }
 
-    // 【函数说明】待机阶段开始十连，扫描阶段跳过到结果，结果阶段再次短按重新开始下一次十连。
     void onKeyShort() override
     {
         if (phase == 0)
@@ -383,7 +447,6 @@ public:
         }
     }
 
-    // 【函数说明】长按返回上一级菜单。
     void onKeyLong() override
     {
         SYS_SOUND_NAV();

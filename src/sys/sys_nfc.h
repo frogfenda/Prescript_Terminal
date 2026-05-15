@@ -1,5 +1,5 @@
 /*
-【模块职责】PN532 NFC 接口。提供主动读卡、60 秒手机伪装、剩余时间查询，以及休眠/唤醒控制。
+【模块职责】PN532 NFC 接口。提供后台读卡入队、60 秒手机伪装、剩余时间查询，以及休眠/唤醒控制。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/sys/sys_nfc.h
@@ -10,7 +10,7 @@ class SysNFC
 {
 public:
     void begin();
-    void triggerManualScan();
+    void triggerManualScan(); // 保留旧接口：当前采用后台常扫，调用时不直接阻塞读卡。
 };
 
 extern SysNFC sysNfc;

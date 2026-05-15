@@ -46,9 +46,9 @@ void Feedback_PlayAlertPulse()
 void Feedback_PlayAlertSequence()
 {
     sysAudio.playTone(1500, 200);
-    delay(100);
+    delay(400);
     sysAudio.playTone(1500, 200);
-    delay(100);
+    delay(400);
     sysAudio.playTone(2500, 600);
     sysHaptic.playAlert();
 }

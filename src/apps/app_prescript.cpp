@@ -1,72 +1,82 @@
-/*
-【模块职责】指令接收页。负责抽取普通/特殊指令、播放 procedure 循环音、调用 UIPrescript 四种解码动画，并在完成态支持滚动阅读。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
-*/
 // 文件：src/apps/app_prescript.cpp
 #include "app_base.h"
 #include "app_manager.h"
 #include "sys_auto_push.h"
 #include "sys_config.h"
-#include "hal/hal.h"
-#include "sys/sys_audio.h"
-#include "sys/sys_res.h"
+#include "sys_audio.h"
 #include "sys_haptic.h"
+#include "sys_res.h"
 #include "sys_specials.h"
+#include "../hal/hal.h"
 #include "../ui/ui_prescript_decoder.h"
 
+/*
+【模块职责】指令应用状态机。
+
+本文件只负责“什么时候抽取指令、什么时候进入乱码态、什么时候确认解码、
+完成后怎样播放音频/震动和返回页面”。指令文本排版、CHAOS 乱码帧、四种解码动画、
+完成态正文和滚动条绘制全部下沉到 src/ui/ui_prescript_decoder.*。
+
+这样 App 层不再保存屏幕尺寸、字体宽度、乱码字典和动画帧循环，后续改动画表现时只改 UI 层。
+*/
 bool g_prescript_needs_roll = true;
 
-// 【函数说明】特殊指令弹窗确认前调用：标记下一次进入 AppPrescript 时不要重新随机，而是使用 sysSpecials 已锁定的结果。
 void Prescript_Prepare_PreRolled()
 {
-    g_prescript_needs_roll = false; // 被推送唤醒时调用，告诉自己不要重新摇号
+    g_prescript_needs_roll = false; // 被推送唤醒时调用，告诉自己不要重新摇号。
 }
 
 namespace {
-static const int ANIM_CHAOS_DELAY = 15;
 
-// 【函数说明】解码动画播放期间的音频保活回调；确保 procedure.wav 循环声在长动画中持续存在。
+// CHAOS 乱码态使用非阻塞帧刷新，避免等待确认期间卡住 AppManager 主循环。
+static const uint32_t ANIM_CHAOS_DELAY_MS = 30;
+static const uint32_t ANIM_CHAOS_SOUND_DELAY_MS = 120;
+
+/**
+ * 解码动画帧间回调。
+ * procedure.wav 存在时已经由 AppPrescript 以 loop=true 交给音频任务循环播放；
+ * 如果资源未加载，则退回轻量 glitch 音，保持动画仍有反馈。
+ */
 void PrescriptProcedureTick()
 {
     if (!g_wav_procedure)
         SYS_SOUND_GLITCH();
 }
-}
+
+} // namespace
 
 class AppPrescript : public AppBase
 {
 private:
     enum State
     {
-        S_INIT,
         S_WAIT_RELEASE,
         S_CHAOS,
         S_DECODE,
         S_DONE
     };
 
-    State m_state;
-    UIPrescript::TextLayout m_layout;
+    State m_state = S_WAIT_RELEASE;
+    uint32_t m_last_chaos_frame_ms = 0;
+    uint32_t m_last_chaos_sound_ms = 0;
     int m_scroll_offset = 0;
+    UIPrescript::TextLayout m_layout;
 
-    void drawChaosFrame()
-    {
-        UIPrescript::DrawChaosFrame(appManager.getLanguage(), sysSpecials.getResult().color);
-        SYS_SOUND_GLITCH();
-    }
-
-    void drawDoneFrame()
-    {
-        UIPrescript::DrawDoneFrame(m_layout, m_scroll_offset);
-    }
-
-    void startProcedureLoop()
+    /**
+     * 启动 procedure 循环音。
+     * 音频解码跑在 sys_audio 的后台任务中，UI 解码动画只负责逐帧触发回调/绘制。
+     */
+    void beginProcedureSound()
     {
         if (g_wav_procedure)
             sysAudio.playWAV(g_wav_procedure, g_wav_procedure_len, true);
     }
 
-    void playFinalFeedback(const DrawResult& res)
+    /**
+     * 根据特殊指令绑定播放收尾音效，同时触发解码成功震动。
+     * 这里仍保留业务层判断：UI 层只画动画，不知道 heads/tails/Ahab 这些业务含义。
+     */
+    void playFinishFeedback(const DrawResult &res)
     {
         sysAudio.stopWAV();
 
@@ -88,7 +98,7 @@ private:
         }
         else if (bind == "none")
         {
-            // 静默模式：不播放任何结尾音效
+            // 静默指令：只停止 procedure，不播放结尾音效。
         }
         else
         {
@@ -104,35 +114,30 @@ private:
         }
     }
 
+    /**
+     * 执行一次完整解码。
+     * App 层准备数据和声音，UI 层负责排版、动画和完成态绘制。
+     */
     void executeDecodeSequence()
     {
         DrawResult res = sysSpecials.getResult();
+        SystemLang_t lang = appManager.getLanguage();
 
-        UIPrescript::PrepareLayoutFromRule(
-            res.text.c_str(),
-            appManager.getLanguage(),
-            res.color,
-            m_layout);
-
-        startProcedureLoop();
-        UIPrescript::PlayDecodeSequence(m_layout, sysConfig.decode_anim_style, PrescriptProcedureTick);
-
+        UIPrescript::PrepareLayoutFromRule(res.text.c_str(), lang, res.color, m_layout);
         m_scroll_offset = 0;
-        drawDoneFrame();
-        playFinalFeedback(res);
+
+        beginProcedureSound();
+        UIPrescript::PlayDecodeSequence(m_layout, sysConfig.decode_anim_style, PrescriptProcedureTick);
+        UIPrescript::DrawDoneFrame(m_layout, m_scroll_offset);
+
+        playFinishFeedback(res);
         SysAutoPush_ResetTimer();
     }
 
-    bool rollAndMaybeRedirectSpecial()
+    /** 绘制完成态，并保持滚动逻辑只依赖 UI 层给出的可见行数。 */
+    void drawDoneFrame()
     {
-        sysSpecials.rollRandom();
-        if (sysSpecials.getResult().is_special)
-        {
-            Prescript_Prepare_PreRolled();
-            appManager.replace(AppId::PushNotify);
-            return true;
-        }
-        return false;
+        UIPrescript::DrawDoneFrame(m_layout, m_scroll_offset);
     }
 
 public:
@@ -140,12 +145,12 @@ public:
     {
         UIPrescript::InitGlitchPool();
         m_scroll_offset = 0;
+        m_last_chaos_frame_ms = 0;
+        m_last_chaos_sound_ms = 0;
 
-        // 核心跳转：如果命运已定(弹窗进来的)，直接看结果；如果是手动进的，排队抽卡
-        if (g_prescript_needs_roll)
-            m_state = S_WAIT_RELEASE;
-        else
-            m_state = S_DECODE;
+        // 手动进入时先等待按键松开再抽取，避免进入页的一次短按被二次消费。
+        // 推送/弹窗进入时命运已经由 sysSpecials 装载，直接进入解码。
+        m_state = g_prescript_needs_roll ? S_WAIT_RELEASE : S_DECODE;
     }
 
     void onLoop() override
@@ -154,14 +159,35 @@ public:
         {
             if (!HAL_Is_Key_Pressed())
             {
-                if (rollAndMaybeRedirectSpecial()) return;
+                sysSpecials.rollRandom();
+
+                // 特殊指令先走 PushNotify 弹窗，再由弹窗确认进入本页解码。
+                if (sysSpecials.getResult().is_special)
+                {
+                    Prescript_Prepare_PreRolled();
+                    appManager.replace(AppId::PushNotify);
+                    return;
+                }
+
                 m_state = S_CHAOS;
             }
         }
         else if (m_state == S_CHAOS)
         {
-            drawChaosFrame();
-            delay(ANIM_CHAOS_DELAY);
+            uint32_t now = millis();
+            DrawResult res = sysSpecials.getResult();
+
+            if (now - m_last_chaos_frame_ms >= ANIM_CHAOS_DELAY_MS)
+            {
+                m_last_chaos_frame_ms = now;
+                UIPrescript::DrawChaosFrame(appManager.getLanguage(), res.color);
+            }
+
+            if (now - m_last_chaos_sound_ms >= ANIM_CHAOS_SOUND_DELAY_MS)
+            {
+                m_last_chaos_sound_ms = now;
+                SYS_SOUND_GLITCH();
+            }
         }
         else if (m_state == S_DECODE)
         {
@@ -174,26 +200,30 @@ public:
     {
         sysAudio.stopWAV();
         delay(5);
-        g_prescript_needs_roll = true; // 退出时重置状态，保证下次手动进能正常抽卡
+        g_prescript_needs_roll = true; // 退出时重置状态，保证下次手动进入能正常抽取。
     }
 
     void onKnob(int delta) override
     {
-        if (m_state != S_DONE) return;
+        if (m_state != S_DONE)
+            return;
 
-        int maxVis = UIPrescript::MaxVisibleLines(m_layout.lang);
-        if (m_layout.actualLines > maxVis)
+        int max_vis = UIPrescript::MaxVisibleLines(m_layout.lang);
+        if (m_layout.actualLines <= max_vis)
+            return;
+
+        int max_offset = m_layout.actualLines - max_vis;
+        int new_offset = m_scroll_offset + delta;
+        if (new_offset < 0)
+            new_offset = 0;
+        if (new_offset > max_offset)
+            new_offset = max_offset;
+
+        if (new_offset != m_scroll_offset)
         {
-            int maxOffset = m_layout.actualLines - maxVis;
-            int newOffset = m_scroll_offset + delta;
-            if (newOffset < 0) newOffset = 0;
-            if (newOffset > maxOffset) newOffset = maxOffset;
-            if (newOffset != m_scroll_offset)
-            {
-                m_scroll_offset = newOffset;
-                drawDoneFrame();
-                SYS_SOUND_NAV();
-            }
+            m_scroll_offset = new_offset;
+            drawDoneFrame();
+            SYS_SOUND_NAV();
         }
     }
 
@@ -209,7 +239,8 @@ public:
             SYS_SOUND_NAV();
             if (g_prescript_needs_roll)
             {
-                if (rollAndMaybeRedirectSpecial()) return;
+                // 完成态短按只进入等待松手状态，真正抽取统一在 S_WAIT_RELEASE 中执行一次。
+                m_scroll_offset = 0;
                 m_state = S_WAIT_RELEASE;
             }
             else
@@ -227,13 +258,12 @@ public:
 
     void onBtn2Short() override
     {
-        // 短按逻辑与旋钮按下完全一致：触发解码 / 抽取下一条
+        // 副键短按和主键短按保持一致：确认解码 / 抽取下一条 / 返回。
         onKeyShort();
     }
 
     void onBtn2Long() override
     {
-        // 长按逻辑：清脆退出，返回上一级
         SYS_SOUND_NAV();
         appManager.popApp();
     }

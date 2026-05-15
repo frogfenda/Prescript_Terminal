@@ -46,10 +46,12 @@ enum BtnEvent {
 /**
  * HAL 字体角色。
  *
- * 当前新屏分支采用“开发端固定单字体”策略：
- * - Small / Body / Title 仍作为语义角色保留，便于 UI 说明文字用途；
- * - 但三种角色都由 src/ui/ui_font_config.h 映射到同一套 TERMINAL_FONT；
- * - 你要换字体或字号时，只改 ui_font_config.h 和 src/fonts/terminal_font.h，不在 App 里逐个改。
+ * 说明：
+ * - 小字用于 HUD、状态提示和低优先级文字；
+ * - 正文字体用于菜单、滚轮和普通页面文本；
+ * - 标题字体预留给后续大标题/章节标题，目前可和正文使用同一字体。
+ *
+ * 字体具体选择和 baseline/lineHeight 在 src/ui/ui_font_config.h 中配置。
  */
 enum HALFontRole {
     HAL_FONT_SMALL = 0,

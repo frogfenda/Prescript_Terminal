@@ -6,7 +6,9 @@
 #include <driver/i2s.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/queue.h>
 #include <freertos/semphr.h>
+#include <math.h>
 
 SysAudio sysAudio;
 
@@ -17,115 +19,294 @@ volatile uint8_t g_wav_id = 0;
 
 SemaphoreHandle_t g_i2s_mutex = NULL;
 
+namespace {
+
+static const uint32_t AUDIO_SAMPLE_RATE = 44100;
+static const int AUDIO_CHUNK_FRAMES = 128;
+static const int AUDIO_CHUNK_SAMPLES = AUDIO_CHUNK_FRAMES * 2; // 当前 I2S 固定 16bit stereo。
+static const int AUDIO_WAV_FADE_FRAMES = 64;
+static const int AUDIO_SFX_QUEUE_LEN = 8;
+
+enum class SfxType : uint8_t
+{
+    Tone,
+    Glitch
+};
+
+struct AudioSfxCommand
+{
+    SfxType type;
+    uint16_t freq;
+    uint16_t duration_ms;
+    float start_freq;
+    float end_freq;
+};
+
+struct AudioSfxState
+{
+    bool active = false;
+    SfxType type = SfxType::Tone;
+    uint32_t total_frames = 0;
+    uint32_t frame_index = 0;
+    uint16_t freq = 0;
+    float start_freq = 0.0f;
+    float end_freq = 0.0f;
+    float phase = 0.0f;
+    int16_t max_volume = 0;
+};
+
+QueueHandle_t g_sfx_queue = NULL;
+
+static int16_t clampSample(int32_t v)
+{
+    if (v > 32767)
+        return 32767;
+    if (v < -32768)
+        return -32768;
+    return (int16_t)v;
+}
+
+static float currentVolumeMultiplier()
+{
+    float vol_ratio = (float)sysConfig.volume / 100.0f;
+    return vol_ratio * vol_ratio;
+}
+
+static void startSfx(AudioSfxState &sfx, const AudioSfxCommand &cmd)
+{
+    if (sysConfig.volume == 0 || cmd.duration_ms == 0)
+    {
+        sfx.active = false;
+        return;
+    }
+
+    sfx.active = true;
+    sfx.type = cmd.type;
+    sfx.total_frames = (AUDIO_SAMPLE_RATE * (uint32_t)cmd.duration_ms) / 1000;
+    if (sfx.total_frames == 0)
+        sfx.total_frames = 1;
+    sfx.frame_index = 0;
+    sfx.freq = cmd.freq;
+    sfx.start_freq = cmd.start_freq;
+    sfx.end_freq = cmd.end_freq;
+    sfx.phase = 0.0f;
+
+    float vol_mul = currentVolumeMultiplier();
+    if (cmd.type == SfxType::Glitch)
+    {
+        sfx.max_volume = (int16_t)(10000.0f * vol_mul);
+    }
+    else
+    {
+        int16_t max_volume = (int16_t)(12000.0f * vol_mul);
+        if (cmd.freq < 1500)
+            max_volume = max_volume / 2;
+        sfx.max_volume = max_volume;
+    }
+}
+
+static int16_t nextSfxSample(AudioSfxState &sfx)
+{
+    if (!sfx.active || sfx.frame_index >= sfx.total_frames || sfx.max_volume == 0)
+    {
+        sfx.active = false;
+        return 0;
+    }
+
+    float progress = (float)sfx.frame_index / (float)sfx.total_frames;
+    float sample = 0.0f;
+
+    if (sfx.type == SfxType::Glitch)
+    {
+        float current_freq = sfx.start_freq - (sfx.start_freq - sfx.end_freq) * progress;
+        sfx.phase += current_freq / (float)AUDIO_SAMPLE_RATE;
+        while (sfx.phase > 1.0f)
+            sfx.phase -= 1.0f;
+
+        float wave = 4.0f * fabsf(sfx.phase - 0.5f) - 1.0f;
+        float envelope = (1.0f - progress) * (1.0f - progress);
+        sample = wave * sfx.max_volume * envelope;
+    }
+    else
+    {
+        if (sfx.freq == 0)
+        {
+            sfx.active = false;
+            return 0;
+        }
+
+        float period = (float)AUDIO_SAMPLE_RATE / (float)sfx.freq;
+        float phase = fmodf((float)sfx.frame_index, period) / period;
+        float duty = (sfx.freq < 1500) ? 0.25f : 0.5f;
+        float wave = (phase < duty) ? 1.0f : -1.0f;
+        float linear_envelope = 1.0f - progress;
+        float envelope = linear_envelope * linear_envelope;
+        sample = wave * sfx.max_volume * envelope;
+    }
+
+    sfx.frame_index++;
+    if (sfx.frame_index >= sfx.total_frames)
+        sfx.active = false;
+
+    return clampSample((int32_t)sample);
+}
+
+static void pollSfxQueue(AudioSfxState &sfx)
+{
+    if (g_sfx_queue == NULL)
+        return;
+
+    AudioSfxCommand cmd;
+    // 短音效以“最后一次命令”为准，避免旋钮/乱码音在队列里堆积造成延迟。
+    while (xQueueReceive(g_sfx_queue, &cmd, 0) == pdTRUE)
+    {
+        startSfx(sfx, cmd);
+    }
+}
+
+static void enqueueSfx(const AudioSfxCommand &cmd)
+{
+    if (g_sfx_queue == NULL)
+        return;
+
+    if (xQueueSend(g_sfx_queue, &cmd, 0) != pdTRUE)
+    {
+        // 队列满时丢掉最旧的短音效，保留最新反馈，防止 UI 快速操作后声音滞后排队。
+        AudioSfxCommand dropped;
+        xQueueReceive(g_sfx_queue, &dropped, 0);
+        xQueueSend(g_sfx_queue, &cmd, 0);
+    }
+}
+
+} // namespace
+
 /**
- * 后台 WAV 播放任务。
+ * 后台音频任务。
  *
- * App 调用 SysAudio::playWAV() 后，只是更新全局播放指针；
- * 真正的音量缩放、淡入淡出和 I2S 写入都在这个 Core 0 任务中完成，
- * 避免长音频阻塞 UI 主循环。
+ * WAV 和 tone/glitch 都在 Core 0 的同一个任务里写 I2S。
+ * App 层调用 playTone()/playGlitch() 时只投递短音效命令，不再同步生成采样、
+ * 不再抢 I2S mutex，也不再为了短音效强行 stopWAV()。
+ *
+ * 这样 CHAOS 乱码态触发 glitch 时不会阻塞 UI 主循环，也不会打断 procedure.wav。
  */
 void audio_bg_task(void *pvParameters)
 {
     size_t bytes_written;
-    int16_t last_val = 0;
+    int16_t out[AUDIO_CHUNK_SAMPLES];
+    AudioSfxState sfx;
+
+    const uint8_t *current_data = nullptr;
+    uint32_t current_len = 0;
+    bool current_loop = false;
+    uint8_t current_id = 0;
+    uint32_t wav_sample_index = 0; // 16bit sample index；stereo 下一帧前进 2。
 
     while (1)
     {
-        if (g_wav_data != nullptr && g_wav_len > 0)
+        pollSfxQueue(sfx);
+
+        const uint8_t *requested_data = (const uint8_t *)g_wav_data;
+        uint32_t requested_len = g_wav_len;
+        uint8_t requested_id = g_wav_id;
+
+        if (requested_data != nullptr && requested_len >= 4 && sysConfig.volume > 0)
         {
-            uint8_t vol = sysConfig.volume;
-            if (vol == 0)
+            if (requested_data != current_data || requested_id != current_id)
             {
-                g_wav_data = nullptr;
-                continue;
-            }
-
-            const uint8_t *current_data = (const uint8_t *)g_wav_data;
-            uint32_t current_len = g_wav_len;
-            bool is_looping = g_wav_loop;
-            uint8_t current_id = g_wav_id;
-
-            int16_t *pcm = (int16_t *)current_data;
-            uint32_t total_samples = current_len / 2;
-
-            const int CHUNK_SAMPLES = 256;
-            int16_t buf[CHUNK_SAMPLES];
-            uint32_t ptr = 0;
-
-            float vol_ratio = (float)vol / 100.0f;
-            float multiplier = vol_ratio * vol_ratio;
-            const int FADE_LEN = 64;
-
-            while (ptr < total_samples)
-            {
-                if (g_wav_data != current_data || g_wav_id != current_id)
-                    break;
-
-                int chunk = (total_samples - ptr < CHUNK_SAMPLES) ? (total_samples - ptr) : CHUNK_SAMPLES;
-
-                /*
-                 * current_len 在 playWAV() 入口已经按 4 字节对齐。
-                 * CHUNK_SAMPLES=256 也是偶数，因此 stereo 16bit 的左右声道帧不会被拆成半帧。
-                 */
-                for (int i = 0; i < chunk; i++)
-                {
-                    uint32_t pos = ptr + i;
-                    float env = 1.0f;
-
-                    if (is_looping)
-                    {
-                        if (pos < FADE_LEN)
-                        {
-                            env = (float)pos / FADE_LEN;
-                        }
-                        else if (total_samples - pos < FADE_LEN)
-                        {
-                            env = (float)(total_samples - pos) / FADE_LEN;
-                        }
-                    }
-
-                    last_val = (int16_t)(pcm[pos] * multiplier * env);
-                    buf[i] = last_val;
-                }
-
-                if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
-                {
-                    i2s_write(I2S_NUM_0, buf, chunk * sizeof(int16_t), &bytes_written, portMAX_DELAY);
-                    xSemaphoreGive(g_i2s_mutex);
-                }
-                ptr += chunk;
-
-                if (ptr >= total_samples && is_looping && g_wav_data == current_data && g_wav_id == current_id)
-                {
-                    ptr = 0;
-                }
-            }
-
-            // 播放被打断或自然结束后，给 I2S 一个短衰减尾巴，减少爆音。
-            if (last_val != 0)
-            {
-                int16_t safe_buf[64];
-                for (int i = 0; i < 64; i++)
-                {
-                    last_val = (int16_t)(last_val * 0.85f);
-                    safe_buf[i] = last_val;
-                }
-                if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
-                {
-                    i2s_write(I2S_NUM_0, safe_buf, sizeof(safe_buf), &bytes_written, portMAX_DELAY);
-                    xSemaphoreGive(g_i2s_mutex);
-                }
-                last_val = 0;
-            }
-
-            if (g_wav_data == current_data && g_wav_id == current_id)
-            {
-                g_wav_data = nullptr;
+                current_data = requested_data;
+                current_len = requested_len & ~0x03UL;
+                current_loop = g_wav_loop;
+                current_id = requested_id;
+                wav_sample_index = 0;
             }
         }
         else
         {
+            current_data = nullptr;
+            current_len = 0;
+            wav_sample_index = 0;
+        }
+
+        if (current_data == nullptr && !sfx.active)
+        {
             vTaskDelay(pdMS_TO_TICKS(5));
+            continue;
+        }
+
+        int produced_samples = 0;
+        float wav_mul = currentVolumeMultiplier();
+        const int16_t *pcm = (const int16_t *)current_data;
+        uint32_t total_wav_samples = current_len / sizeof(int16_t);
+
+        for (int frame = 0; frame < AUDIO_CHUNK_FRAMES; frame++)
+        {
+            int32_t left = 0;
+            int32_t right = 0;
+
+            if (current_data != nullptr && wav_sample_index + 1 < total_wav_samples)
+            {
+                uint32_t wav_frame_index = wav_sample_index / 2;
+                uint32_t total_wav_frames = total_wav_samples / 2;
+                float env = 1.0f;
+
+                if (current_loop && total_wav_frames > AUDIO_WAV_FADE_FRAMES)
+                {
+                    if (wav_frame_index < AUDIO_WAV_FADE_FRAMES)
+                    {
+                        env = (float)wav_frame_index / (float)AUDIO_WAV_FADE_FRAMES;
+                    }
+                    else if (total_wav_frames - wav_frame_index < AUDIO_WAV_FADE_FRAMES)
+                    {
+                        env = (float)(total_wav_frames - wav_frame_index) / (float)AUDIO_WAV_FADE_FRAMES;
+                    }
+                }
+
+                left = (int32_t)(pcm[wav_sample_index] * wav_mul * env);
+                right = (int32_t)(pcm[wav_sample_index + 1] * wav_mul * env);
+                wav_sample_index += 2;
+
+                if (wav_sample_index + 1 >= total_wav_samples)
+                {
+                    if (current_loop && g_wav_data == current_data && g_wav_id == current_id)
+                    {
+                        wav_sample_index = 0;
+                    }
+                    else
+                    {
+                        if (g_wav_data == current_data && g_wav_id == current_id)
+                        {
+                            g_wav_data = nullptr;
+                            g_wav_len = 0;
+                            g_wav_loop = false;
+                        }
+                        current_data = nullptr;
+                        current_len = 0;
+                        wav_sample_index = 0;
+                    }
+                }
+            }
+            else if (current_data != nullptr)
+            {
+                current_data = nullptr;
+                current_len = 0;
+                wav_sample_index = 0;
+            }
+
+            if (sfx.active)
+            {
+                int16_t s = nextSfxSample(sfx);
+                left += s;
+                right += s;
+            }
+
+            out[produced_samples++] = clampSample(left);
+            out[produced_samples++] = clampSample(right);
+        }
+
+        if (produced_samples > 0 && xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
+        {
+            i2s_write(I2S_NUM_0, out, produced_samples * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+            xSemaphoreGive(g_i2s_mutex);
         }
     }
 }
@@ -140,9 +321,14 @@ void SysAudio::begin()
         g_i2s_mutex = xSemaphoreCreateMutex();
     }
 
+    if (g_sfx_queue == NULL)
+    {
+        g_sfx_queue = xQueueCreate(AUDIO_SFX_QUEUE_LEN, sizeof(AudioSfxCommand));
+    }
+
     i2s_config_t i2s_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-        .sample_rate = 44100,
+        .sample_rate = AUDIO_SAMPLE_RATE,
         .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
@@ -205,6 +391,7 @@ void SysAudio::playWAV(const uint8_t *data, uint32_t len, bool loop)
 /**
  * 停止当前 WAV 播放。
  * 递增播放 ID 可以让后台任务即使已经缓存了旧指针，也能在下一次循环中退出。
+ * 短音效队列不会被这里清空，避免 UI 操作反馈被无关的 WAV 切换吞掉。
  */
 void SysAudio::stopWAV()
 {
@@ -214,115 +401,50 @@ void SysAudio::stopWAV()
     g_wav_len = 0;
 }
 
+/**
+ * 异步播放一段程序生成 tone。
+ *
+ * 旧实现会在调用线程同步生成采样并直接 i2s_write，CHAOS/旋钮快速触发时会卡 UI；
+ * 新实现只入队命令，真正的采样生成与 I2S 写入统一交给 audio_bg_task。
+ */
 void SysAudio::playTone(uint16_t freq, uint16_t duration_ms)
 {
-    stopWAV();
     if (freq == 0 || duration_ms == 0 || sysConfig.volume == 0)
         return;
 
-    uint32_t sample_rate = 44100;
-    uint32_t total_samples = (sample_rate * duration_ms) / 1000;
-
-    float vol_ratio = (float)sysConfig.volume / 100.0f;
-    int16_t max_volume = (int16_t)(12000.0f * vol_ratio * vol_ratio);
-    if (freq < 1500)
-        max_volume = max_volume / 2;
-
-    size_t bytes_written;
-    const int CHUNK_SAMPLES = 256;
-    int16_t buf[CHUNK_SAMPLES * 2];
-    int buf_idx = 0;
-    float period = (float)sample_rate / freq;
-
-    for (uint32_t i = 0; i < total_samples; i++)
-    {
-        float phase = fmod((float)i, period) / period;
-        float duty = (freq < 1500) ? 0.25f : 0.5f;
-        float wave = (phase < duty) ? 1.0f : -1.0f;
-        float linear_envelope = 1.0f - ((float)i / total_samples);
-        float envelope = linear_envelope * linear_envelope;
-        int16_t sample_val = (int16_t)(wave * max_volume * envelope);
-
-        buf[buf_idx++] = sample_val;
-        buf[buf_idx++] = sample_val;
-        if (buf_idx >= CHUNK_SAMPLES * 2)
-        {
-            if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
-            {
-                i2s_write(I2S_NUM_0, buf, sizeof(buf), &bytes_written, portMAX_DELAY);
-                xSemaphoreGive(g_i2s_mutex);
-            }
-            buf_idx = 0;
-        }
-    }
-    if (buf_idx > 0)
-    {
-        if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
-        {
-            i2s_write(I2S_NUM_0, buf, buf_idx * sizeof(int16_t), &bytes_written, portMAX_DELAY);
-            xSemaphoreGive(g_i2s_mutex);
-        }
-    }
+    AudioSfxCommand cmd;
+    cmd.type = SfxType::Tone;
+    cmd.freq = freq;
+    cmd.duration_ms = duration_ms;
+    cmd.start_freq = 0.0f;
+    cmd.end_freq = 0.0f;
+    enqueueSfx(cmd);
 }
 
+/**
+ * 异步播放乱码故障音。
+ *
+ * 这里只生成随机参数并入队，不再 stopWAV()，因此 procedure.wav 可以继续作为底噪循环，
+ * glitch 作为短促叠加音出现。
+ */
 void SysAudio::playGlitch()
 {
-    stopWAV();
     if (sysConfig.volume == 0)
         return;
-    uint32_t sample_rate = 44100;
-    uint32_t duration_ms = random(3, 6);
-    uint32_t total_samples = (sample_rate * duration_ms) / 1000;
 
-    float vol_ratio = (float)sysConfig.volume / 100.0f;
-    int16_t max_volume = (int16_t)(10000.0f * vol_ratio * vol_ratio);
-
-    size_t bytes_written;
-    const int CHUNK_SAMPLES = 256;
-    int16_t buf[CHUNK_SAMPLES * 2];
-    int buf_idx = 0;
-
-    float start_freq = (float)random(3500, 4500);
-    float end_freq = 800.0f;
-    float current_phase = 0.0f;
-
-    for (uint32_t i = 0; i < total_samples; i++)
-    {
-        float progress = (float)i / total_samples;
-        float current_freq = start_freq - (start_freq - end_freq) * progress;
-        current_phase += current_freq / sample_rate;
-        if (current_phase > 1.0f)
-            current_phase -= 1.0f;
-        float wave = 4.0f * fabs(current_phase - 0.5f) - 1.0f;
-        float envelope = (1.0f - progress) * (1.0f - progress);
-        int16_t sample_val = (int16_t)(wave * max_volume * envelope);
-
-        buf[buf_idx++] = sample_val;
-        buf[buf_idx++] = sample_val;
-
-        if (buf_idx >= CHUNK_SAMPLES * 2)
-        {
-            if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
-            {
-                i2s_write(I2S_NUM_0, buf, sizeof(buf), &bytes_written, portMAX_DELAY);
-                xSemaphoreGive(g_i2s_mutex);
-            }
-            buf_idx = 0;
-        }
-    }
-
-    if (buf_idx > 0)
-    {
-        if (xSemaphoreTake(g_i2s_mutex, portMAX_DELAY))
-        {
-            i2s_write(I2S_NUM_0, buf, buf_idx * sizeof(int16_t), &bytes_written, portMAX_DELAY);
-            xSemaphoreGive(g_i2s_mutex);
-        }
-    }
+    AudioSfxCommand cmd;
+    cmd.type = SfxType::Glitch;
+    cmd.freq = 0;
+    cmd.duration_ms = random(3, 6);
+    cmd.start_freq = (float)random(3500, 6000);
+    cmd.end_freq = 800.0f;
+    enqueueSfx(cmd);
 }
 
 void SysAudio_Sleep()
 {
+    if (g_sfx_queue != NULL)
+        xQueueReset(g_sfx_queue);
     i2s_zero_dma_buffer(I2S_NUM_0);
     i2s_stop(I2S_NUM_0);
 }

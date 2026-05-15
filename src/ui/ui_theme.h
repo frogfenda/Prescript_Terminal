@@ -60,11 +60,18 @@ namespace Menu {
 
 inline int PaddingX()       { return max(14, ScreenW() / 30); }
 inline int LineMarginY()    { return max(12, ScreenH() / 13); }
-inline int ItemSpacingY()   { return max(Font::BodyLineHeight() + 12, ScreenH() / 4); }
+inline int ItemSpacingY()   { return max(Font::BodyLineHeight() + 6, ScreenH() / 5); }
+// 中心项静止时回到 HUD 竖线右侧区域的视觉中心；
+// 只有旋钮正在滚动时，才按速度向左产生弹性甩动。
+// CenterMinLeftGap 是动态甩动的左侧保护距离，避免长文本或高速旋转时贴到 HUD 竖线。
+inline int CenterMinLeftGap()   { return (ScreenW() >= 400) ? 18 : 10; }
+inline int CenterFlingX()       { return (ScreenW() >= 400) ? 24 : 14; }
 inline int ScanBoxPadX()    { return max(8,  ScreenW() / 48); }
-inline int ScanBoxHeight()  { return max(Font::BodyLineHeight() + 12, ScreenH() / 4); }
+inline int ScanBoxHeight()  { return max(Font::BodyLineHeight() + 8, ScreenH() / 5); }
 inline int ScrollBarWidth() { return max(6,  ScreenW() / 72); }
-inline float CurveFactor()  { return (ScreenW() >= 400) ? 18.0f : 12.0f; }
+inline float CurveFactor()  { return (ScreenW() >= 400) ? 44.0f : 28.0f; }
+inline float CurveSpeedBoost() { return (ScreenW() >= 400) ? 28.0f : 18.0f; }
+inline float SlingSpeedBoost() { return (ScreenW() >= 400) ? 8.0f : 5.0f; }
 
 }
 

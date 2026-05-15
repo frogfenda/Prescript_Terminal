@@ -388,8 +388,7 @@ void HAL_Init()
     u8f.setFontMode(1);
     u8f.setFontDirection(0);
     u8f.setBackgroundColor(TFT_BLACK);
-    // 默认字体使用正文角色。
-    // 当前单字体策略下，Small / Body / Title 都会落到 ui_font_config.h 中同一套 TERMINAL_FONT。
+    // 默认字体使用正文角色。具体字体和字号在 ui_font_config.h 中配置。
     u8f.setFont(UIFontConfig::Body().font);
 }
 
@@ -470,8 +469,7 @@ void HAL_Screen_DrawStandbyImage()
  *
  * 这里是 HAL 字体系统的唯一入口：
  * - 字体数组、baseline、lineHeight 都来自 ui_font_config.h；
- * - 当前项目采用开发端固定单字体，Small/Body/Title 三个角色最终会返回同一字体；
- * - 页面不直接接触 u8g2_font_xxx，后续换字体只改配置文件和字体头文件；
+ * - 页面不直接接触 u8g2_font_xxx，后续换字体只改配置文件；
  * - 返回值按值传递，避免跨文件静态对象初始化顺序问题。
  */
 static UIFontConfig::FontSpec HAL_GetFontSpec(HALFontRole role)
@@ -493,7 +491,6 @@ static UIFontConfig::FontSpec HAL_GetFontSpec(HALFontRole role)
  *
  * U8g2_for_TFT_eSPI 每次绘制前都可以切换字体；这里集中封装，
  * 保证所有中文、英文、数字都走同一套 UTF-8 字体管线，不再混用 TFT_eSPI 默认 6×8 小字。
- * 当前单字体策略下，不同角色只影响语义和度量读取，不会切换到不同字体。
  */
 static void HAL_ApplyFontRole(HALFontRole role)
 {

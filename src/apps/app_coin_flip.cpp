@@ -172,10 +172,27 @@ protected:
     virtual void onAllCoinsStopped() {}
 
    
+    /**
+     * 清除硬币页上的局部区域。
+     *
+     * 旧屏时代这个函数只用 64×64 coin_buffer 当“黑色橡皮擦”，
+     * 因此超过 4096 像素的区域会直接 return。新屏顶部技能面板变宽后，
+     * 左右半屏擦除区域会超过 64×64，如果继续 return，会留下旧文字残影。
+     *
+     * 处理策略：
+     * - 小区域继续用黑色缓冲区 + PushImage，避免过度依赖 fillRect；
+     * - 大区域直接在 Sprite 上填黑，等本帧 HAL_Screen_Update() 统一推屏。
+     */
     void eraseRect(int x, int y, int w, int h) {
-        if (w * h > SRC_COIN_SIZE * SRC_COIN_SIZE) return; 
-        memset(coin_buffer, 0, w * h * 2);
-        HAL_Sprite_PushImage(x, y, w, h, coin_buffer);
+        if (w <= 0 || h <= 0) return;
+
+        if (coin_buffer && w * h <= SRC_COIN_SIZE * SRC_COIN_SIZE) {
+            memset(coin_buffer, 0, w * h * 2);
+            HAL_Sprite_PushImage(x, y, w, h, coin_buffer);
+            return;
+        }
+
+        HAL_Fill_Rect(x, y, w, h, TFT_BLACK);
     }
 
     // 【函数说明】把硬币 RGB565 贴图按 scaleX 横向压缩到缓冲区，scaleX 接近 0 时形成翻转到侧面的视觉。
@@ -236,7 +253,20 @@ protected:
         }
     }
 
-    // 【函数说明】只重绘仍在翻转或需要闪烁的硬币，减少硬币动画中无意义的贴图绘制。
+    /**
+     * 只重绘仍在翻转或需要闪烁的硬币。
+     *
+     * 动画效果：
+     * - 每枚硬币仍然使用 64×64 RGB565 原始素材；
+     * - 根据当前角度 cos(angle) 计算横向压缩比例；
+     * - 压缩到接近 0 时形成硬币侧面翻转效果；
+     * - 停在正面时会有短暂白色闪光。
+     *
+     * 大屏适配点：
+     * - 不再使用旧屏固定 4px 间距；
+     * - 根据当前可绘制区域宽高动态计算硬币尺寸和间距；
+     * - 仍然限制最大尺寸为 SRC_COIN_SIZE，避免读取 64×64 素材时越界。
+     */
     bool drawActiveCoinsOnly() {
         int left_w = getLeftPanelWidth();
         int top_h = getTopPanelHeight(); 
@@ -245,14 +275,16 @@ protected:
         int draw_sh = REAL_SH - top_h;   
         bool screen_needs_push = false; 
 
-        int min_gap = 4;
+        int min_gap = max(6, REAL_SW / 72);
         int max_w = (draw_sw - (active_coins + 1) * min_gap) / active_coins;
-        int max_h = draw_sh - 4; 
+        int max_h = draw_sh - max(8, REAL_SH / 18); 
         
         current_coin_size = (max_w < max_h) ? max_w : max_h;
         if (current_coin_size > SRC_COIN_SIZE) current_coin_size = SRC_COIN_SIZE;
+        if (current_coin_size < 12) current_coin_size = 12;
         
         int actual_gap_x = (draw_sw - (active_coins * current_coin_size)) / (active_coins + 1);
+        if (actual_gap_x < 2) actual_gap_x = 2;
         int target_y = top_h + (draw_sh - current_coin_size) / 2; 
 
         for (int i = 0; i < active_coins; i++) {
@@ -339,7 +371,7 @@ protected:
             char san_str[16];
             sprintf(san_str, "%+d", sysConfig.coin_data.sanity);
             uint16_t color = (sysConfig.coin_data.sanity < 0) ? 0xF800 : 0x07FF;
-            HAL_Screen_ShowChineseLine_Faded_Color(REAL_SW - HAL_Get_Text_Width(san_str) - 4, REAL_SH - 18, san_str, 0.0f, color);
+            HAL_Screen_ShowChineseLine_Faded_Color(REAL_SW - HAL_Get_Text_Width(san_str) - 10, REAL_SH - HAL_Get_Font_Line_Height(HAL_FONT_BODY) - 6, san_str, 0.0f, color);
         }
     }
 
@@ -405,28 +437,50 @@ private:
 protected:
     // 【函数说明】返回硬币动画左侧保留区域宽度；快速和技能投掷都使用全宽动画，所以返回 0。
     int getLeftPanelWidth() override { return 0; } 
-    int getTopPanelHeight() override { return 26; } 
 
+    /**
+     * 技能投掷顶部状态栏高度。
+     * 旧版本固定 26px，新屏字体放大后会挤压文字；这里跟随当前字体行高计算。
+     */
+    int getTopPanelHeight() override { return max(36, HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 14); } 
+
+    /**
+     * 绘制技能投掷顶部静态面板。
+     * 左侧显示技能名，右侧显示当前累计点数，中间用半屏 splitX 分开。
+     */
     void drawStaticUI() override {
-        HAL_Draw_Line(0, 25, REAL_SW, 25, 0x18E3);
-        eraseRect(0, 0, 140, 24); 
+        int top_h = getTopPanelHeight();
+        int split_x = REAL_SW / 2;
+        HAL_Draw_Line(0, top_h - 1, REAL_SW, top_h - 1, 0x18E3);
+        eraseRect(0, 0, split_x, top_h - 2); 
         String name = sysConfig.coin_presets[g_coin_run_idx].name;
-        HAL_Screen_ShowChineseLine_Faded_Color(6, 6, name.c_str(), 0.0f, TFT_CYAN);
+        int text_y = (top_h - HAL_Get_Font_Line_Height(HAL_FONT_BODY)) / 2;
+        HAL_Screen_ShowChineseLine_Faded_Color(10, text_y, name.c_str(), 0.0f, TFT_CYAN);
         updateTopPanelScore(TFT_WHITE);
     }
 
-    // 【函数说明】绘制技能投掷顶部点数面板，显示基础值、硬币增量和当前累计点数。
+    /**
+     * 绘制技能投掷顶部点数面板。
+     *
+     * 右侧常驻当前累计点数；当一枚硬币停止时，点数增量会从分数左侧向上漂浮。
+     * 大屏下 splitX 取屏幕中线，不再使用旧屏写死的 140。
+     */
     void updateTopPanelScore(uint16_t color) {
-        eraseRect(140, 0, 144, 24); 
+        int top_h = getTopPanelHeight();
+        int split_x = REAL_SW / 2;
+        eraseRect(split_x, 0, REAL_SW - split_x, top_h - 2); 
         char pow_str[16]; sprintf(pow_str, "%d", current_power); 
         int score_w = HAL_Get_Text_Width(pow_str);
-        int score_x = REAL_SW - score_w - 8; int score_y = 6; 
+        int score_x = REAL_SW - score_w - 12; 
+        int score_y = (top_h - HAL_Get_Font_Line_Height(HAL_FONT_BODY)) / 2; 
         HAL_Screen_ShowChineseLine_Faded_Color(score_x, score_y, pow_str, 0.0f, color);
 
         if (top_pop_timer > 0) {
             int pop_w = HAL_Get_Text_Width(top_pop_text.c_str());
-            int pop_x = score_x - pop_w - 6; if (pop_x < 140) pop_x = 140;    
-            int float_up = (20 - top_pop_timer) * 6 / 20; int pop_y = score_y - float_up; 
+            int pop_x = score_x - pop_w - 10; 
+            if (pop_x < split_x + 4) pop_x = split_x + 4;    
+            int float_up = (20 - top_pop_timer) * max(8, top_h / 4) / 20; 
+            int pop_y = score_y - float_up; 
             float fade_alpha = (20.0f - top_pop_timer) / 20.0f;
             HAL_Screen_ShowChineseLine_Faded_Color(pop_x, pop_y, top_pop_text.c_str(), fade_alpha, top_pop_color);
         }
