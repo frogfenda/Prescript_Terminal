@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "sys_haptic.h"
+#include "sys_feedback.h"
 #include "sys/sys_specials.h"
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
@@ -178,12 +179,8 @@ public:
          */
         drawUI();
 
-        // 保留旧弹窗的三段警报音。这个阻塞序列只在进入弹窗时播放一次。
-        sysAudio.playTone(1500, 200);
-        delay(100);
-        sysAudio.playTone(1500, 200);
-        delay(100);
-        sysAudio.playTone(2500, 600);
+        // 弹窗进入音统一走 Feedback 中心，避免 PushNotify 直接散落音频/震动实现。
+        Feedback_PlayAlertSequence();
     }
 
     void onLoop() override
@@ -195,8 +192,8 @@ public:
 
             if (show_text)
             {
-                SYS_HAPTIC_ALERT();
-                sysAudio.playTone(2500, 50);
+                // 闪烁脉冲也统一走 Feedback 中心，音频和震动保持同一套警报语义。
+                Feedback_PlayAlertPulse();
             }
 
             drawUI();

@@ -66,10 +66,14 @@ static int16_t clampSample(int32_t v)
     return (int16_t)v;
 }
 
+// 系统基准音量增益。
+// 保留原来的平方音量曲线，只在最终输出前统一抬高基准，避免重新改动 tone/glitch 音色。
+static const float AUDIO_MASTER_GAIN = 1.45f;
+
 static float currentVolumeMultiplier()
 {
     float vol_ratio = (float)sysConfig.volume / 100.0f;
-    return vol_ratio * vol_ratio;
+    return vol_ratio * vol_ratio * AUDIO_MASTER_GAIN;
 }
 
 static void startSfx(AudioSfxState &sfx, const AudioSfxCommand &cmd)
@@ -436,7 +440,7 @@ void SysAudio::playGlitch()
     cmd.type = SfxType::Glitch;
     cmd.freq = 0;
     cmd.duration_ms = random(3, 6);
-    cmd.start_freq = (float)random(3500, 6000);
+    cmd.start_freq = (float)random(3500, 4500);
     cmd.end_freq = 800.0f;
     enqueueSfx(cmd);
 }

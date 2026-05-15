@@ -219,6 +219,10 @@ void SysSpecials::setCustom(const char *custom_text)
     current_draw.color = 0x07FF;
     current_draw.title = (current_lang == LANG_ZH) ? "【 接受都市意志 】" : "[ OVERRIDE PRESCRIPT ]";
     current_draw.text = String(custom_text);
+
+    // 外部 TXT / 闹钟 / 日程 / NFC 等自定义指令不是特殊指令，
+    // 必须主动清空上一次特殊指令留下的音频绑定，避免出现“幽灵音效”。
+    current_draw.audio_bind = "";
 }
 // 【函数说明】按 ID 查找特殊指令，锁定为当前抽取结果并更新人物链条进度。
 void SysSpecials::forceDrawByID(const String &id)
@@ -262,6 +266,9 @@ void SysSpecials::forceDrawByID(const String &id)
 
     current_draw.is_special = true; // 依然认定为特殊打断，以便触发弹窗
     current_draw.color = 0xF800;    // 错误警报：刺眼的纯红色
+
+    // 未找到 ID 的错误警报同样不能继承上一条特殊指令的音频。
+    current_draw.audio_bind = "";
 
     if (current_lang == LANG_ZH)
     {

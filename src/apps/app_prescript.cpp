@@ -30,7 +30,10 @@ namespace {
 
 // CHAOS 乱码态使用非阻塞帧刷新，避免等待确认期间卡住 AppManager 主循环。
 static const uint32_t ANIM_CHAOS_DELAY_MS = 30;
-static const uint32_t ANIM_CHAOS_SOUND_DELAY_MS = 120;
+// CHAOS 乱码音不再用固定 120ms 节拍；改为按屏幕乱码刷新帧的 2~4 倍随机触发。
+// 这样声音和画面闪动保持同步，同时平均间隔约 90ms，比旧版略密一点。
+static const uint8_t ANIM_CHAOS_SOUND_MIN_FRAMES = 2;
+static const uint8_t ANIM_CHAOS_SOUND_MAX_FRAMES = 4;
 
 /**
  * 解码动画帧间回调。
@@ -59,6 +62,7 @@ private:
     State m_state = S_WAIT_RELEASE;
     uint32_t m_last_chaos_frame_ms = 0;
     uint32_t m_last_chaos_sound_ms = 0;
+    uint32_t m_next_chaos_sound_delay_ms = 0;
     int m_scroll_offset = 0;
     UIPrescript::TextLayout m_layout;
 
@@ -147,6 +151,7 @@ public:
         m_scroll_offset = 0;
         m_last_chaos_frame_ms = 0;
         m_last_chaos_sound_ms = 0;
+        m_next_chaos_sound_delay_ms = 0;
 
         // 手动进入时先等待按键松开再抽取，避免进入页的一次短按被二次消费。
         // 推送/弹窗进入时命运已经由 sysSpecials 装载，直接进入解码。
@@ -181,12 +186,16 @@ public:
             {
                 m_last_chaos_frame_ms = now;
                 UIPrescript::DrawChaosFrame(appManager.getLanguage(), res.color);
-            }
 
-            if (now - m_last_chaos_sound_ms >= ANIM_CHAOS_SOUND_DELAY_MS)
-            {
-                m_last_chaos_sound_ms = now;
-                SYS_SOUND_GLITCH();
+                // 乱码音跟随屏幕乱码刷新帧随机触发，而不是独立固定节拍。
+                // 只在画面真正闪动的帧上播放，避免声音和画面错拍。
+                if (m_next_chaos_sound_delay_ms == 0 || now - m_last_chaos_sound_ms >= m_next_chaos_sound_delay_ms)
+                {
+                    m_last_chaos_sound_ms = now;
+                    SYS_SOUND_GLITCH();
+                    uint8_t frames = (uint8_t)random(ANIM_CHAOS_SOUND_MIN_FRAMES, ANIM_CHAOS_SOUND_MAX_FRAMES + 1);
+                    m_next_chaos_sound_delay_ms = (uint32_t)frames * ANIM_CHAOS_DELAY_MS;
+                }
             }
         }
         else if (m_state == S_DECODE)

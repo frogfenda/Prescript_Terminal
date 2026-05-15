@@ -20,7 +20,18 @@ using ProcedureTick = void (*)();
 struct TextLayout
 {
     static const int MaxLines = 20;
+
+    // 每行最终排版后的 UTF-8 文本。动画阶段不重新拆行，保证完成态和解码态位置一致。
     char lines[MaxLines][256];
+
+    // 每行最终文本的像素宽度与居中后的 x 坐标。
+    // 这些值在 PrepareLayoutFromRule() 后一次性计算，避免动画每帧因为乱码宽度不同而左右抖动。
+    int lineW[MaxLines] = {0};
+    int lineX[MaxLines] = {0};
+
+    // 短指令完成态/解码态使用垂直居中；长指令保持顶部起始并允许滚动。
+    int contentStartY = 0;
+
     int actualLines = 0;
     SystemLang_t lang = LANG_ZH;
     uint16_t color = 1;

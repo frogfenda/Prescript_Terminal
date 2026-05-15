@@ -539,16 +539,179 @@ void drawLineFast(const DecoderMetrics& m, int row, const char* text, uint16_t c
     HAL_Screen_ShowChineseLine_Color(m.marginX, m.topY + row * m.rowH, text, color);
 }
 
+int contentStartYFor(const DecoderMetrics& m, int actualLines)
+{
+    /*
+     * 完成态和默认矩阵动画共用同一套 7 行左右的解码网格。
+     *
+     * 之前完成态使用“像素块垂直居中”，而 CHAOS/默认解码使用 m.topY + row * rowH 的
+     * 乱码行网格，结果真实指令会落在两行乱码之间，看起来像动画结束后又切到另一套布局。
+     * 这里改成：短指令仍然视觉居中，但只落在解码网格的整行上。
+     * 这样 CHAOS、默认解码、DONE 三个阶段的 baseline 是同一套坐标。
+     */
+    if (actualLines <= 0 || actualLines > m.maxLines)
+        return m.topY;
+
+    int startRow = (m.maxLines - actualLines) / 2;
+    if (startRow < 0) startRow = 0;
+    return m.topY + startRow * m.rowH;
+}
+
+int measureSpaces(int count)
+{
+    if (count <= 0) return 0;
+    if (count > 96) count = 96;
+
+    char spaces[100];
+    for (int i = 0; i < count; ++i) spaces[i] = ' ';
+    spaces[count] = '\0';
+
+    int w = HAL_Get_Text_Width_Font(spaces, HAL_FONT_BODY);
+    if (w <= 0)
+        w = count * max(4, HAL_Get_Font_Baseline(HAL_FONT_BODY) / 2);
+    return w;
+}
+
+int centeredPadSpacesFor(const DecoderMetrics& m, const char* text, int lineW)
+{
+    if (!text) text = "";
+    if (lineW <= 0)
+        lineW = HAL_Get_Text_Width_Font(text, HAL_FONT_BODY);
+
+    if (lineW >= m.textW)
+        return 0;
+
+    int targetCenter = m.marginX + m.textW / 2;
+    int bestPad = 0;
+    int bestErr = 0x3fffffff;
+    int maxPad = min(80, max(0, m.maxCols - 1));
+
+    for (int pad = 0; pad <= maxPad; ++pad)
+    {
+        int x = m.marginX + measureSpaces(pad);
+        if (x + lineW > m.marginX + m.textW)
+            break;
+
+        int center = x + lineW / 2;
+        int err = abs(center - targetCenter);
+        if (err < bestErr)
+        {
+            bestErr = err;
+            bestPad = pad;
+        }
+    }
+
+    return bestPad;
+}
+
+void buildPaddedLineForGrid(const DecoderMetrics& m, const char* text, char* out, int outCap)
+{
+    if (!out || outCap <= 0) return;
+    if (!text) text = "";
+
+    int lineW = HAL_Get_Text_Width_Font(text, HAL_FONT_BODY);
+    int padSpaces = centeredPadSpacesFor(m, text, lineW);
+
+    int idx = 0;
+    for (int i = 0; i < padSpaces && idx < outCap - 1; ++i)
+        out[idx++] = ' ';
+    for (int i = 0; text[i] != '\0' && idx < outCap - 1; ++i)
+        out[idx++] = text[i];
+    out[idx] = '\0';
+}
+
+int centeredLineXFor(const DecoderMetrics& m, const char* text, int* outWidth = nullptr)
+{
+    int lineW = HAL_Get_Text_Width_Font(text ? text : "", HAL_FONT_BODY);
+    if (outWidth) *outWidth = lineW;
+
+    int padSpaces = centeredPadSpacesFor(m, text, lineW);
+    int x = m.marginX + measureSpaces(padSpaces);
+
+    int rightLimit = m.marginX + m.textW;
+    if (lineW > m.textW || x + lineW > rightLimit)
+        x = m.marginX;
+    return x;
+}
+
+void updateLayoutAlignment(TextLayout& layout)
+{
+    DecoderMetrics m = metrics(layout.lang);
+    layout.contentStartY = contentStartYFor(m, layout.actualLines);
+
+    for (int i = 0; i < TextLayout::MaxLines; ++i)
+    {
+        layout.lineW[i] = 0;
+        layout.lineX[i] = m.marginX;
+    }
+
+    for (int i = 0; i < layout.actualLines && i < TextLayout::MaxLines; ++i)
+        layout.lineX[i] = centeredLineXFor(m, layout.lines[i], &layout.lineW[i]);
+}
+
+int visualLineY(const DecoderMetrics& m, const TextLayout& layout, int visualRow)
+{
+    int baseY = (layout.actualLines <= m.maxLines) ? layout.contentStartY : m.topY;
+    return baseY + visualRow * m.rowH;
+}
+
+void drawContentLineFast(const DecoderMetrics& m, const TextLayout& layout, int lineIndex, int visualRow, const char* text, uint16_t color)
+{
+    int x = m.marginX;
+    if (lineIndex >= 0 && lineIndex < layout.actualLines && lineIndex < TextLayout::MaxLines)
+        x = layout.lineX[lineIndex];
+    HAL_Screen_ShowChineseLine_Color(x, visualLineY(m, layout, visualRow), text, color);
+}
+
 void drawLine(int row, const char* text, const TextLayout& layout)
 {
     DecoderMetrics m = metrics(layout.lang);
-    drawLineFast(m, row, text, layout.color);
+    drawContentLineFast(m, layout, row, row, text, layout.color);
 }
 
 void drawLineWithColor(int row, const char* text, SystemLang_t lang, uint16_t color)
 {
     DecoderMetrics m = metrics(lang);
-    drawLineFast(m, row, text, color);
+    int x = centeredLineXFor(m, text);
+    HAL_Screen_ShowChineseLine_Color(x, contentStartYFor(m, row + 1) + row * m.rowH, text, color);
+}
+
+
+/**
+ * 绘制完成态内容到当前 Sprite，但不主动 push。
+ *
+ * 默认“全屏矩阵解码”动画最后一帧原本会把真实指令留在左上角，
+ * AppPrescript 进入 DONE 后再调用 DrawDoneFrame()，于是出现左上角到居中的瞬移。
+ * 这里把完成态绘制抽成内部函数，让矩阵动画在最后一帧直接绘制同一套居中完成态，
+ * 这样动画结束和 DONE 状态看到的是同一张画面，不会再跳位置。
+ */
+void drawDoneFrameToSprite(const TextLayout& layout, int scrollOffset)
+{
+    DecoderMetrics m = metrics(layout.lang);
+    HAL_Sprite_Clear();
+
+    int maxVis = m.maxLines;
+    int remain = layout.actualLines - scrollOffset;
+    if (remain < 0) remain = 0;
+    int drawCount = (remain > maxVis) ? maxVis : remain;
+
+    for (int i = 0; i < drawCount; ++i)
+    {
+        int r = scrollOffset + i;
+        drawContentLineFast(m, layout, r, i, layout.lines[r], layout.color);
+    }
+
+    if (layout.actualLines > maxVis)
+    {
+        int maxOffset = layout.actualLines - maxVis;
+        int trackH = maxVis * m.rowH;
+        int barH = trackH * maxVis / layout.actualLines;
+        if (barH < 6) barH = 6;
+        int barY = m.topY + (trackH - barH) * scrollOffset / maxOffset;
+
+        HAL_Fill_Rect(m.scrollbarX, m.topY, m.scrollbarW, trackH, UITheme::COLOR_DARK);
+        HAL_Fill_Rect(m.scrollbarX, barY, m.scrollbarW, barH, 1);
+    }
 }
 
 void appendGlitchForChar(char* out, int& idx, int charLen, bool allowChinese)
@@ -601,10 +764,11 @@ void playCursor(TextLayout& layout, int drawLines, ProcedureTick cb)
                     drawLine(r, printBuf, layout);
 
                     // 光标动画：在当前待解码字符位置画一个短矩形，尺寸随当前字体行高放大。
-                    int cursorX = m.marginX + HAL_Get_Text_Width(printBuf);
+                    int baseX = (r < layout.actualLines) ? layout.lineX[r] : m.marginX;
+                    int cursorX = baseX + HAL_Get_Text_Width_Font(printBuf, HAL_FONT_BODY);
                     int cursorW = (clen > 1) ? max(12, m.cellW * 2) : max(7, m.cellW);
                     int cursorH = max(12, HAL_Get_Font_Line_Height(HAL_FONT_BODY) - 4);
-                    HAL_Fill_Rect(cursorX, m.topY + r * m.rowH + 2, cursorW, cursorH, 1);
+                    HAL_Fill_Rect(cursorX, visualLineY(m, layout, r) + 2, cursorW, cursorH, 1);
                 }
                 ++currentChar;
                 i += clen;
@@ -718,51 +882,115 @@ void playGlobalWave(TextLayout& layout, int drawLines, ProcedureTick cb)
     }
 }
 
+void buildMatrixBackgroundRow(char* rowBuf, int bufCap, SystemLang_t lang, int maxGridW)
+{
+    int bufIdx = 0;
+    int gridW = 0;
+
+    while (bufIdx < bufCap - 4 && gridW < maxGridW)
+    {
+        if (lang == LANG_ZH && random(100) < 14 && gridW <= maxGridW - 2)
+        {
+            int p = random(CACHE_SIZE);
+            rowBuf[bufIdx++] = g_glitchPool[p][0];
+            rowBuf[bufIdx++] = g_glitchPool[p][1];
+            rowBuf[bufIdx++] = g_glitchPool[p][2];
+            gridW += 2;
+        }
+        else
+        {
+            rowBuf[bufIdx++] = 33 + random(94);
+            gridW += 1;
+        }
+    }
+    rowBuf[bufIdx] = '\0';
+}
+
+/*
+ * 默认矩阵解码动画只需要一张全屏 lucky 表。
+ * 这张表不能放在 playMatrixLock() 的局部栈上，否则 ESP32 Arduino loop 任务栈容易被打满。
+ * 缓存放在 UI 模块静态区，动画仍然是单线程串行调用，不存在重入问题。
+ */
+static uint8_t g_matrixLucky[MAX_RENDER_LINES][MAX_GRID_COLS];
+
 void playMatrixLock(TextLayout& layout, int drawLines, ProcedureTick cb)
 {
     DecoderMetrics m = metrics(layout.lang);
-    uint8_t lucky[MAX_RENDER_LINES][MAX_GRID_COLS];
+
+    /*
+     * 默认动画回到“单层全屏矩阵解码”的逻辑，但把真实指令放入同一套矩阵排布。
+     *
+     * 关键修正：
+     * - 不再额外覆盖一层居中文本，避免出现“双层/切割”的感觉；
+     * - 每个屏幕行先生成一个最终目标串：目标区域外最终为空格，目标区域内最终为真实指令；
+     * - 目标串的左侧用空格数量实现居中，DONE 状态也按同一套行网格/空格宽度计算 x；
+     * - 动画过程中每个格子未锁定时显示乱码，锁定后变成真实字符或空白。
+     *
+     * 这样按下确认后，屏幕上的 7 行乱码会在同一位置逐步解码，最终原地留下居中指令。
+     */
     for (int r = 0; r < m.maxLines; ++r)
         for (int c = 0; c < m.maxCols; ++c)
-            lucky[r][c] = random(11) + 2;
+            g_matrixLucky[r][c] = random(11) + 2;
+
+    int startVisualRow = 0;
+    if (layout.actualLines > 0 && layout.actualLines <= m.maxLines)
+    {
+        startVisualRow = (m.maxLines - layout.actualLines) / 2;
+        if (startVisualRow < 0) startVisualRow = 0;
+    }
 
     for (int frame = 0; frame < ANIM1_FRAMES; ++frame)
     {
-        uint8_t allLocked = 1;
+        bool allLocked = true;
         HAL_Sprite_Clear();
+
         for (int r = 0; r < m.maxLines; ++r)
         {
-            char rowBuf[512];
+            char targetLine[CHAOS_ROW_BUFFER_BYTES] = {0};
+            int lineIndex = r - startVisualRow;
+            bool hasTargetLine = (lineIndex >= 0 && lineIndex < drawLines && lineIndex < layout.actualLines);
+            if (hasTargetLine)
+                buildPaddedLineForGrid(m, layout.lines[lineIndex], targetLine, sizeof(targetLine));
+
+            char rowBuf[CHAOS_ROW_BUFFER_BYTES];
             int bufIdx = 0;
             int currentW = 0;
             int byteIdx = 0;
 
-            if (r < drawLines)
+            // 目标串：前置空格、真实指令、以及行内空白都使用同一个 lucky 表逐格解码。
+            while (hasTargetLine && targetLine[byteIdx] != '\0' &&
+                   currentW < m.maxCols - 1 &&
+                   bufIdx < (int)sizeof(rowBuf) - 4)
             {
-                while (layout.lines[r][byteIdx] != '\0' && currentW < m.maxCols - 1)
+                int clen = utf8Len(&targetLine[byteIdx]);
+                int cw = gridWidthForChar(&targetLine[byteIdx]);
+                int luckCol = currentW;
+                if (luckCol >= MAX_GRID_COLS) luckCol = MAX_GRID_COLS - 1;
+
+                if (frame >= g_matrixLucky[r][luckCol])
                 {
-                    int clen = utf8Len(&layout.lines[r][byteIdx]);
-                    int cw = gridWidthForChar(&layout.lines[r][byteIdx]);
-                    if (frame >= lucky[r][currentW])
-                    {
-                        for (int b = 0; b < clen; ++b) rowBuf[bufIdx++] = layout.lines[r][byteIdx + b];
-                    }
-                    else
-                    {
-                        allLocked = 0;
-                        appendGlitchForChar(rowBuf, bufIdx, clen, layout.lang == LANG_ZH);
-                    }
-                    currentW += cw;
-                    byteIdx += clen;
+                    for (int b = 0; b < clen && bufIdx < (int)sizeof(rowBuf) - 1; ++b)
+                        rowBuf[bufIdx++] = targetLine[byteIdx + b];
                 }
+                else
+                {
+                    allLocked = false;
+                    appendGlitchForChar(rowBuf, bufIdx, clen, layout.lang == LANG_ZH);
+                }
+
+                currentW += cw;
+                byteIdx += clen;
             }
 
-            // 未被真实文本占用的剩余列也参与矩阵锁定，维持“全屏信号收束”的效果。
+            // 目标串之后，以及没有目标串的行，继续按旧默认动画从乱码解码为空白。
             while (currentW < m.maxCols - 1 && bufIdx < (int)sizeof(rowBuf) - 4)
             {
-                if (frame < lucky[r][currentW])
+                int luckCol = currentW;
+                if (luckCol >= MAX_GRID_COLS) luckCol = MAX_GRID_COLS - 1;
+
+                if (frame < g_matrixLucky[r][luckCol])
                 {
-                    allLocked = 0;
+                    allLocked = false;
                     if (layout.lang == LANG_ZH && random(100) < 40 && currentW <= m.maxCols - 2)
                     {
                         int p = random(CACHE_SIZE);
@@ -785,14 +1013,17 @@ void playMatrixLock(TextLayout& layout, int drawLines, ProcedureTick cb)
             }
 
             rowBuf[bufIdx] = '\0';
-            if (bufIdx > 0) drawLineFast(m, r, rowBuf, layout.color);
+            if (bufIdx > 0)
+                drawLineFast(m, r, rowBuf, layout.color);
         }
+
         HAL_Screen_Update();
         if (!allLocked) procedure(cb);
         if (allLocked) break;
         delayFrame(ANIM1_DELAY);
     }
 }
+
 
 } // namespace
 
@@ -821,10 +1052,21 @@ void PrepareLayoutFromRule(const char* rule, SystemLang_t lang, uint16_t color, 
     out.lang = lang;
     out.color = color;
     out.actualLines = 0;
-    for (int i = 0; i < TextLayout::MaxLines; ++i) out.lines[i][0] = '\0';
+    out.contentStartY = 0;
+    for (int i = 0; i < TextLayout::MaxLines; ++i)
+    {
+        out.lines[i][0] = '\0';
+        out.lineW[i] = 0;
+        out.lineX[i] = 0;
+    }
+
     if (lang == LANG_ZH) formatChineseToGrid(raw, formatted);
     else formatEnglishToGrid(raw, formatted);
     out.actualLines = splitToLines(formatted, out.lines);
+
+    // 排版完成后统一计算每行最终 x 和短文本垂直居中位置。
+    // 动画阶段复用这些坐标，避免乱码字符宽度变化导致文本左右抖动。
+    updateLayoutAlignment(out);
 }
 
 bool appendChaosTokenByGrid(char* rowBuf, int& bufIdx, int bufCap, int& gridW, const char* token, int tokenLen, int tokenGridW, int maxGridW)
@@ -894,33 +1136,7 @@ void DrawChaosFrame(SystemLang_t lang, uint16_t color)
 
 void DrawDoneFrame(const TextLayout& layout, int scrollOffset)
 {
-    DecoderMetrics m = metrics(layout.lang);
-    HAL_Sprite_Clear();
-
-    int maxVis = MaxVisibleLines(layout.lang);
-    int remain = layout.actualLines - scrollOffset;
-    if (remain < 0) remain = 0;
-    int drawCount = (remain > maxVis) ? maxVis : remain;
-
-    for (int i = 0; i < drawCount; ++i)
-    {
-        int r = scrollOffset + i;
-        drawLineFast(m, i, layout.lines[r], layout.color);
-    }
-
-    if (layout.actualLines > maxVis)
-    {
-        int maxOffset = layout.actualLines - maxVis;
-        int trackH = maxVis * m.rowH;
-        int barH = trackH * maxVis / layout.actualLines;
-        if (barH < 6) barH = 6;
-        int barY = m.topY + (trackH - barH) * scrollOffset / maxOffset;
-
-        // 完成态滚动条贴到当前画布右侧，而不是旧屏固定 x=280。
-        HAL_Fill_Rect(m.scrollbarX, m.topY, m.scrollbarW, trackH, UITheme::COLOR_DARK);
-        HAL_Fill_Rect(m.scrollbarX, barY, m.scrollbarW, barH, 1);
-    }
-
+    drawDoneFrameToSprite(layout, scrollOffset);
     HAL_Screen_Update();
 }
 
