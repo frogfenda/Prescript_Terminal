@@ -10,6 +10,7 @@
 #include "sys_ble.h"
 #include "sys_fs.h"
 #include "sys_res.h"
+#include "sys_oracle.h"
 #include "sys_router.h"
 #include "sys_event.h"
 #include "sys_auto_push.h"
@@ -77,6 +78,8 @@ void AppManager::begin()
     idle_timer = millis();
 
     SysRes_Init(); 
+    // 纺织机答案池依赖资源管家挂载的 JSON 素材，必须在 SysRes_Init() 后解析。
+    sysOracle.begin();
 
     
     // 系统级的特殊拦截保留在这里

@@ -1,0 +1,134 @@
+[
+  {
+    "id": "W001",
+    "type": "weaver",
+    "weight": 10,
+    "text": "纺织机已经回应了你的想法。"
+  },
+  {
+    "id": "W002",
+    "type": "weaver",
+    "weight": 10,
+    "text": "你正在寻找的答案，已经被写进下一条指令。"
+  },
+  {
+    "id": "W003",
+    "type": "weaver",
+    "weight": 8,
+    "text": "不要急着解释它。先让沉默完成编织。"
+  },
+  {
+    "id": "W004",
+    "type": "weaver",
+    "weight": 8,
+    "text": "第三个念头不是答案，是诱饵。"
+  },
+  {
+    "id": "W005",
+    "type": "weaver",
+    "weight": 7,
+    "text": "你已经知道要做什么，只是不想承认代价。"
+  },
+  {
+    "id": "W006",
+    "type": "weaver",
+    "weight": 7,
+    "text": "等到下一次噪声变得有规律。"
+  },
+  {
+    "id": "W007",
+    "type": "weaver",
+    "weight": 6,
+    "text": "这不是拒绝，是都市要求你换一种问法。"
+  },
+  {
+    "id": "W008",
+    "type": "weaver",
+    "weight": 6,
+    "text": "如果答案太清楚，它很可能已经被篡改。"
+  },
+  {
+    "id": "W009",
+    "type": "weaver",
+    "weight": 5,
+    "text": "把手从门上移开，门才会开始选择你。"
+  },
+  {
+    "id": "W010",
+    "type": "weaver",
+    "weight": 5,
+    "text": "线已经收紧。现在不要回头。"
+  },
+  {
+    "id": "W011",
+    "type": "weaver",
+    "weight": 4,
+    "text": "你问的是结果，纺织机回答的是原因。"
+  },
+  {
+    "id": "W012",
+    "type": "weaver",
+    "weight": 4,
+    "text": "别相信最先抵达的解释。"
+  },
+  {
+    "id": "F001",
+    "type": "food",
+    "weight": 10,
+    "text": "吃面。不要问为什么。"
+  },
+  {
+    "id": "F002",
+    "type": "food",
+    "weight": 10,
+    "text": "今天适合吃热的东西。"
+  },
+  {
+    "id": "F003",
+    "type": "food",
+    "weight": 8,
+    "text": "米饭，配一点咸的。你的系统需要稳定。"
+  },
+  {
+    "id": "F004",
+    "type": "food",
+    "weight": 8,
+    "text": "吃饺子。封口的东西比较安全。"
+  },
+  {
+    "id": "F005",
+    "type": "food",
+    "weight": 7,
+    "text": "炸物可以，但别把它当作答案。"
+  },
+  {
+    "id": "F006",
+    "type": "food",
+    "weight": 7,
+    "text": "喝汤。今天不适合干硬的决定。"
+  },
+  {
+    "id": "F007",
+    "type": "food",
+    "weight": 6,
+    "text": "吃你最先想到的那个。纺织机已经记录了。"
+  },
+  {
+    "id": "F008",
+    "type": "food",
+    "weight": 6,
+    "text": "不要空腹执行指令。"
+  },
+  {
+    "id": "F009",
+    "type": "food",
+    "weight": 5,
+    "text": "吃辣的，但只到你还能保持理智为止。"
+  },
+  {
+    "id": "F010",
+    "type": "food",
+    "weight": 5,
+    "text": "甜的。今天需要一点不合逻辑的安慰。"
+  }
+]

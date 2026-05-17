@@ -46,9 +46,9 @@ void Feedback_PlayAlertPulse()
 void Feedback_PlayAlertSequence()
 {
     sysAudio.playTone(1500, 200);
-    delay(100);
+    delay(150);
     sysAudio.playTone(1500, 200);
-    delay(100);
+    delay(150);
     sysAudio.playTone(2500, 600);
     sysHaptic.playAlert();
 }
@@ -159,25 +159,65 @@ void Feedback_Play(FeedbackPattern pattern)
 {
     switch (pattern)
     {
-    case FeedbackPattern::KnobTick:        Feedback_PlayKnobTick(); break;
-    case FeedbackPattern::Confirm:         Feedback_PlayConfirm(); break;
-    case FeedbackPattern::Back:            Feedback_PlayBack(); break;
-    case FeedbackPattern::Error:           Feedback_PlayError(); break;
-    case FeedbackPattern::Glitch:          Feedback_PlayGlitch(); break;
-    case FeedbackPattern::AlertPulse:      Feedback_PlayAlertPulse(); break;
-    case FeedbackPattern::AlertSequence:   Feedback_PlayAlertSequence(); break;
-    case FeedbackPattern::DecodeComplete:  Feedback_PlayDecodeComplete(); break;
-    case FeedbackPattern::CoinHeads:       Feedback_PlayCoinHeads(); break;
-    case FeedbackPattern::CoinTails:       Feedback_PlayCoinTails(); break;
-    case FeedbackPattern::GachaReveal:     Feedback_PlayGachaReveal(1, false); break;
-    case FeedbackPattern::NetworkOk:       Feedback_PlayNetworkOk(); break;
-    case FeedbackPattern::NetworkError:    Feedback_PlayNetworkError(); break;
-    case FeedbackPattern::WifiDisconnected:Feedback_PlayWifiDisconnected(); break;
-    case FeedbackPattern::WifiBusy:        Feedback_PlayWifiBusy(); break;
-    case FeedbackPattern::TimerDone:       Feedback_PlayTimerDone(); break;
-    case FeedbackPattern::NfcReadOk:       Feedback_PlayNfcReadOk(); break;
-    case FeedbackPattern::NfcReadError:    Feedback_PlayNfcReadError(); break;
-    case FeedbackPattern::Wake:            Feedback_PlayWake(); break;
-    case FeedbackPattern::Abort:           Feedback_PlayAbort(); break;
+    case FeedbackPattern::KnobTick:
+        Feedback_PlayKnobTick();
+        break;
+    case FeedbackPattern::Confirm:
+        Feedback_PlayConfirm();
+        break;
+    case FeedbackPattern::Back:
+        Feedback_PlayBack();
+        break;
+    case FeedbackPattern::Error:
+        Feedback_PlayError();
+        break;
+    case FeedbackPattern::Glitch:
+        Feedback_PlayGlitch();
+        break;
+    case FeedbackPattern::AlertPulse:
+        Feedback_PlayAlertPulse();
+        break;
+    case FeedbackPattern::AlertSequence:
+        Feedback_PlayAlertSequence();
+        break;
+    case FeedbackPattern::DecodeComplete:
+        Feedback_PlayDecodeComplete();
+        break;
+    case FeedbackPattern::CoinHeads:
+        Feedback_PlayCoinHeads();
+        break;
+    case FeedbackPattern::CoinTails:
+        Feedback_PlayCoinTails();
+        break;
+    case FeedbackPattern::GachaReveal:
+        Feedback_PlayGachaReveal(1, false);
+        break;
+    case FeedbackPattern::NetworkOk:
+        Feedback_PlayNetworkOk();
+        break;
+    case FeedbackPattern::NetworkError:
+        Feedback_PlayNetworkError();
+        break;
+    case FeedbackPattern::WifiDisconnected:
+        Feedback_PlayWifiDisconnected();
+        break;
+    case FeedbackPattern::WifiBusy:
+        Feedback_PlayWifiBusy();
+        break;
+    case FeedbackPattern::TimerDone:
+        Feedback_PlayTimerDone();
+        break;
+    case FeedbackPattern::NfcReadOk:
+        Feedback_PlayNfcReadOk();
+        break;
+    case FeedbackPattern::NfcReadError:
+        Feedback_PlayNfcReadError();
+        break;
+    case FeedbackPattern::Wake:
+        Feedback_PlayWake();
+        break;
+    case FeedbackPattern::Abort:
+        Feedback_PlayAbort();
+        break;
     }
 }

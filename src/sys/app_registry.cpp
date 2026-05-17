@@ -10,6 +10,7 @@
 extern AppBase *appStandby;
 extern AppBase *appMainMenu;
 extern AppBase *appPrescript;
+extern AppBase *appOracle;
 extern AppBase *appSleepSetting;
 extern AppBase *appNetworkSync;
 extern AppBase *appSystemSettings;
@@ -49,6 +50,7 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::Standby: return appStandby;
         case AppId::MainMenu: return appMainMenu;
         case AppId::Prescript: return appPrescript;
+        case AppId::Loom: return appOracle;
         case AppId::SleepSetting: return appSleepSetting;
         case AppId::NetworkSync: return appNetworkSync;
         case AppId::SystemSettings: return appSystemSettings;
@@ -89,6 +91,7 @@ const char* AppRegistry_Name(AppId id)
         case AppId::Standby: return "Standby";
         case AppId::MainMenu: return "MainMenu";
         case AppId::Prescript: return "Prescript";
+        case AppId::Loom: return "Loom";
         case AppId::SleepSetting: return "SleepSetting";
         case AppId::NetworkSync: return "NetworkSync";
         case AppId::SystemSettings: return "SystemSettings";

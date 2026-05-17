@@ -1,0 +1,74 @@
+[
+  {
+    "id": "W001",
+    "type": "weaver",
+    "weight": 10,
+    "text": "The loom has answered your thought."
+  },
+  {
+    "id": "W002",
+    "type": "weaver",
+    "weight": 10,
+    "text": "The answer you seek has been written into the next prescript."
+  },
+  {
+    "id": "W003",
+    "type": "weaver",
+    "weight": 8,
+    "text": "Do not explain it yet. Let the silence finish weaving."
+  },
+  {
+    "id": "W004",
+    "type": "weaver",
+    "weight": 8,
+    "text": "The third thought is not the answer. It is bait."
+  },
+  {
+    "id": "W005",
+    "type": "weaver",
+    "weight": 7,
+    "text": "You already know what to do. You only deny the cost."
+  },
+  {
+    "id": "W006",
+    "type": "weaver",
+    "weight": 7,
+    "text": "Wait until the noise becomes regular."
+  },
+  {
+    "id": "F001",
+    "type": "food",
+    "weight": 10,
+    "text": "Eat noodles. Do not ask why."
+  },
+  {
+    "id": "F002",
+    "type": "food",
+    "weight": 10,
+    "text": "Eat something warm today."
+  },
+  {
+    "id": "F003",
+    "type": "food",
+    "weight": 8,
+    "text": "Rice, with something salty. Your system needs stability."
+  },
+  {
+    "id": "F004",
+    "type": "food",
+    "weight": 8,
+    "text": "Dumplings. Sealed things are safer."
+  },
+  {
+    "id": "F005",
+    "type": "food",
+    "weight": 7,
+    "text": "Fried food is allowed. Do not mistake it for an answer."
+  },
+  {
+    "id": "F006",
+    "type": "food",
+    "weight": 7,
+    "text": "Soup. This is not a day for dry decisions."
+  }
+]

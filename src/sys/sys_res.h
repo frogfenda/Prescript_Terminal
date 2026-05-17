@@ -37,4 +37,12 @@ extern int* g_gacha_1star; extern int g_count_1star;
 extern int* g_gacha_2star; extern int g_count_2star;
 extern int* g_gacha_3star; extern int g_count_3star;
 
+// 纺织机 JSON 原始素材。
+// 资源管家启动时从 LittleFS 读入 PSRAM，sys_oracle 只负责解析这些已挂载的素材，
+// 避免应用层和答案池模块反复直接访问 LittleFS。
+extern char* g_oracle_json_zh;
+extern uint32_t g_oracle_json_zh_len;
+extern char* g_oracle_json_en;
+extern uint32_t g_oracle_json_en_len;
+
 void SysRes_Init();

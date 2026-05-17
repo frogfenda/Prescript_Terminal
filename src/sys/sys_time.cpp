@@ -31,6 +31,25 @@ static bool s_has_network_sync = false;
  */
 static constexpr int32_t LOCAL_UTC_OFFSET_SECONDS = 8 * 3600;
 
+/*
+ * 手动设置时间时使用的安全日期范围。
+ *
+ * ESP32 刚开机且尚未 NTP 对时/日期设置时，系统时间通常仍在 1970 年附近。
+ * 如果此时用户把当天时间设成 00:00，本地时间换算成 UTC 后会落到
+ * 1969-12-31 16:00，也就是负 epoch。部分 ESP32/newlib 组合对负 epoch
+ * 的 settimeofday()/localtime_r() 支持不稳定，会表现为：
+ * - 00:00 设置失败；
+ * - 一旦落入 1969/1970 异常日期，后续再设置其他时分也继续失效。
+ *
+ * 因此“只设置时分”的页面在发现当前日期不可信时，会先把日期钉到
+ * 一个项目允许范围内的安全日期，再写入用户输入的时分。
+ */
+static constexpr uint16_t MANUAL_TIME_MIN_YEAR = 2020;
+static constexpr uint16_t MANUAL_TIME_MAX_YEAR = 2035;
+static constexpr uint16_t MANUAL_TIME_FALLBACK_YEAR = 2026;
+static constexpr uint8_t  MANUAL_TIME_FALLBACK_MONTH = 1;
+static constexpr uint8_t  MANUAL_TIME_FALLBACK_DAY = 1;
+
 /**
  * 计算公历日期距离 1970-01-01 的天数。
  *
@@ -86,12 +105,26 @@ static time_t _EpochFromLocalDateTime(
  * settimeofday() 接收的是 UTC epoch，不是本地时间。
  * 所以调用本函数前必须已经完成本地时间到 UTC epoch 的换算。
  */
-static void _SetSystemEpoch(time_t epoch)
+static bool _SetSystemEpoch(time_t epoch)
 {
+    if (epoch < 0)
+    {
+        Serial.printf("[时间-错误] 拒绝写入负 epoch：%lld。\n", (long long)epoch);
+        return false;
+    }
+
     timeval tv;
     tv.tv_sec = epoch;
     tv.tv_usec = 0;
-    settimeofday(&tv, nullptr);
+
+    int ret = settimeofday(&tv, nullptr);
+    if (ret != 0)
+    {
+        Serial.printf("[时间-错误] settimeofday 失败，epoch=%lld，ret=%d。\n", (long long)epoch, ret);
+        return false;
+    }
+
+    return true;
 }
 
 
@@ -115,6 +148,50 @@ uint8_t SysTime_DaysInMonth(uint16_t year, uint8_t month)
         return 29;
 
     return days_normal[month - 1];
+}
+
+/**
+ * 从当前系统时间中取出一个可用于“手动设置时分”的安全本地日期。
+ *
+ * 正常情况下直接使用当前年月日；如果系统还停留在 1970/1969 等
+ * 未校准状态，则回退到固定安全日期，避免 00:00 被换算成负 epoch。
+ */
+static void _GetSafeDateForManualClock(uint16_t &year, uint8_t &month, uint8_t &day)
+{
+    struct tm info;
+    SysTime_GetInfo(&info);
+
+    int current_year = info.tm_year + 1900;
+    int current_month = info.tm_mon + 1;
+    int current_day = info.tm_mday;
+
+    bool date_ok =
+        current_year >= MANUAL_TIME_MIN_YEAR &&
+        current_year <= MANUAL_TIME_MAX_YEAR &&
+        current_month >= 1 && current_month <= 12 &&
+        current_day >= 1 && current_day <= SysTime_DaysInMonth((uint16_t)current_year, (uint8_t)current_month);
+
+    if (!date_ok)
+    {
+        year = MANUAL_TIME_FALLBACK_YEAR;
+        month = MANUAL_TIME_FALLBACK_MONTH;
+        day = MANUAL_TIME_FALLBACK_DAY;
+
+        Serial.printf(
+            "[时间-警告] 当前系统日期不可信：%04d-%02d-%02d，手动设时改用安全日期 %04u-%02u-%02u。\n",
+            current_year,
+            current_month,
+            current_day,
+            year,
+            month,
+            day
+        );
+        return;
+    }
+
+    year = (uint16_t)current_year;
+    month = (uint8_t)current_month;
+    day = (uint8_t)current_day;
 }
 
 void SysTime_Init()
@@ -193,12 +270,10 @@ void SysTime_SetTodayClock(uint8_t hour, uint8_t minute)
     if (minute > 59)
         minute = 59;
 
-    struct tm info;
-    SysTime_GetInfo(&info);
-
-    uint16_t year = (uint16_t)(info.tm_year + 1900);
-    uint8_t month = (uint8_t)(info.tm_mon + 1);
-    uint8_t day = (uint8_t)info.tm_mday;
+    uint16_t year = 0;
+    uint8_t month = 0;
+    uint8_t day = 0;
+    _GetSafeDateForManualClock(year, month, day);
 
     /*
      * 直接设置“当前本地日期 + 用户输入的时分”。
@@ -212,18 +287,33 @@ void SysTime_SetTodayClock(uint8_t hour, uint8_t minute)
      * 因此用户保存 14:30 后，HUD 应该立即显示 14:30。
      */
     time_t new_epoch = _EpochFromLocalDateTime(year, month, day, hour, minute, 0);
-    _SetSystemEpoch(new_epoch);
+    if (!_SetSystemEpoch(new_epoch))
+    {
+        Serial.printf(
+            "[时间-错误] 手动设置当日时间失败：%04u-%02u-%02u %02u:%02u:00。\n",
+            year,
+            month,
+            day,
+            hour,
+            minute
+        );
+        return;
+    }
 
+    time_t now = time(nullptr);
     struct tm verify;
-    localtime_r(&new_epoch, &verify);
+    localtime_r(&now, &verify);
 
     Serial.printf(
-        "[时间] 已手动设置当日时间：%04u-%02u-%02u %02u:%02u:00，校验显示=%02d:%02d。\n",
+        "[时间] 已手动设置当日时间：%04u-%02u-%02u %02u:%02u:00，校验显示=%04d-%02d-%02d %02d:%02d。\n",
         year,
         month,
         day,
         hour,
         minute,
+        verify.tm_year + 1900,
+        verify.tm_mon + 1,
+        verify.tm_mday,
         verify.tm_hour,
         verify.tm_min
     );
@@ -254,10 +344,20 @@ void SysTime_SetDate(uint16_t year, uint8_t month, uint8_t day)
      * 同样不使用 mktime()，避免日期保存时被时区换算二次偏移。
      */
     time_t new_epoch = _EpochFromLocalDateTime(year, month, day, hour, minute, second);
-    _SetSystemEpoch(new_epoch);
+    if (!_SetSystemEpoch(new_epoch))
+    {
+        Serial.printf(
+            "[时间-错误] 手动设置日期失败：%04u-%02u-%02u。\n",
+            year,
+            month,
+            day
+        );
+        return;
+    }
 
+    time_t now = time(nullptr);
     struct tm verify;
-    localtime_r(&new_epoch, &verify);
+    localtime_r(&now, &verify);
 
     Serial.printf(
         "[时间] 已手动设置日期：%04u-%02u-%02u，保留时间=%02u:%02u:%02u，校验显示=%04d-%02d-%02d %02d:%02d:%02d。\n",

@@ -31,6 +31,11 @@ int g_count_3star = 0;
 uint16_t *g_img_heads[3] = {nullptr, nullptr, nullptr};
 uint16_t *g_img_tails[3] = {nullptr, nullptr, nullptr};
 
+char *g_oracle_json_zh = nullptr;
+uint32_t g_oracle_json_zh_len = 0;
+char *g_oracle_json_en = nullptr;
+uint32_t g_oracle_json_en_len = 0;
+
 /**
  * 读取 4 字节小端整数。
  * WAV/RIFF 里的 chunk size 使用 little-endian 存储，不能直接把字节数组强转成 uint32_t，
@@ -198,6 +203,62 @@ static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *o
     return true;
 }
 
+
+/**
+ * 把普通文本/JSON 文件加载到 PSRAM，并补 0 结尾。
+ *
+ * 这类资源不是二进制贴图，也不需要 WAV chunk 解析；
+ * 但 JSON 解析器需要稳定的内存区域，所以资源管家统一负责从 LittleFS 挂载到内存。
+ */
+static bool _LoadTextToPsram(const char *path, char **out_data, uint32_t *out_len)
+{
+    if (!path || !out_data || !out_len)
+        return false;
+
+    *out_data = nullptr;
+    *out_len = 0;
+
+    File file = LittleFS.open(path, "r");
+    if (!file)
+    {
+        Serial.printf("[资源管家] 文本素材加载失败：未找到 %s\n", path);
+        return false;
+    }
+
+    uint32_t len = file.size();
+    if (len == 0)
+    {
+        Serial.printf("[资源管家] 文本素材加载失败：%s 是空文件。\n", path);
+        file.close();
+        return false;
+    }
+
+    char *buffer = (char *)ps_malloc(len + 1);
+    if (!buffer)
+    {
+        Serial.printf("[资源管家] 文本素材加载失败：%s 申请 PSRAM 失败，len=%lu。\n", path, (unsigned long)len);
+        file.close();
+        return false;
+    }
+
+    size_t read_len = file.read((uint8_t *)buffer, len);
+    file.close();
+
+    if (read_len != len)
+    {
+        Serial.printf("[资源管家] 文本素材加载失败：%s 读取不完整，期望=%lu，实际=%u。\n", path, (unsigned long)len, (unsigned)read_len);
+        free(buffer);
+        return false;
+    }
+
+    buffer[len] = '\0';
+    *out_data = buffer;
+    *out_len = len;
+
+    Serial.printf("[资源管家] 文本素材已挂载：%s，len=%lu。\n", path, (unsigned long)len);
+    return true;
+}
+
 /**
  * 加载固定尺寸的二进制图片到 PSRAM。
  * 当前硬币素材是 64×64 RGB565，因此固定读取 8192 字节。
@@ -260,7 +321,11 @@ void SysRes_Init()
         }
     }
 
-    // 3. 加载抽卡身份池，并按星级建立索引表，供提取部模拟快速随机抽取。
+    // 3. 加载纺织机答案池 JSON。sys_oracle 只解析这两段已挂载素材，不直接反复读取 LittleFS。
+    _LoadTextToPsram("/assets/oracle_zh.json", &g_oracle_json_zh, &g_oracle_json_zh_len);
+    _LoadTextToPsram("/assets/oracle_en.json", &g_oracle_json_en, &g_oracle_json_en_len);
+
+    // 4. 加载抽卡身份池，并按星级建立索引表，供提取部模拟快速随机抽取。
     File f_json = LittleFS.open("/assets/ids.json", "r");
     if (f_json)
     {

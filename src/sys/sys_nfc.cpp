@@ -36,9 +36,20 @@ static constexpr uint8_t NFC_CARD_ERROR_RECOVER_LIMIT = 3;    // 连续 3 次读
 static uint16_t g_nfc_idle_miss_count = 0;
 static uint8_t g_nfc_card_error_count = 0;
 
+// 【新增】PN532 在线状态机。以前开机初始化失败会直接不创建任务，运行中恢复失败也会继续硬扫，
+// 容易表现为“刚开机能扫、过一会儿扫不出”或“开机偶发离线”。现在任务常驻，离线时按间隔自恢复。
+static constexpr uint32_t NFC_OFFLINE_RETRY_MS = 2500;
+static volatile bool g_nfc_ready = false;
+static volatile uint32_t g_nfc_next_retry_ms = 0;
+
+// 【新增】休眠采用协作式安全点，而不是直接 vTaskSuspend 半截 SPI 事务。
+static volatile bool g_nfc_sleep_request = false;
+static volatile bool g_nfc_sleep_ack = false;
+
 void nfc_bg_task(void *pvParameters);
 static bool nfc_reinitialize(const char *reason, bool long_boot_wait);
 static void nfc_start_task_if_needed();
+static void nfc_enter_offline(const char *reason, uint32_t retry_delay_ms = NFC_OFFLINE_RETRY_MS);
 
 // 【函数说明】启动 60 秒靶卡伪装窗口，设置结束时间和首次复位标志，并播放确认反馈。
 void SysNfc_StartEmulation()
@@ -316,6 +327,19 @@ static void nfc_start_task_if_needed()
         1);
 }
 
+// 【函数说明】把 PN532 标记为离线，并安排后台任务稍后重试初始化。
+// 这里不直接阻塞反复初始化，避免 UI/音频被 NFC 硬件异常拖住。
+static void nfc_enter_offline(const char *reason, uint32_t retry_delay_ms)
+{
+    g_nfc_ready = false;
+    g_nfc_idle_miss_count = 0;
+    g_nfc_card_error_count = 0;
+    g_nfc_next_retry_ms = millis() + retry_delay_ms;
+    Serial.printf("[NFC-离线] %s，%lu ms 后后台重试。\n",
+                  reason ? reason : "PN532 暂不可用",
+                  (unsigned long)retry_delay_ms);
+}
+
 // 【函数说明】在原始卡片文本中查找协议层支持的最早命令头，避免 NFC 和 BLE 可用命令不一致。
 static int nfc_find_command_start(const String &raw_text)
 {
@@ -363,7 +387,14 @@ static void nfc_note_idle_poll_miss()
     if (++g_nfc_idle_miss_count >= NFC_IDLE_RECOVER_LIMIT)
     {
         g_nfc_idle_miss_count = 0;
-        nfc_reinitialize("长时间未检测到卡片，执行低频健康重置", false);
+        if (nfc_reinitialize("长时间未检测到卡片，执行低频健康重置", false))
+        {
+            g_nfc_ready = true;
+        }
+        else
+        {
+            nfc_enter_offline("健康重置失败，PN532 进入离线重试态", 1200);
+        }
     }
 }
 
@@ -373,7 +404,14 @@ static void nfc_note_card_read_error(const char *reason)
     if (++g_nfc_card_error_count >= NFC_CARD_ERROR_RECOVER_LIMIT)
     {
         g_nfc_card_error_count = 0;
-        nfc_reinitialize(reason ? reason : "连续卡片读取异常", false);
+        if (nfc_reinitialize(reason ? reason : "连续卡片读取异常", false))
+        {
+            g_nfc_ready = true;
+        }
+        else
+        {
+            nfc_enter_offline(reason ? reason : "连续卡片读取异常，PN532 恢复失败", 1200);
+        }
     }
 }
 
@@ -389,57 +427,96 @@ static void nfc_clear_health_counters()
 // ==========================================
 // 【低功耗控制接口】：随时物理断电 + 锁死引脚防漏电
 // ==========================================
-// 【函数说明】休眠前挂起 NFC 任务，拉低并 hold RESET 引脚，关闭射频并降低漏电。
+// 【函数说明】休眠前请求 NFC 任务进入安全点，再拉低并 hold RESET 引脚。
+// 重点：不再 vTaskSuspend 半截 SPI 读卡流程，避免唤醒后 Adafruit PN532/总线状态不一致。
 void SysNfc_Sleep()
 {
-    if (nfcTaskHandle != NULL)
+    g_nfc_sleep_request = true;
+
+    // 等后台任务在循环安全点确认暂停。若 PN532 正在一次短读卡中，通常会在数百毫秒内退出。
+    uint32_t wait_start = millis();
+    while (!g_nfc_sleep_ack && (millis() - wait_start) < 900)
     {
-        vTaskSuspend(nfcTaskHandle);
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 
+    if (!g_nfc_sleep_ack)
+    {
+        Serial.println("[NFC-电源管理] 等待 NFC 安全暂停超时，继续执行硬件休眠。若后续异常，后台会重新初始化。");
+    }
+
+    g_nfc_ready = false;
     digitalWrite(PrescriptConst::PIN_NFC_RESET, LOW);
 
-    // 【核心补丁：加上物理锁】
-    // 强制保持该引脚在休眠期间维持 LOW 电平，绝不放开，切断 PN532 一切耗电！
+    // 强制保持该引脚在休眠期间维持 LOW 电平，切断 PN532 射频和主芯片工作。
     gpio_hold_en((gpio_num_t)PrescriptConst::PIN_NFC_RESET);
     gpio_deep_sleep_hold_en(); // 如果系统以后升级成 Deep Sleep 也一样防漏电
 
-    Serial.println("[NFC-电源管理] 模块已进入休眠，射频天线关闭并锁定引脚 (1µA)。");
+    Serial.println("[NFC-电源管理] 模块已进入休眠，射频天线关闭并锁定引脚。");
 }
 
-// 【函数说明】唤醒后解除 GPIO hold，重新 nfc.begin/SAMConfig，并恢复后台扫描任务。
+// 【函数说明】唤醒后解除 GPIO hold，不在 UI 线程里直接硬扫；交给 NFC 后台任务重新初始化。
 void SysNfc_Wakeup()
 {
-    // 【核心补丁：解除物理锁】
-    // 唤醒后的第一件事，必须先解除引脚锁定，否则后面的 HIGH 无法生效！
     gpio_hold_dis((gpio_num_t)PrescriptConst::PIN_NFC_RESET);
 
-    if (!nfc_reinitialize("休眠唤醒", false))
-    {
-        Serial.println("[NFC-电源管理] 唤醒后 PN532 暂未恢复，恢复后台任务等待下一轮自恢复。");
-        if (nfcTaskHandle != NULL)
-            vTaskResume(nfcTaskHandle);
-        return;
-    }
+    pinMode(PrescriptConst::PIN_NFC_RESET, OUTPUT);
+    pinMode(PrescriptConst::PIN_NFC_SS, OUTPUT);
+    digitalWrite(PrescriptConst::PIN_NFC_SS, HIGH);
+    digitalWrite(PrescriptConst::PIN_NFC_RESET, HIGH);
 
-    if (nfcTaskHandle != NULL)
-    {
-        vTaskResume(nfcTaskHandle);
-    }
-    else
-    {
-        nfc_start_task_if_needed();
-    }
-    Serial.println("[NFC-电源管理] 模块已唤醒，恢复主动雷达扫描。");
+    g_nfc_ready = false;
+    g_nfc_sleep_ack = false;
+    g_nfc_sleep_request = false;
+    g_nfc_next_retry_ms = millis();
+
+    nfc_start_task_if_needed();
+    Serial.println("[NFC-电源管理] 模块已唤醒，后台任务将重新初始化 PN532。");
 }
 // 【函数说明】NFC 后台任务主循环：普通模式扫描 M1/NTAG 命令卡，伪装模式进入 PN532 target/APDU 流程向手机投递 NDEF。
 void nfc_bg_task(void *pvParameters)
 {
     while (true)
     {
+        // 【安全休眠点】只有在这里暂停 NFC 轮询，避免从 SPI 事务中间强行 suspend。
+        if (g_nfc_sleep_request)
+        {
+            g_nfc_sleep_ack = true;
+            vTaskDelay(pdMS_TO_TICKS(120));
+            continue;
+        }
+        g_nfc_sleep_ack = false;
+
         if (sysConfig.nfc_mode != 0)
         {
             vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+
+        // 【离线重试态】开机初始化失败、运行中健康恢复失败后，都在这里后台重试，
+        // 不再让 NFC 服务永久离线。
+        if (!g_nfc_ready)
+        {
+            if (g_nfc_is_emulating && millis() >= g_nfc_emu_end_time)
+            {
+                g_nfc_is_emulating = false;
+                Serial.println("[NFC-自恢复] 伪装窗口已超时，但 PN532 尚未恢复，保持离线重试。");
+            }
+
+            uint32_t now = millis();
+            if ((int32_t)(now - g_nfc_next_retry_ms) >= 0)
+            {
+                if (nfc_reinitialize("后台离线重试", false))
+                {
+                    g_nfc_ready = true;
+                    Serial.println("[NFC-自恢复] PN532 后台重试成功，恢复主动读卡。");
+                }
+                else
+                {
+                    g_nfc_next_retry_ms = millis() + NFC_OFFLINE_RETRY_MS;
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(200));
             continue;
         }
 
@@ -451,7 +528,10 @@ void nfc_bg_task(void *pvParameters)
                 Feedback_PlayKnobTick();
                 g_nfc_is_emulating = false;
 
-                nfc_reinitialize("伪装窗口结束，恢复主动读卡", false);
+                if (nfc_reinitialize("伪装窗口结束，恢复主动读卡", false))
+                    g_nfc_ready = true;
+                else
+                    nfc_enter_offline("伪装结束后 PN532 恢复失败", 1200);
                 continue;
             }
 
@@ -622,12 +702,10 @@ void nfc_bg_task(void *pvParameters)
         // =====================================
         // 日常读卡区：扇区缓存提速 + 严格完整性校验
         // =====================================
-        nfc.setPassiveActivationRetries(0x05);
-
         uint8_t uid[] = {0, 0, 0, 0, 0, 0, 0};
         uint8_t uidLength;
 
-        bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
+        bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 150);
         bool has_valid_cmd = false;
 
         if (!success)
@@ -864,13 +942,17 @@ void nfc_bg_task(void *pvParameters)
 
 void SysNFC::begin()
 {
-    if (!nfc_reinitialize("开机初始化", true))
+    if (nfc_reinitialize("开机初始化", true))
     {
-        Serial.println("[NFC-警告] 找不到或无法点火 PN532，NFC 服务本轮离线；主系统继续启动。");
-        return;
+        g_nfc_ready = true;
+        Serial.println("[NFC-硬件SPI] 天线点火成功！纯血引擎已启动 (高速稳定读卡 + 硬件级穿透模拟)...");
+    }
+    else
+    {
+        // 开机瞬间 PN532 没响应时，不再让 NFC 永久离线；后台任务会持续重试。
+        nfc_enter_offline("开机初始化失败，NFC 服务进入后台重试态", 1200);
     }
 
-    Serial.println("[NFC-硬件SPI] 天线点火成功！纯血引擎已启动 (高速稳定读卡 + 硬件级穿透模拟)...");
     nfc_start_task_if_needed();
 }
 
