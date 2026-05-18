@@ -98,7 +98,18 @@ private:
                 }
                 char t_buf[16];
                 sprintf(t_buf, "%02d : %02d", remain / 60, remain % 60);
-                HAL_Screen_ShowTextLine((sw - HAL_Get_Text_Width(t_buf)) / 2, 32, t_buf);
+
+                // 运行态倒计时显示放在战术分隔线下方的可用区域中间，
+                // 避免原先固定 y=32 时字形下沿压到横线。
+                int text_w = HAL_Get_Text_Width(t_buf);
+                int line_h = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
+                int area_top = UITheme::EditFlow::DividerY() + UITheme::Frame::DividerBevelH() + 10;
+                int area_bottom = UITheme::EditFlow::TipY() - 8;
+                int time_y = area_top;
+                if (area_bottom > area_top + line_h) {
+                    time_y = area_top + (area_bottom - area_top - line_h) / 2;
+                }
+                HAL_Screen_ShowTextLine((sw - text_w) / 2, time_y, t_buf);
             }
 
             // 4. 底部状态与操作指引 (Y=56)

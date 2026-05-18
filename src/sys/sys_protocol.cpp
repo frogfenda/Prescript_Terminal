@@ -322,7 +322,7 @@ SysParsedCommand SysProtocol_ParseSingle(const String &raw)
         if (out.name.length() == 0)
             // 【函数说明】构造 Invalid 解析结果，保留原始命令和错误代码，Router 会把 error 转成 ACK:ERR。
             return MakeInvalid(msg, "COIN_EMPTY_NAME");
-        if (out.coin_count < 1 || out.coin_count > 9)
+        if (out.coin_count < 1 || out.coin_count > PrescriptConst::MAX_COIN_COUNT)
             // 【函数说明】构造 Invalid 解析结果，保留原始命令和错误代码，Router 会把 error 转成 ACK:ERR。
             return MakeInvalid(msg, "COIN_INVALID_COUNT");
         return out;

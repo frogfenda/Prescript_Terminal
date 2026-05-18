@@ -20,6 +20,9 @@ extern uint32_t g_ahab_sound_len;
 
 extern uint16_t* g_img_heads[3];
 extern uint16_t* g_img_tails[3];
+// 硬币贴图边长。当前兼容 64×64 老素材，也支持后续替换为 96×96 RGB565 bin。
+extern int g_img_heads_size[3];
+extern int g_img_tails_size[3];
 
 // ==========================================
 // 【新增】：提取部数据结构与全局池指针

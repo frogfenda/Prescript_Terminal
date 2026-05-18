@@ -13,7 +13,7 @@ class AppGachaStats : public AppMenuBase {
 protected:
     int getMenuCount() override { return 8; } 
     
-    const char *getTitle() override { return appManager.getLanguage() == LANG_ZH ? ">> 提取部数据库" : ">> EXTRACTION DATABASE"; }
+    const char *getTitle() override { return appManager.getLanguage() == LANG_ZH ? "提取部数据库" : "EXTRACTION DATABASE"; }
     
     const char *getItemText(int index) override {
         static char buf[64];

@@ -181,7 +181,7 @@ private:
     void drawIdlePhase(int sw, int sh)
     {
         bool zh = appManager.getLanguage() == LANG_ZH;
-        const char* title = ">> MEPHISTOPHELES";
+        const char* title = "MEPHISTOPHELES";
         const char* hint = zh ? "[ 单击 ] 执行十连提取" : "[ CLICK ] 10X EXTRACT";
 
         // 待机页只显示标题和操作提示；使用当前字体宽度居中，避免换字体后仍按旧像素偏移。

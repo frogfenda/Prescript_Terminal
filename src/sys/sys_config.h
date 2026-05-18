@@ -40,7 +40,7 @@ struct CoinSaveData
 {
     int mode;       // 运行模式：0自动, 1手动
     int sanity;     // 理智波动：-45 到 45
-    int coin_count; // 【新增】：硬币数量 (1 到 4)
+    int coin_count; // 硬币数量（1 到 PrescriptConst::MAX_COIN_COUNT）
     int coin_type;  // 【新增】：硬币型号 (0:经典金, 1:狂气红, 2:沉稳绿)
 };
 // 声明全局实例化对象
@@ -48,7 +48,7 @@ struct CoinPreset {
     String name;      // 技能名
     int base_power;   // 基础点数
     int coin_power;   // 硬币点数
-    int coin_count;   // 硬币数量
+    int coin_count;   // 硬币数量（1 到 PrescriptConst::MAX_COIN_COUNT）
     String coin_colors; // 【核心升级】：从单数字变成材质字符串序列，如 "1102"
 };
 struct GachaStatsData {
@@ -74,12 +74,15 @@ public:
      * 时间系统配置。
      * time_auto_resync：是否允许 Network_Update() 在设备运行中周期性启动轻量 NTP 校时。
      * time_resync_interval_min：周期校时间隔，单位分钟；当前时间设置 UI 只允许 5/15/30/60。
+     * time_saved_epoch_valid / time_saved_epoch_utc：最近一次网络对时成功后保存的 UTC epoch。
      *
-     * 注意：这里不保存“当前时间”。断电后无法可靠推算断电期间经过了多久，
-     * 所以只保存策略，不保存用户手动设置过的 epoch。
+     * 注意：保存的 epoch 只作为下次开机的兜底显示时间，不能代表断电期间真实经过了多久；
+     * 所以 SysTime_Init 会用它设置一个非 1970 的默认时间，但不会把它当成本次网络对时成功。
      */
     bool time_auto_resync;
     uint16_t time_resync_interval_min;
+    bool time_saved_epoch_valid;
+    uint32_t time_saved_epoch_utc;
     CoinSaveData coin_data;
     uint8_t pomodoro_current_idx;
     PomodoroPreset pomodoro_presets[PrescriptConst::MAX_POMODORO_PRESETS];

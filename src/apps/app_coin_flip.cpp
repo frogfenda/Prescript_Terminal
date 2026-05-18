@@ -16,10 +16,13 @@
 #include "sys/sys_ble.h"   
 #include "sys/sys_constants.h"
 #include "sys/sys_command_result.h"
+#include "../ui/ui_coin.h"
 
 int g_coin_run_idx = -1;  // 告诉动画引擎当前在跑哪个技能 (-1代表快速推演)
 int g_coin_edit_idx = -1; // 告诉编辑界面当前在改哪个技能
-const int SRC_COIN_SIZE = 64;
+// 硬币运行时绘制缓冲区跟随 ui_coin 的建议最大显示尺寸。
+// 贴图源尺寸由资源管家根据 bin 文件自动识别，当前兼容 64×64 与 96×96。
+const int SRC_COIN_SIZE = UICoin::COIN_RENDER_BUFFER_SIZE;
 
 namespace CoinAnimParams
 {
@@ -75,7 +78,7 @@ public:
             SysCmdResult_Error("EMPTY_NAME");
             return;
         }
-        if (p->cc < 1 || p->cc > 9)
+        if (p->cc < 1 || p->cc > PrescriptConst::MAX_COIN_COUNT)
         {
             SysCmdResult_Error("INVALID_COIN_COUNT");
             return;
@@ -155,7 +158,7 @@ class AppCoinCore : public AppBase {
 protected:
     uint16_t *coin_buffer = nullptr;
 
-    CoinEntity coins[9]; 
+    CoinEntity coins[UICoin::MAX_COINS]; 
     int active_coins = 1;
     int current_coin_size = SRC_COIN_SIZE;
 
@@ -167,6 +170,9 @@ protected:
     virtual int getTopPanelHeight() { return 0; } 
     virtual void drawStaticUI() {}
     virtual bool drawDynamicUI() { return false; }
+    // 【函数说明】绘制需要压在硬币上方的常驻覆盖信息，例如理智波动值。
+    // 返回 true 表示当前 Sprite 内容发生变化，需要本帧推屏。
+    virtual bool drawOverlayUI() { return false; }
     // 【函数说明】单枚硬币停止时的回调，子类用它更新计数、点数和结果反馈。
     virtual void onCoinStop(int idx) {}
     virtual void onAllCoinsStopped() {}
@@ -195,10 +201,35 @@ protected:
         HAL_Fill_Rect(x, y, w, h, TFT_BLACK);
     }
 
-    // 【函数说明】把硬币 RGB565 贴图按 scaleX 横向压缩到缓冲区，scaleX 接近 0 时形成翻转到侧面的视觉。
+    // 【函数说明】把理智波动值画成小型覆盖徽标，统一用于快速模式和技能预设模式。
+    // 这个徽标每次都在硬币重绘之后补画，避免大硬币刷新时把右上角理智值盖掉。
+    bool drawSanityBadgeAt(int x, int y)
+    {
+        if (sysConfig.coin_data.sanity == 0)
+            return false;
+
+        char san_str[16];
+        sprintf(san_str, "%+d", sysConfig.coin_data.sanity);
+        int text_w = HAL_Get_Text_Width_Font(san_str, HAL_FONT_BODY);
+        int text_h = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
+        int box_w = text_w + 10;
+        int box_h = text_h + 6;
+        int box_x = x - box_w;
+        int box_y = y;
+        if (box_x < 0) box_x = 0;
+        if (box_y < 0) box_y = 0;
+        if (box_x + box_w > REAL_SW) box_x = REAL_SW - box_w;
+        if (box_y + box_h > REAL_SH) box_y = REAL_SH - box_h;
+
+        uint16_t color = (sysConfig.coin_data.sanity < 0) ? 0xF800 : 0x07FF;
+        HAL_Fill_Rect(box_x, box_y, box_w, box_h, TFT_BLACK);
+        HAL_Draw_Rect(box_x, box_y, box_w, box_h, color);
+        HAL_Screen_ShowChineseLine_Faded_Color(box_x + 5, box_y + 3, san_str, 0.0f, color);
+        return true;
+    }
+
+    // 【函数说明】按当前硬币状态把一枚硬币渲染到 coin_buffer。实际贴图缩放和高亮逻辑下沉到 ui_coin。
     void drawScaledCoinToBuffer(int idx, float scaleX, int target_size) {
-        memset(coin_buffer, 0, target_size * target_size * 2);
-        
         int c_type = 0;
         if (g_coin_run_idx >= 0) {
             String cl_str = sysConfig.coin_presets[g_coin_run_idx].coin_colors;
@@ -211,46 +242,14 @@ protected:
         }
         if (c_type < 0 || c_type > 2) c_type = 0;
 
-        uint16_t *img = (scaleX >= 0) ? g_img_heads[c_type] : g_img_tails[c_type];
-        if (!img) return;
- 
-        bool is_spinning = coins[idx].is_flipping;
-        bool is_flashing = (coins[idx].flash_frames > 0);
-        bool is_dimmed = (!is_spinning && coins[idx].target_face == 1);
-
-        int drawW = target_size * fabs(scaleX) * CoinAnimParams::PERSPECTIVE_SCALE;
-        if (drawW % 2 != 0) drawW++;
-        if (drawW <= 1) return;
-
-        int startX = (target_size - drawW) / 2;
-        bool is_back = (scaleX < 0);
-
-        uint8_t x_map[SRC_COIN_SIZE];
-        for (int x = 0; x < drawW; x++) {
-            int origX = x * (SRC_COIN_SIZE - 1) / (drawW - 1);
-            if (is_back) origX = (SRC_COIN_SIZE - 1) - origX;
-            x_map[x] = origX;
-        }
-
-        for (int dst_y = 0; dst_y < target_size; dst_y++) {
-            int src_y = dst_y * SRC_COIN_SIZE / target_size;
-            if (src_y >= SRC_COIN_SIZE) src_y = SRC_COIN_SIZE - 1;
-            int src_y_offset = src_y * SRC_COIN_SIZE;
-            int dst_y_offset = dst_y * target_size;
-
-            for (int dst_x = 0; dst_x < drawW; dst_x++) {
-                uint16_t color = img[src_y_offset + x_map[dst_x]];
-                if (color != 0x0000) {
-                    if (is_flashing && !is_back && !is_spinning) {
-                        uint32_t intensity = (coins[idx].flash_frames * 256) / CoinAnimParams::FLASH_DURATION;
-                        uint16_t r = (color >> 11) & 0x1F; uint16_t g = (color >> 5) & 0x3F; uint16_t b = color & 0x1F;
-                        r = r + (((31 - r) * intensity) >> 8); g = g + (((63 - g) * intensity) >> 8); b = b + (((31 - b) * intensity) >> 8);
-                        color = (r << 11) | (g << 5) | b;
-                    }
-                    coin_buffer[dst_y_offset + startX + dst_x] = color;
-                }
-            }
-        }
+        UICoin::CoinFrame frame;
+        frame.scaleX = scaleX;
+        frame.isFlipping = coins[idx].is_flipping;
+        frame.targetFace = coins[idx].target_face;
+        frame.flashFrames = coins[idx].flash_frames;
+        frame.flashDuration = CoinAnimParams::FLASH_DURATION;
+        frame.material = c_type;
+        UICoin::DrawCoinToBuffer(coin_buffer, SRC_COIN_SIZE, frame, target_size);
     }
 
     /**
@@ -270,31 +269,25 @@ protected:
     bool drawActiveCoinsOnly() {
         int left_w = getLeftPanelWidth();
         int top_h = getTopPanelHeight(); 
-        
         int draw_sw = REAL_SW - left_w;
-        int draw_sh = REAL_SH - top_h;   
+        int draw_sh = REAL_SH - top_h;
         bool screen_needs_push = false; 
 
-        int min_gap = max(6, REAL_SW / 72);
-        int max_w = (draw_sw - (active_coins + 1) * min_gap) / active_coins;
-        int max_h = draw_sh - max(8, REAL_SH / 18); 
-        
-        current_coin_size = (max_w < max_h) ? max_w : max_h;
-        if (current_coin_size > SRC_COIN_SIZE) current_coin_size = SRC_COIN_SIZE;
-        if (current_coin_size < 12) current_coin_size = 12;
-        
-        int actual_gap_x = (draw_sw - (active_coins * current_coin_size)) / (active_coins + 1);
-        if (actual_gap_x < 2) actual_gap_x = 2;
-        int target_y = top_h + (draw_sh - current_coin_size) / 2; 
+        UICoin::StageLayout layout = UICoin::BuildStageLayout(
+            active_coins,
+            left_w,
+            top_h,
+            draw_sw,
+            draw_sh,
+            top_h > 0
+        );
+        current_coin_size = layout.coinSize;
 
         for (int i = 0; i < active_coins; i++) {
             if (coins[i].needs_redraw || coins[i].is_flipping || coins[i].flash_frames > 0) {
                 float scale = cos(coins[i].current_angle);
                 drawScaledCoinToBuffer(i, scale, current_coin_size);
-                
-                int target_x = left_w + actual_gap_x + i * (current_coin_size + actual_gap_x);
-                HAL_Sprite_PushImage(target_x, target_y, current_coin_size, current_coin_size, coin_buffer);
-                
+                HAL_Sprite_PushImage(layout.x[i], layout.y[i], current_coin_size, current_coin_size, coin_buffer);
                 screen_needs_push = true; 
                 coins[i].needs_redraw = false;
             }
@@ -341,7 +334,10 @@ public:
 
         bool ui_pushed = drawDynamicUI();
         bool coin_pushed = drawActiveCoinsOnly();
-        if (ui_pushed || coin_pushed) HAL_Screen_Update();
+        bool overlay_pushed = false;
+        if (ui_pushed || coin_pushed)
+            overlay_pushed = drawOverlayUI();
+        if (ui_pushed || coin_pushed || overlay_pushed) HAL_Screen_Update();
 
         if (global_is_animating && !any_active) {
             global_is_animating = false;
@@ -367,12 +363,12 @@ protected:
     int getTopPanelHeight() override { return 0; } 
 
     void drawStaticUI() override {
-        if (sysConfig.coin_data.sanity != 0) {
-            char san_str[16];
-            sprintf(san_str, "%+d", sysConfig.coin_data.sanity);
-            uint16_t color = (sysConfig.coin_data.sanity < 0) ? 0xF800 : 0x07FF;
-            HAL_Screen_ShowChineseLine_Faded_Color(REAL_SW - HAL_Get_Text_Width(san_str) - 10, REAL_SH - HAL_Get_Font_Line_Height(HAL_FONT_BODY) - 6, san_str, 0.0f, color);
-        }
+        drawOverlayUI();
+    }
+
+    // 【函数说明】快速模式的理智值固定压在右上角，并且每次硬币重绘后都会补画。
+    bool drawOverlayUI() override {
+        return drawSanityBadgeAt(REAL_SW - 8, 6);
     }
 
     // 【函数说明】单枚硬币停止时的回调，子类用它更新计数、点数和结果反馈。
@@ -392,11 +388,16 @@ protected:
 
 public:
    void onCreate() override {
-        // 【新增】：仅仅在进入时申请一下屏幕橡皮擦缓存 (8KB)
+        // 进入时申请硬币绘制缓冲区。缓冲区按最大运行显示尺寸申请，支持当前 UI 配置的最大舞台尺寸。
         if (!coin_buffer) coin_buffer = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
+        if (!coin_buffer) {
+            Serial.println("[硬币] 硬币绘制缓冲区申请失败，返回菜单。");
+            appManager.popApp();
+            return;
+        }
         
         active_coins = sysConfig.coin_data.coin_count;
-        if (active_coins < 1) active_coins = 1; if (active_coins > 9) active_coins = 9;
+        if (active_coins < 1) active_coins = 1; if (active_coins > UICoin::MAX_COINS) active_coins = UICoin::MAX_COINS;
         global_is_animating = false;
         for(int i=0; i<active_coins; i++) { coins[i].current_angle = 0; coins[i].is_flipping = false; coins[i].flash_frames = 0; coins[i].needs_redraw = true; coins[i].target_face = 0; }
         HAL_Sprite_Clear(); drawActiveCoinsOnly(); drawStaticUI(); HAL_Screen_Update();
@@ -457,6 +458,16 @@ protected:
         int text_y = (top_h - HAL_Get_Font_Line_Height(HAL_FONT_BODY)) / 2;
         HAL_Screen_ShowChineseLine_Faded_Color(10, text_y, name.c_str(), 0.0f, TFT_CYAN);
         updateTopPanelScore(TFT_WHITE);
+        drawOverlayUI();
+    }
+
+    // 【函数说明】技能预设模式也显示全局理智波动值，位置放在顶部面板右半区靠左侧。
+    // 这样不会被下方硬币覆盖，也能和右侧当前点数同时显示。
+    bool drawOverlayUI() override {
+        int top_h = getTopPanelHeight();
+        int y = max(2, (top_h - (HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 6)) / 2);
+        int x = REAL_SW / 2 + 64;
+        return drawSanityBadgeAt(x, y);
     }
 
     /**
@@ -529,12 +540,22 @@ protected:
 
 public:
 void onCreate() override {
-        // 【新增】：仅仅在进入时申请一下屏幕橡皮擦缓存 (8KB)
+        // 进入时申请硬币绘制缓冲区。缓冲区按最大运行显示尺寸申请，支持当前 UI 配置的最大舞台尺寸。
         if (!coin_buffer) coin_buffer = (uint16_t *)malloc(SRC_COIN_SIZE * SRC_COIN_SIZE * 2);
+        if (!coin_buffer) {
+            Serial.println("[硬币] 硬币绘制缓冲区申请失败，返回菜单。");
+            appManager.popApp();
+            return;
+        }
+        if (g_coin_run_idx < 0 || g_coin_run_idx >= sysConfig.coin_preset_count) {
+            Serial.println("[硬币] 技能预设索引异常，返回硬币菜单。");
+            appManager.popApp();
+            return;
+        }
         
         CoinPreset& p = sysConfig.coin_presets[g_coin_run_idx];
         active_coins = p.coin_count; current_power = p.base_power;
-        if (active_coins < 1) active_coins = 1; if (active_coins > 9) active_coins = 9; 
+        if (active_coins < 1) active_coins = 1; if (active_coins > UICoin::MAX_COINS) active_coins = UICoin::MAX_COINS; 
         
         global_is_animating = false; phase = 0; top_pop_timer = 0;
         for(int i=0; i<active_coins; i++) { coins[i].current_angle = 0; coins[i].is_flipping = false; coins[i].flash_frames = 0; coins[i].needs_redraw = true; coins[i].target_face = 0; }
@@ -581,20 +602,31 @@ class AppCoinSettings : public AppMenuBase
 private:
     bool is_editing = false;
 
+public:
+    // 【函数说明】进入高级设置页时必须先处于普通浏览状态。
+    // App 实例是静态复用的，如果上次编辑态残留，重新进入会看起来“一进来就被选中”。
+    void onCreate() override
+    {
+        is_editing = false;
+        AppMenuBase::onCreate();
+    }
+
 protected:
     // 【函数说明】返回硬币设置/菜单条目数量，决定 AppMenuBase 的循环滚动范围。
     int getMenuCount() override { return 4; } 
 
     const char *getTitle() override
     {
-        return appManager.getLanguage() == LANG_ZH ? ">> 决策参数设置" : ">> FLIP SETTINGS";
+        return appManager.getLanguage() == LANG_ZH ? "决策参数设置" : "FLIP SETTINGS";
     }
 
     const char *getItemText(int index) override
     {
         static char text_buf[64];
         bool zh = appManager.getLanguage() == LANG_ZH;
-        const char *cursor = (index == current_selection) ? "> " : "  ";
+        // 只有进入编辑状态后，当前被编辑的设置项左侧才显示“>”。
+        // 平时保持普通菜单文本，避免高级设置页一直像“命令行光标”一样闪在左侧。
+        const char *cursor = (is_editing && index == current_selection) ? "> " : "";
 
         if (index == 0)
             sprintf(text_buf, zh ? "%s运行模式 [ %s ]" : "%sMODE: [ %s ]", cursor, sysConfig.coin_data.mode == 0 ? (zh ? "自动" : "AUTO") : (zh ? "手动" : "MANUAL"));
@@ -616,23 +648,28 @@ protected:
         return text_buf;
     }
 
-    // 【函数说明】把硬币设置条目拆成可跳动的数值片段，例如理智值、硬币数量和模式。
+    // 【函数说明】编辑状态下把当前条目拆成“前缀 + 可跳动数值 + 后缀”。
+    // 注意：这里仍然只在用户短按进入编辑后才返回 true；普通浏览状态不显示“>”，也不触发跳动动画。
+    // AppMenuBase 会只对视觉中心项调用该接口，所以这里必须把左侧“>”写进 prefix，
+    // 否则选中后的分段绘制会覆盖 getItemText() 里的完整文本，导致箭头消失。
     bool getItemEditParts(int index, const char **prefix, const char **anim_val, const char **suffix) override
     {
         if (!is_editing || index != current_selection)
             return false;
+
         static char val_str[16];
         bool zh = appManager.getLanguage() == LANG_ZH;
+
         if (index == 0)
         {
-            *prefix = zh ? ">> 运行模式 [ " : ">> MODE: [ ";
+            *prefix = zh ? "> 运行模式 [ " : "> MODE: [ ";
             *anim_val = sysConfig.coin_data.mode == 0 ? (zh ? "自动" : "AUTO") : (zh ? "手动" : "MANUAL");
             *suffix = " ]";
             return true;
         }
         else if (index == 1)
         {
-            *prefix = zh ? ">> 理智波动 [ " : ">> SANITY: [ ";
+            *prefix = zh ? "> 理智波动 [ " : "> SANITY: [ ";
             sprintf(val_str, "%+d", sysConfig.coin_data.sanity);
             *anim_val = val_str;
             *suffix = " ]";
@@ -640,15 +677,15 @@ protected:
         }
         else if (index == 2)
         {
-            *prefix = zh ? ">> 阵列数量 [ " : ">> COINS: [ ";
+            *prefix = zh ? "> 阵列数量 [ " : "> COINS: [ ";
             sprintf(val_str, "%d", sysConfig.coin_data.coin_count);
             *anim_val = val_str;
             *suffix = " ]";
             return true;
         }
         else if (index == 3)
-        { 
-            *prefix = zh ? ">> 硬币型号 [ " : ">> TYPE: [ ";
+        {
+            *prefix = zh ? "> 硬币型号 [ " : "> TYPE: [ ";
             if (sysConfig.coin_data.coin_type == 1)
                 *anim_val = zh ? "狂气红" : "RED";
             else if (sysConfig.coin_data.coin_type == 2)
@@ -658,14 +695,13 @@ protected:
             *suffix = " ]";
             return true;
         }
+
         return false;
     }
 
-    // 【函数说明】根据设置项返回颜色，高风险/当前可编辑项可以与普通条目区分。
+    // 【函数说明】硬币高级设置页始终使用青色，避免编辑/选中状态反复换色。
     uint16_t getItemColor(int index) override
     {
-        if (index == current_selection)
-            return is_editing ? 0x1C9F : 0xFFFF;
         return 0x07FF;
     }
 
@@ -673,9 +709,17 @@ protected:
     void onItemClicked(int index) override
     {
         SYS_SOUND_CONFIRM();
-        is_editing = !is_editing;
-        if (!is_editing)
+        if (is_editing)
+        {
+            // 第二次短按表示确认当前设置值并退出编辑，条目恢复普通青色显示。
+            is_editing = false;
             sysConfig.save();
+        }
+        else
+        {
+            // 第一次短按才进入编辑，左侧显示“>”。进入页面本身不默认选中任何项。
+            is_editing = true;
+        }
         AppMenuBase::onResume();
     }
 
@@ -698,8 +742,8 @@ protected:
             else if (current_selection == 2)
             {
                 sysConfig.coin_data.coin_count += delta;
-                if (sysConfig.coin_data.coin_count > 9)
-                    sysConfig.coin_data.coin_count = 9;
+                if (sysConfig.coin_data.coin_count > PrescriptConst::MAX_COIN_COUNT)
+                    sysConfig.coin_data.coin_count = PrescriptConst::MAX_COIN_COUNT;
                 if (sysConfig.coin_data.coin_count < 1)
                     sysConfig.coin_data.coin_count = 1;
             }
@@ -772,7 +816,7 @@ private:
 
             if (phase == 0) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), bp, 0, 99, "");
             else if (phase == 1) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), cp, -20, 99, "");
-            else if (phase == 2) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), cc, 1, 9, "");
+            else if (phase == 2) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), cc, 1, PrescriptConst::MAX_COIN_COUNT, "");
             else if (phase == 3) {
                 const char *c_zh[] = {"经典金", "狂气红", "沉稳绿"};
                 const char *c_en[] = {"GOLD", "RED", "GREEN"};
@@ -814,7 +858,7 @@ public:
         if (phase == 4) return;
         if (phase == 0) { bp += delta; if(bp < 0) bp = 99; if(bp > 99) bp = 0; }
         else if (phase == 1) { cp += delta; if(cp < -20) cp = 99; if(cp > 99) cp = -20; }
-        else if (phase == 2) { cc += delta; if(cc < 1) cc = 9; if(cc > 9) cc = 1; }
+        else if (phase == 2) { cc += delta; if(cc < 1) cc = PrescriptConst::MAX_COIN_COUNT; if(cc > PrescriptConst::MAX_COIN_COUNT) cc = 1; }
         else if (phase == 3) { cl += delta; if(cl < 0) cl = 2; if(cl > 2) cl = 0; }
         dialAnim.trigger(delta);
         SYS_SOUND_GLITCH();
@@ -836,6 +880,12 @@ public:
                 String c_str = ""; for(int i=0; i<cc; i++) c_str += String(cl);
                 sysConfig.coin_presets[idx].coin_colors = c_str;
             } else {
+                if (sysConfig.coin_preset_count >= PrescriptConst::MAX_COIN_PRESETS) {
+                    Serial.println("[硬币] 预设数量已满，无法继续录入。");
+                    SYS_SOUND_NAV();
+                    appManager.popApp();
+                    return;
+                }
                 int idx = sysConfig.coin_preset_count;
                 sysConfig.coin_presets[idx].base_power = bp;
                 sysConfig.coin_presets[idx].coin_power = cp;
@@ -893,7 +943,7 @@ protected:
     }
     
     const char *getTitle() override { 
-        return appManager.getLanguage() == LANG_ZH ? ">> 量子决策模块" : ">> QUANTUM FLIP"; 
+        return appManager.getLanguage() == LANG_ZH ? "量子决策模块" : "QUANTUM FLIP"; 
     }
     
     const char *getItemText(int index) override
@@ -923,7 +973,7 @@ protected:
             appManager.push(AppId::CoinQuick); 
         } 
         else if (index == sysConfig.coin_preset_count + 1) {
-            if (sysConfig.coin_preset_count < 10) {
+            if (sysConfig.coin_preset_count < PrescriptConst::MAX_COIN_PRESETS) {
                 g_coin_edit_idx = -1; 
                 appManager.push(AppId::CoinPresetEdit);
             }
@@ -932,7 +982,12 @@ protected:
             appManager.push(AppId::CoinSettings);
         } 
         else {
-            g_coin_run_idx = index - 1; 
+            int preset_idx = index - 1;
+            if (preset_idx < 0 || preset_idx >= sysConfig.coin_preset_count) {
+                SYS_SOUND_NAV();
+                return;
+            }
+            g_coin_run_idx = preset_idx; 
             appManager.push(AppId::CoinSkill); 
         }
     }

@@ -30,6 +30,8 @@ int g_count_3star = 0;
 
 uint16_t *g_img_heads[3] = {nullptr, nullptr, nullptr};
 uint16_t *g_img_tails[3] = {nullptr, nullptr, nullptr};
+int g_img_heads_size[3] = {0, 0, 0};
+int g_img_tails_size[3] = {0, 0, 0};
 
 char *g_oracle_json_zh = nullptr;
 uint32_t g_oracle_json_zh_len = 0;
@@ -279,6 +281,73 @@ static bool _LoadBinaryToPsram(const char *path, uint8_t *dst, uint32_t expected
 }
 
 /**
+ * 加载 RGB565 硬币贴图。
+ *
+ * 旧工程使用 64×64 bin，后续可以直接替换成 96×96 bin。这里按文件长度自动判断
+ * 正方形边长，并把边长记录给 ui_coin 渲染器，避免 UI 层继续写死 64。
+ */
+static bool _LoadCoinBitmapToPsram(const char *path, uint16_t **out, int *out_size)
+{
+    if (out) *out = nullptr;
+    if (out_size) *out_size = 0;
+
+    if (!path || !out || !out_size)
+        return false;
+
+    File file = LittleFS.open(path, "r");
+    if (!file)
+        return false;
+
+    size_t bytes = file.size();
+    if (bytes == 0 || (bytes % 2) != 0)
+    {
+        file.close();
+        Serial.printf("[资源管家] 硬币贴图尺寸异常：%s, bytes=%u。\n", path, (unsigned)bytes);
+        return false;
+    }
+
+    int side = 0;
+    size_t pixels = bytes / 2;
+    for (int candidate = 32; candidate <= 128; ++candidate)
+    {
+        if ((size_t)candidate * (size_t)candidate == pixels)
+        {
+            side = candidate;
+            break;
+        }
+    }
+
+    if (side == 0)
+    {
+        file.close();
+        Serial.printf("[资源管家] 硬币贴图不是 32~128 范围内的正方形 RGB565：%s。\n", path);
+        return false;
+    }
+
+    uint16_t *buf = (uint16_t *)ps_malloc(bytes);
+    if (!buf)
+    {
+        file.close();
+        Serial.printf("[资源管家] 硬币贴图 PSRAM 申请失败：%s, bytes=%u。\n", path, (unsigned)bytes);
+        return false;
+    }
+
+    size_t read_len = file.read((uint8_t *)buf, bytes);
+    file.close();
+    if (read_len != bytes)
+    {
+        free(buf);
+        Serial.printf("[资源管家] 硬币贴图读取不完整：%s。\n", path);
+        return false;
+    }
+
+    *out = buf;
+    *out_size = side;
+    Serial.printf("[资源管家] 硬币贴图已挂载：%s, %dx%d。\n", path, side, side);
+    return true;
+}
+
+/**
  * 初始化资源系统。
  *
  * 启动时把常用音频和图像一次性加载到 PSRAM，后续 App 播放/绘制时只访问内存，
@@ -295,29 +364,21 @@ void SysRes_Init()
     _LoadWavPcmToPsram("/assets/coins/tails.wav", &g_wav_tails, &g_wav_tails_len);
     _LoadWavPcmToPsram("/assets/Ahab.wav", &g_ahab_sound, &g_ahab_sound_len);
 
-    // 2. 加载 3 套硬币贴图：普通、红色、绿色。缺失时回退到普通金色贴图。
+    // 2. 加载 3 套硬币贴图：普通、红色、绿色。
+    //    兼容旧 64×64 bin，也支持后续替换为 96×96 bin；缺失时回退到普通金色贴图。
     String prefixes[3] = {"/assets/coins/", "/assets/coins/r", "/assets/coins/g"};
     for (int i = 0; i < 3; i++)
     {
-        g_img_heads[i] = (uint16_t *)ps_malloc(8192);
-        g_img_tails[i] = (uint16_t *)ps_malloc(8192);
-
-        if (!g_img_heads[i] || !g_img_tails[i])
-        {
-            Serial.printf("[资源管家] 硬币贴图申请 PSRAM 失败，索引=%d。\n", i);
-            continue;
-        }
-
         String heads_path = prefixes[i] + "heads.bin";
-        if (!_LoadBinaryToPsram(heads_path.c_str(), (uint8_t *)g_img_heads[i], 8192))
+        if (!_LoadCoinBitmapToPsram(heads_path.c_str(), &g_img_heads[i], &g_img_heads_size[i]))
         {
-            _LoadBinaryToPsram("/assets/coins/heads.bin", (uint8_t *)g_img_heads[i], 8192);
+            _LoadCoinBitmapToPsram("/assets/coins/heads.bin", &g_img_heads[i], &g_img_heads_size[i]);
         }
 
         String tails_path = prefixes[i] + "tails.bin";
-        if (!_LoadBinaryToPsram(tails_path.c_str(), (uint8_t *)g_img_tails[i], 8192))
+        if (!_LoadCoinBitmapToPsram(tails_path.c_str(), &g_img_tails[i], &g_img_tails_size[i]))
         {
-            _LoadBinaryToPsram("/assets/coins/tails.bin", (uint8_t *)g_img_tails[i], 8192);
+            _LoadCoinBitmapToPsram("/assets/coins/tails.bin", &g_img_tails[i], &g_img_tails_size[i]);
         }
     }
 

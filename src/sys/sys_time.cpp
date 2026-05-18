@@ -3,10 +3,12 @@
 
 这里把“显示时间”和“网络对时记录”分开处理：
 - 显示时间直接读 time()/localtime_r()，保证 UI 不阻塞；
-- 网络对时记录只保存最近一次 NTP 成功时的 millis，用于周期校时判断；
+- 网络对时记录保存最近一次 NTP 成功时的 millis，用于周期校时判断；
+- 最近一次 NTP 成功得到的 UTC epoch 会写入配置文件，下次开机作为默认时间；
 - 手动设置时间使用 settimeofday() 写入 ESP32 系统时间。
 */
 #include "sys_time.h"
+#include "sys_config.h"
 #include <sys/time.h>
 #include <limits.h>
 
@@ -49,6 +51,14 @@ static constexpr uint16_t MANUAL_TIME_MAX_YEAR = 2035;
 static constexpr uint16_t MANUAL_TIME_FALLBACK_YEAR = 2026;
 static constexpr uint8_t  MANUAL_TIME_FALLBACK_MONTH = 1;
 static constexpr uint8_t  MANUAL_TIME_FALLBACK_DAY = 1;
+
+/*
+ * 持久化网络时间的可信范围。
+ * 只保存 NTP 成功后的 UTC epoch；下次开机用它避开 1970 默认时间，
+ * 但不把它视为本次开机已经完成过网络对时。
+ */
+static constexpr time_t SAVED_TIME_MIN_EPOCH = 1577836800;  // 2020-01-01 00:00:00 UTC
+static constexpr time_t SAVED_TIME_MAX_EPOCH = 2082758399;  // 2035-12-31 23:59:59 UTC
 
 /**
  * 计算公历日期距离 1970-01-01 的天数。
@@ -125,6 +135,15 @@ static bool _SetSystemEpoch(time_t epoch)
     }
 
     return true;
+}
+
+/**
+ * 判断一个 UTC epoch 是否适合保存/恢复。
+ * 这里不追求精确校验，只避免 1970、负数或异常未来时间进入系统默认时钟。
+ */
+static bool _IsPersistedEpochTrusted(time_t epoch)
+{
+    return epoch >= SAVED_TIME_MIN_EPOCH && epoch <= SAVED_TIME_MAX_EPOCH;
 }
 
 
@@ -206,6 +225,37 @@ void SysTime_Init()
 
     s_last_network_sync_millis = 0;
     s_has_network_sync = false;
+
+    /*
+     * 使用最近一次网络对时保存下来的 UTC epoch 作为开机兜底时间。
+     * 这一步只解决开机显示不再停在 1970/异常日期；由于设备断电期间没有可靠计时，
+     * 这里不会设置 s_has_network_sync，Network_Update 仍会按策略尽快发起真正的 NTP 校时。
+     */
+    if (sysConfig.time_saved_epoch_valid && _IsPersistedEpochTrusted((time_t)sysConfig.time_saved_epoch_utc))
+    {
+        time_t saved_epoch = (time_t)sysConfig.time_saved_epoch_utc;
+        if (_SetSystemEpoch(saved_epoch))
+        {
+            struct tm info;
+            localtime_r(&saved_epoch, &info);
+            Serial.printf(
+                "[时间] 已使用上次网络对时作为开机默认时间：%04d-%02d-%02d %02d:%02d:%02d。\n",
+                info.tm_year + 1900,
+                info.tm_mon + 1,
+                info.tm_mday,
+                info.tm_hour,
+                info.tm_min,
+                info.tm_sec
+            );
+        }
+    }
+    else if (sysConfig.time_saved_epoch_valid)
+    {
+        Serial.printf(
+            "[时间-警告] 配置中的保存时间不可信，已忽略：epoch=%lu。\n",
+            (unsigned long)sysConfig.time_saved_epoch_utc
+        );
+    }
 }
 
 void SysTime_GetTimeString(char* out_str)
@@ -244,6 +294,42 @@ void SysTime_MarkNetworkSynced()
         "[时间] NTP 对时完成，周期校时计时点重置为 %lu ms。\n",
         (unsigned long)s_last_network_sync_millis
     );
+
+    /*
+     * 记录本次 NTP 成功后的 UTC epoch，作为下次开机默认时间。
+     * 只在网络对时成功后保存，不保存用户手动设置的时间，避免错误手动时间长期污染开机默认值。
+     */
+    time_t now_epoch = time(nullptr);
+    if (_IsPersistedEpochTrusted(now_epoch))
+    {
+        uint32_t saved_epoch = (uint32_t)now_epoch;
+        if (!sysConfig.time_saved_epoch_valid || sysConfig.time_saved_epoch_utc != saved_epoch)
+        {
+            sysConfig.time_saved_epoch_valid = true;
+            sysConfig.time_saved_epoch_utc = saved_epoch;
+            sysConfig.save();
+        }
+
+        struct tm info;
+        localtime_r(&now_epoch, &info);
+        Serial.printf(
+            "[时间] 已保存本次网络对时时间：%04d-%02d-%02d %02d:%02d:%02d，epoch=%lu。\n",
+            info.tm_year + 1900,
+            info.tm_mon + 1,
+            info.tm_mday,
+            info.tm_hour,
+            info.tm_min,
+            info.tm_sec,
+            (unsigned long)saved_epoch
+        );
+    }
+    else
+    {
+        Serial.printf(
+            "[时间-警告] NTP 完成后得到的 epoch 不在可信范围，未保存：%lld。\n",
+            (long long)now_epoch
+        );
+    }
 }
 
 uint32_t SysTime_GetLastNetworkSyncAgeMs()

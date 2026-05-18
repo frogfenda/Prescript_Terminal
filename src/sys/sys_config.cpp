@@ -41,6 +41,8 @@ void SysConfig::load()
         // 默认 15 分钟是为了压低 ESP32 本地时钟长时间运行后的可见漂移。
         time_auto_resync = true;
         time_resync_interval_min = 15;
+        time_saved_epoch_valid = false;
+        time_saved_epoch_utc = 0;
         coin_data.mode = 0;
         coin_data.sanity = 0;
         pomodoro_current_idx = 0;
@@ -92,10 +94,19 @@ void SysConfig::load()
     // 旧配置文件没有这些字段时，默认开启周期校时，间隔 15 分钟。
     time_auto_resync = doc["time_auto_resync"] | true;
     time_resync_interval_min = doc["time_resync_interval_min"] | 15;
+    time_saved_epoch_valid = doc["time_saved_epoch_valid"] | false;
+    time_saved_epoch_utc = doc["time_saved_epoch_utc"] | 0;
 
     // 防止 config.json 被手动改坏后出现过短或过长的校时间隔。
     if (time_resync_interval_min < 5) time_resync_interval_min = 5;
     if (time_resync_interval_min > 240) time_resync_interval_min = 240;
+
+    // 保存的网络时间只作为开机兜底；如果配置被手动改坏，直接失效。
+    if (time_saved_epoch_utc < 1577836800UL || time_saved_epoch_utc > 2082758399UL)
+    {
+        time_saved_epoch_valid = false;
+        time_saved_epoch_utc = 0;
+    }
     volume = doc["volume"] | 40;
     if (volume > 100)
         volume = 100;
@@ -123,8 +134,8 @@ void SysConfig::load()
         coin_data.coin_type = 0; // 【新增】
     }
 
-    // 【修改】：绝对防呆，把硬币上限从原来的 4 或 8 改成 9！
-    if (coin_data.coin_count < 1 || coin_data.coin_count > 9)
+    // 【边界保护】硬币数量由系统常量统一控制，避免设置页、协议和动画页各自写死上限。
+    if (coin_data.coin_count < 1 || coin_data.coin_count > PrescriptConst::MAX_COIN_COUNT)
         coin_data.coin_count = 1;
 
     // 【新增】：限制硬币型号只能是 0, 1, 2
@@ -146,6 +157,9 @@ void SysConfig::load()
             coin_presets[coin_preset_count].base_power = obj["bp"] | 4;
             coin_presets[coin_preset_count].coin_power = obj["cp"] | 5;
             coin_presets[coin_preset_count].coin_count = obj["cc"] | 3;
+            if (coin_presets[coin_preset_count].coin_count < 1 ||
+                coin_presets[coin_preset_count].coin_count > PrescriptConst::MAX_COIN_COUNT)
+                coin_presets[coin_preset_count].coin_count = 3;
             coin_presets[coin_preset_count].coin_colors = obj["cl"].as<String>();
             coin_preset_count++;
         }
@@ -237,9 +251,12 @@ void SysConfig::save()
     doc["auto_push_enable"] = auto_push_enable;
     doc["auto_push_min_min"] = auto_push_min_min;
     doc["auto_push_max_min"] = auto_push_max_min;
-    // 保存周期校时策略。这里只保存策略，不保存当前时间本身。
+    // 保存周期校时策略和最近一次网络对时的 UTC epoch。
+    // 保存的 epoch 只用于下次开机兜底显示，不代表断电期间真实时间流逝。
     doc["time_auto_resync"] = time_auto_resync;
     doc["time_resync_interval_min"] = time_resync_interval_min;
+    doc["time_saved_epoch_valid"] = time_saved_epoch_valid;
+    doc["time_saved_epoch_utc"] = time_saved_epoch_utc;
     doc["volume"] = volume; // 【新增】：打包音量数据
     doc["pom_idx"] = pomodoro_current_idx;
     JsonArray pm_arr = doc["pom_presets"].to<JsonArray>();
