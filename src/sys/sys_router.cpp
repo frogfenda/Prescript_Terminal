@@ -13,6 +13,7 @@
 #include "hal/hal.h"
 #include "sys_specials.h"
 #include "app_manager.h"
+#include "sys_prescript_target.h"
 #include <Arduino.h>
 
 // ==========================================
@@ -205,6 +206,33 @@ static bool SysRouter_Dispatch(const SysParsedCommand &cmd)
     {
         extern SysSpecials sysSpecials;
         sysSpecials.syncTextByID(cmd.id);
+        return true;
+    }
+
+    case SysCommandType::GetTarget:
+    {
+        SysPrescriptTarget_SyncBLE();
+        return true;
+    }
+
+    case SysCommandType::TargetAdd:
+    {
+        SysPrescriptTarget_Add(cmd.id);
+        SysPrescriptTarget_SyncBLE();
+        return true;
+    }
+
+    case SysCommandType::TargetDel:
+    {
+        SysPrescriptTarget_Delete(cmd.id);
+        SysPrescriptTarget_SyncBLE();
+        return true;
+    }
+
+    case SysCommandType::TargetSet:
+    {
+        SysPrescriptTarget_SetCurrent(cmd.id);
+        SysPrescriptTarget_SyncBLE();
         return true;
     }
 

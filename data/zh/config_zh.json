@@ -1,0 +1,20 @@
+{
+  "pom_idx": 0,
+  "pom_presets": [
+    { "n": "常规专注", "w": 25, "r": 5 },
+    { "n": "深度工作", "w": 60, "r": 10 },
+    { "n": "短时冲刺", "w": 15, "r": 3 },
+    { "n": "阅读模式", "w": 45, "r": 10 },
+    { "n": "冥想休息", "w": 10, "r": 5 }
+  ],
+  "coin_preset_count": 0,
+  "coin_presets": [],
+  "current_prescript_target": "",
+  "prescript_targets": [],
+  "alarm_count": 0,
+  "alarms": [],
+  "schedule_count": 0,
+  "schedules": [],
+  "spec_tog": 4294967295,
+  "char_prog": [0, 0, 0, 0, 0, 0, 0, 0]
+}

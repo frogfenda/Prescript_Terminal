@@ -24,6 +24,7 @@ extern AppBase *appCountdown;
 extern AppBase *appGacha;
 extern AppBase *appPushNotify;
 extern AppBase *appPushSetting;
+extern AppBase *appPrescriptTarget;
 extern AppBase *appPomodoro;
 extern AppBase *appPomodoroRun;
 extern AppBase *appPomodoroPresets;
@@ -64,6 +65,7 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::Gacha: return appGacha;
         case AppId::PushNotify: return appPushNotify;
         case AppId::PushSetting: return appPushSetting;
+        case AppId::PrescriptTarget: return appPrescriptTarget;
         case AppId::Pomodoro: return appPomodoro;
         case AppId::PomodoroRun: return appPomodoroRun;
         case AppId::PomodoroPresets: return appPomodoroPresets;
@@ -105,6 +107,7 @@ const char* AppRegistry_Name(AppId id)
         case AppId::Gacha: return "Gacha";
         case AppId::PushNotify: return "PushNotify";
         case AppId::PushSetting: return "PushSetting";
+        case AppId::PrescriptTarget: return "PrescriptTarget";
         case AppId::Pomodoro: return "Pomodoro";
         case AppId::PomodoroRun: return "PomodoroRun";
         case AppId::PomodoroPresets: return "PomodoroPresets";

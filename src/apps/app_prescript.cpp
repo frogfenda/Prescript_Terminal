@@ -7,6 +7,7 @@
 #include "sys_haptic.h"
 #include "sys_res.h"
 #include "sys_specials.h"
+#include "sys_prescript_target.h"
 #include "../hal/hal.h"
 #include "../ui/ui_prescript_decoder.h"
 
@@ -26,25 +27,26 @@ void Prescript_Prepare_PreRolled()
     g_prescript_needs_roll = false; // 被推送唤醒时调用，告诉自己不要重新摇号。
 }
 
-namespace {
-
-// CHAOS 乱码态使用非阻塞帧刷新，避免等待确认期间卡住 AppManager 主循环。
-static const uint32_t ANIM_CHAOS_DELAY_MS = 30;
-// CHAOS 乱码音不再用固定 120ms 节拍；改为按屏幕乱码刷新帧的 2~4 倍随机触发。
-// 这样声音和画面闪动保持同步，同时平均间隔约 90ms，比旧版略密一点。
-static const uint8_t ANIM_CHAOS_SOUND_MIN_FRAMES = 2;
-static const uint8_t ANIM_CHAOS_SOUND_MAX_FRAMES = 4;
-
-/**
- * 解码动画帧间回调。
- * procedure.wav 存在时已经由 AppPrescript 以 loop=true 交给音频任务循环播放；
- * 如果资源未加载，则退回轻量 glitch 音，保持动画仍有反馈。
- */
-void PrescriptProcedureTick()
+namespace
 {
-    if (!g_wav_procedure)
-        SYS_SOUND_GLITCH();
-}
+
+    // CHAOS 乱码态使用非阻塞帧刷新，避免等待确认期间卡住 AppManager 主循环。
+    static const uint32_t ANIM_CHAOS_DELAY_MS = 30;
+    // CHAOS 乱码音不再用固定 120ms 节拍；改为按屏幕乱码刷新帧的 2~4 倍随机触发。
+    // 这样声音和画面闪动保持同步，同时平均间隔约 90ms，比旧版略密一点。
+    static const uint8_t ANIM_CHAOS_SOUND_MIN_FRAMES = 2;
+    static const uint8_t ANIM_CHAOS_SOUND_MAX_FRAMES = 4;
+
+    /**
+     * 解码动画帧间回调。
+     * procedure.wav 存在时已经由 AppPrescript 以 loop=true 交给音频任务循环播放；
+     * 如果资源未加载，则退回轻量 glitch 音，保持动画仍有反馈。
+     */
+    void PrescriptProcedureTick()
+    {
+        if (!g_wav_procedure)
+            SYS_SOUND_GLITCH();
+    }
 
 } // namespace
 
@@ -126,8 +128,11 @@ private:
     {
         DrawResult res = sysSpecials.getResult();
         SystemLang_t lang = appManager.getLanguage();
+        // 特殊指令是特异点/人物链条自己的文本，不属于“致...”本地使用者投递。
+        // 因此只有普通指令和 TXT/闹钟/日程等自定义指令会套用本地使用者 ID。
+        String displayText = res.is_special ? res.text : SysPrescriptTarget_Apply(res.text);
 
-        UIPrescript::PrepareLayoutFromRule(res.text.c_str(), lang, res.color, m_layout);
+        UIPrescript::PrepareLayoutFromRule(displayText.c_str(), lang, res.color, m_layout);
         m_scroll_offset = 0;
 
         beginProcedureSound();

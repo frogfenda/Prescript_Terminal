@@ -430,10 +430,12 @@ void HAL_Screen_DrawStandbyImage()
 
     const size_t expected_bytes = (size_t)HAL_Get_Screen_Width() * HAL_Get_Screen_Height() * 2;
     File file = LittleFS.open(PrescriptConst::STANDBY_IMAGE_BIN, "r");
+    if (!file)
+        file = LittleFS.open(PrescriptConst::STANDBY_IMAGE_LEGACY_BIN, "r");
 
     if (!file)
     {
-        Serial.println("[显示] 待机图不存在：/assets/standby.bin。");
+        Serial.println("[显示] 待机图不存在：/common/standby.bin。");
         textSprite.drawRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_RED);
         textSprite.setTextColor(TFT_RED, TFT_BLACK);
         textSprite.drawString("NO standby.bin", 12, 12);

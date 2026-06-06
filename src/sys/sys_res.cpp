@@ -2,6 +2,9 @@
 // 职责：把 LittleFS 中的常驻资源加载到 PSRAM，包括 WAV 音频、硬币贴图和抽卡身份池。
 // 说明：WAV 不再假设 44 字节固定头，而是扫描 RIFF chunk，找到真正的 data 段后再缓存 PCM 数据。
 #include "sys_res.h"
+#include "sys_constants.h"
+#include "app_manager.h"
+#include "../lang/terminal_lang.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <new>
@@ -205,6 +208,16 @@ static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *o
     return true;
 }
 
+// 【函数说明】先按新资源路径加载，失败时尝试旧 /assets 路径，方便开发板尚未重刷 LittleFS 时继续启动。
+static bool _LoadWavPcmWithFallback(const char *path, const char *legacy_path, uint8_t **out_data, uint32_t *out_len)
+{
+    if (_LoadWavPcmToPsram(path, out_data, out_len))
+        return true;
+    if (legacy_path && strcmp(path, legacy_path) != 0)
+        return _LoadWavPcmToPsram(legacy_path, out_data, out_len);
+    return false;
+}
+
 
 /**
  * 把普通文本/JSON 文件加载到 PSRAM，并补 0 结尾。
@@ -259,6 +272,16 @@ static bool _LoadTextToPsram(const char *path, char **out_data, uint32_t *out_le
 
     Serial.printf("[资源管家] 文本素材已挂载：%s，len=%lu。\n", path, (unsigned long)len);
     return true;
+}
+
+// 【函数说明】文本素材新路径加载失败时回退旧路径；用于运行期资源目录迁移阶段。
+static bool _LoadTextWithFallback(const char *path, const char *legacy_path, char **out_data, uint32_t *out_len)
+{
+    if (_LoadTextToPsram(path, out_data, out_len))
+        return true;
+    if (legacy_path && strcmp(path, legacy_path) != 0)
+        return _LoadTextToPsram(legacy_path, out_data, out_len);
+    return false;
 }
 
 /**
@@ -358,36 +381,48 @@ void SysRes_Init()
     Serial.println("[资源管家] 正在将高清材质与音频吸入 PSRAM 常驻...");
 
     // 1. 加载 WAV 音频。这里会解析 RIFF chunk，只缓存真正的 PCM data 段。
-    _LoadWavPcmToPsram("/assets/procedure.wav", &g_wav_procedure, &g_wav_procedure_len);
-    _LoadWavPcmToPsram("/assets/final.wav", &g_wav_final, &g_wav_final_len);
-    _LoadWavPcmToPsram("/assets/coins/heads.wav", &g_wav_heads, &g_wav_heads_len);
-    _LoadWavPcmToPsram("/assets/coins/tails.wav", &g_wav_tails, &g_wav_tails_len);
-    _LoadWavPcmToPsram("/assets/Ahab.wav", &g_ahab_sound, &g_ahab_sound_len);
+    _LoadWavPcmWithFallback(PrescriptConst::AUDIO_PROCEDURE_WAV, "/assets/procedure.wav", &g_wav_procedure, &g_wav_procedure_len);
+    _LoadWavPcmWithFallback(PrescriptConst::AUDIO_FINAL_WAV, "/assets/final.wav", &g_wav_final, &g_wav_final_len);
+    _LoadWavPcmWithFallback("/common/coins/heads.wav", "/assets/coins/heads.wav", &g_wav_heads, &g_wav_heads_len);
+    _LoadWavPcmWithFallback("/common/coins/tails.wav", "/assets/coins/tails.wav", &g_wav_tails, &g_wav_tails_len);
+    _LoadWavPcmWithFallback(PrescriptConst::AUDIO_AHAB_WAV, "/assets/Ahab.wav", &g_ahab_sound, &g_ahab_sound_len);
 
     // 2. 加载 3 套硬币贴图：普通、红色、绿色。
     //    兼容旧 64×64 bin，也支持后续替换为 96×96 bin；缺失时回退到普通金色贴图。
-    String prefixes[3] = {"/assets/coins/", "/assets/coins/r", "/assets/coins/g"};
+    String prefixes[3] = {String(PrescriptConst::COIN_ASSET_DIR), String(PrescriptConst::COIN_ASSET_DIR) + "r", String(PrescriptConst::COIN_ASSET_DIR) + "g"};
+    String legacy_prefixes[3] = {String(PrescriptConst::COIN_ASSET_LEGACY_DIR), String(PrescriptConst::COIN_ASSET_LEGACY_DIR) + "r", String(PrescriptConst::COIN_ASSET_LEGACY_DIR) + "g"};
     for (int i = 0; i < 3; i++)
     {
         String heads_path = prefixes[i] + "heads.bin";
         if (!_LoadCoinBitmapToPsram(heads_path.c_str(), &g_img_heads[i], &g_img_heads_size[i]))
         {
-            _LoadCoinBitmapToPsram("/assets/coins/heads.bin", &g_img_heads[i], &g_img_heads_size[i]);
+            String legacy_heads_path = legacy_prefixes[i] + "heads.bin";
+            if (!_LoadCoinBitmapToPsram(legacy_heads_path.c_str(), &g_img_heads[i], &g_img_heads_size[i]))
+                _LoadCoinBitmapToPsram("/common/coins/heads.bin", &g_img_heads[i], &g_img_heads_size[i]);
+            if (!g_img_heads[i])
+                _LoadCoinBitmapToPsram("/assets/coins/heads.bin", &g_img_heads[i], &g_img_heads_size[i]);
         }
 
         String tails_path = prefixes[i] + "tails.bin";
         if (!_LoadCoinBitmapToPsram(tails_path.c_str(), &g_img_tails[i], &g_img_tails_size[i]))
         {
-            _LoadCoinBitmapToPsram("/assets/coins/tails.bin", &g_img_tails[i], &g_img_tails_size[i]);
+            String legacy_tails_path = legacy_prefixes[i] + "tails.bin";
+            if (!_LoadCoinBitmapToPsram(legacy_tails_path.c_str(), &g_img_tails[i], &g_img_tails_size[i]))
+                _LoadCoinBitmapToPsram("/common/coins/tails.bin", &g_img_tails[i], &g_img_tails_size[i]);
+            if (!g_img_tails[i])
+                _LoadCoinBitmapToPsram("/assets/coins/tails.bin", &g_img_tails[i], &g_img_tails_size[i]);
         }
     }
 
     // 3. 加载纺织机答案池 JSON。sys_oracle 只解析这两段已挂载素材，不直接反复读取 LittleFS。
-    _LoadTextToPsram("/assets/oracle_zh.json", &g_oracle_json_zh, &g_oracle_json_zh_len);
-    _LoadTextToPsram("/assets/oracle_en.json", &g_oracle_json_en, &g_oracle_json_en_len);
+    _LoadTextWithFallback(TerminalLang::OraclePath(LANG_ZH), TerminalLang::LegacyOraclePath(LANG_ZH), &g_oracle_json_zh, &g_oracle_json_zh_len);
+    _LoadTextWithFallback(TerminalLang::OraclePath(LANG_EN), TerminalLang::LegacyOraclePath(LANG_EN), &g_oracle_json_en, &g_oracle_json_en_len);
 
     // 4. 加载抽卡身份池，并按星级建立索引表，供提取部模拟快速随机抽取。
-    File f_json = LittleFS.open("/assets/ids.json", "r");
+    SystemLang_t ids_lang = TerminalLang::LOCKED ? TerminalLang::DEFAULT_LANG : appManager.getLanguage();
+    File f_json = LittleFS.open(TerminalLang::IdsPath(ids_lang), "r");
+    if (!f_json)
+        f_json = LittleFS.open(TerminalLang::LegacyIdsPath(), "r");
     if (f_json)
     {
         JsonDocument doc;
@@ -426,13 +461,13 @@ void SysRes_Init()
         }
         else
         {
-            Serial.println("[资源管家] ids.json 解析失败或为空！");
+            Serial.println("[资源管家] 当前语言 ids 文件解析失败或为空！");
         }
         f_json.close();
     }
     else
     {
-        Serial.println("[资源管家] 未找到 /assets/ids.json！");
+        Serial.println("[资源管家] 未找到当前语言 ids 文件。");
     }
 
     Serial.println("[资源管家] 常驻资产挂载完毕！");

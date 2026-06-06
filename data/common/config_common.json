@@ -1,0 +1,33 @@
+{
+  "wifi_ssid": "Your_WiFi_Name",
+  "wifi_pass": "12345678",
+  "language": 1,
+  "sleep_time_ms": 30000,
+  "true_sleep_time_ms": 4294967295,
+  "decode_anim_style": 0,
+  "auto_push_enable": false,
+  "auto_push_min_min": 30,
+  "auto_push_max_min": 120,
+  "time_auto_resync": true,
+  "time_resync_interval_min": 15,
+  "time_saved_epoch_valid": false,
+  "time_saved_epoch_utc": 0,
+  "volume": 40,
+  "coin_app": {
+    "mode": 0,
+    "sanity": 0,
+    "coin_count": 1,
+    "coin_type": 0
+  },
+  "gacha_stats": {
+    "total": 0,
+    "s3": 0,
+    "s2": 0,
+    "s1": 0,
+    "w3": 0,
+    "w2": 0
+  },
+  "hap_en": true,
+  "hap_in": 3,
+  "nfc_m": 0
+}

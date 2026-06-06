@@ -17,6 +17,7 @@
 #include "sys_nfc.h"
 #include "sys_ble_queue.h"
 #include "sys_runtime_status.h"
+#include "sys_specials.h"
 
 void _Cb_SysNotify(void *payload)
 {
@@ -67,7 +68,14 @@ void AppManager::toggleLanguage()
 {
     if (TerminalLang::LOCKED)
         return;
-    current_lang = (current_lang == LANG_EN) ? LANG_ZH : LANG_EN;
+    SystemLang_t next_lang = (current_lang == LANG_EN) ? LANG_ZH : LANG_EN;
+    // 运行时测试版允许中英文切换。切换时先让 sysConfig 保存旧语言 profile、载入新语言 profile，
+    // 这样使用者、闹钟、日程和特异点进度不会在中英文之间互相覆盖。
+    sysConfig.loadLanguageProfile(next_lang);
+    current_lang = next_lang;
+    config_sleep_time_ms = sysConfig.sleep_time_ms;
+    // 切换后立即重载特异点资源，避免 UI 已变语言但特殊指令池仍停在旧语言。
+    sysSpecials.begin();
 }
 
 void AppManager::begin()

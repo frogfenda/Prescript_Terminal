@@ -13,6 +13,7 @@
 #include "../lang/terminal_lang.h"
 
 SysSpecials sysSpecials;
+static bool s_specials_sync_subscribed = false;
 // 【新增】：收到蓝牙同步请求时的回调函数
 // 【函数说明】WebBLE 同步回调：发送特殊指令元数据，让网页显示人物链条、概率、进度、颜色和启用状态。
 static void _Cb_Spc_Sync_Req(void *payload)
@@ -50,7 +51,8 @@ std::vector<CharChain> pool_char_chains;
 extern std::vector<String> sys_prescripts_zh;
 extern std::vector<String> sys_prescripts_en;
 
-// 【函数说明】按当前语言读取 specials_zh/en.json，解析人物链条和纯特殊指令，并订阅 BLE 同步事件。
+// 【函数说明】按当前语言读取 specials_zh/en.json，解析人物链条和纯特殊指令。
+// 运行时语言切换会再次调用本函数，因此 BLE 同步事件只允许订阅一次，避免切换多次后重复回传 SPC_META。
 void SysSpecials::begin()
 {
     pool_pure_specials.clear();
@@ -60,6 +62,13 @@ void SysSpecials::begin()
     String path = TerminalLang::SpecialsPath(current_lang);
 
     File f = LittleFS.open(path, "r");
+    if (!f)
+    {
+        String legacy_path = TerminalLang::LegacySpecialsPath(current_lang);
+        f = LittleFS.open(legacy_path, "r");
+        if (f)
+            path = legacy_path;
+    }
     if (!f)
     {
         Serial.println("[SysSpecials] 严重警告：找不到特异点配置文件: " + path);
@@ -113,8 +122,12 @@ void SysSpecials::begin()
 
     Serial.printf("[SysSpecials] 装载完成! 包含 %d 条特殊指令, %d 个人物链条。\n",
                   pool_pure_specials.size(), pool_char_chains.size());
-    // 【新增】：向邮局订阅蓝牙同步广播
-    SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_Spc_Sync_Req);
+    // 【新增】：向邮局订阅蓝牙同步广播。运行时切换语言会重载资源，但不能重复登记同一个回调。
+    if (!s_specials_sync_subscribed)
+    {
+        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_Spc_Sync_Req);
+        s_specials_sync_subscribed = true;
+    }
 }
 
 // 【函数说明】指令抽取核心：先按人物链条概率尝试推进特殊剧情，再抽纯特殊指令，最后回落到普通指令池。

@@ -1,0 +1,20 @@
+{
+  "pom_idx": 0,
+  "pom_presets": [
+    { "n": "Focus", "w": 25, "r": 5 },
+    { "n": "Deep Work", "w": 60, "r": 10 },
+    { "n": "Sprint", "w": 15, "r": 3 },
+    { "n": "Reading", "w": 45, "r": 10 },
+    { "n": "Meditation", "w": 10, "r": 5 }
+  ],
+  "coin_preset_count": 0,
+  "coin_presets": [],
+  "current_prescript_target": "",
+  "prescript_targets": [],
+  "alarm_count": 0,
+  "alarms": [],
+  "schedule_count": 0,
+  "schedules": [],
+  "spec_tog": 4294967295,
+  "char_prog": [0, 0, 0, 0, 0, 0, 0, 0]
+}

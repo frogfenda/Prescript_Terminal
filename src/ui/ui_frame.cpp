@@ -52,15 +52,40 @@ void DrawTip(const char* text, int y, float fade)
 
 // 【函数说明】绘制删除/清空等危险操作确认画面。
 // 本函数只负责弹窗文字和提示，不主动清屏、不主动推屏，调用方可决定是否叠加其他图形。
+// 弹窗样式统一采用“指令档案”原有的居中黑底红框，避免不同 App 各画一套确认框。
 void DrawDangerConfirm(const char* title, const char* message, const char* tip)
 {
     int sw = HAL_Get_Screen_Width();
+    int sh = HAL_Get_Screen_Height();
+    int body_h = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
+    int small_h = HAL_Get_Font_Line_Height(HAL_FONT_SMALL);
+    bool has_message = message && message[0] != '\0';
 
-    HAL_Screen_ShowChineseLine(UITheme::Dialog::TitleX(), UITheme::Dialog::TextY(), title);
-    HAL_Screen_ShowChineseLine(sw - HAL_Get_Text_Width(message) - UITheme::Dialog::RightPadX(),
-                               UITheme::Dialog::TextY(),
-                               message);
-    DrawTip(tip, UITheme::Dialog::TipY(), UITheme::Dialog::TipFade());
+    int box_w = sw - 72;
+    if (box_w < 180)
+        box_w = sw - 24;
+    int box_h = has_message ? max(64, body_h * 2 + small_h + 20) : max(52, body_h + small_h + 20);
+    int box_x = (sw - box_w) / 2;
+    int box_y = (sh - box_h) / 2;
+
+    HAL_Fill_Rect(box_x, box_y, box_w, box_h, TFT_BLACK);
+    HAL_Draw_Rect(box_x, box_y, box_w, box_h, TFT_RED);
+
+    int title_w = HAL_Get_Text_Width(title);
+    HAL_Screen_ShowLine_Font((sw - title_w) / 2, box_y + 9, title, HAL_FONT_BODY, TFT_RED);
+
+    if (has_message)
+    {
+        int msg_w = HAL_Get_Text_Width(message);
+        HAL_Screen_ShowLine_Font((sw - msg_w) / 2, box_y + 9 + body_h + 4, message, HAL_FONT_BODY, TFT_RED);
+    }
+
+    int tip_w = HAL_Get_Text_Width_Font(tip, HAL_FONT_SMALL);
+    HAL_Screen_ShowLine_Font((sw - tip_w) / 2,
+                             box_y + box_h - small_h - 7,
+                             tip,
+                             HAL_FONT_SMALL,
+                             TFT_DARKGREY);
 }
 
 // 【函数说明】绘制无填充角框，突出当前滚轮/确认区域。

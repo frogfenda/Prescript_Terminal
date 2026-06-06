@@ -18,8 +18,11 @@
 #include "sys_fs.h"
 #include "sys_config.h"
 #include "sys/sys_event.h"
+#include "../lang/terminal_lang.h"
+#include "../lang/ui_strings.h"
 #include "hal/hal.h"
 #include "../ui/ui_theme.h"
+#include "../ui/ui_frame.h"
 
 // ========================================================
 // 指令库文件写入接口：BLE/NFC/Web 与 App 页面共用
@@ -27,7 +30,7 @@
 void DBArchive_SaveToFile(SystemLang_t lang)
 {
     std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    const char *path = (lang == LANG_ZH) ? "/assets/prescripts_zh.txt" : "/assets/prescripts_en.txt";
+    const char *path = TerminalLang::PrescriptPath(lang);
 
     File f = LittleFS.open(path, "w");
     if (!f)
@@ -257,36 +260,17 @@ private:
 
     void drawDeleteConfirm()
     {
-        int sw = HAL_Get_Screen_Width();
-        int sh = HAL_Get_Screen_Height();
-        bool zh = (appManager.getLanguage() == LANG_ZH);
-
-        int box_w = sw - 72;
-        int box_h = max(52, HAL_Get_Font_Line_Height(HAL_FONT_BODY) * 2 + 16);
-        int box_x = (sw - box_w) / 2;
-        int box_y = (sh - box_h) / 2;
-
-        HAL_Fill_Rect(box_x, box_y, box_w, box_h, TFT_BLACK);
-        HAL_Draw_Rect(box_x, box_y, box_w, box_h, TFT_RED);
-
-        const char* title = zh ? "确认删除此指令？" : "DELETE THIS RECORD?";
-        const char* msg = zh ? "短按删除 / 长按取消" : "CLICK DELETE / HOLD CANCEL";
-
-        int tx = (sw - HAL_Get_Text_Width(title)) / 2;
-        HAL_Screen_ShowLine_Font(tx, box_y + 9, title, HAL_FONT_BODY, TFT_RED);
-
-        int mx = (sw - HAL_Get_Text_Width_Font(msg, HAL_FONT_SMALL)) / 2;
-        HAL_Screen_ShowLine_Font(mx, box_y + box_h - HAL_Get_Font_Line_Height(HAL_FONT_SMALL) - 7,
-                                 msg, HAL_FONT_SMALL, TFT_DARKGREY);
+        SystemLang_t lang = appManager.getLanguage();
+        UIFrame::DrawDangerConfirm(UIStrings::ArchiveDeleteTitle(lang), "", UIStrings::DeleteUserHint(lang));
     }
 
     void drawArchiveEmpty()
     {
-        bool zh = (appManager.getLanguage() == LANG_ZH);
+        SystemLang_t lang = appManager.getLanguage();
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
 
-        const char *empty_str = zh ? "数据库为空" : "DB ARCHIVE EMPTY";
+        const char *empty_str = UIStrings::ArchiveEmpty(lang);
         int ew = HAL_Get_Text_Width(empty_str);
         HAL_Screen_ShowLine_Font((sw - ew) / 2,
                                  (sh - HAL_Get_Font_Line_Height(HAL_FONT_BODY)) / 2,
@@ -300,12 +284,12 @@ private:
         HAL_Sprite_Clear();
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
-        bool zh = (appManager.getLanguage() == LANG_ZH);
+        SystemLang_t lang = appManager.getLanguage();
 
         if (!pool || pool->empty())
         {
             drawArchiveEmpty();
-            drawBottomHints(zh ? "短按返回" : "CLICK BACK", zh ? "长按返回" : "HOLD BACK");
+            drawBottomHints(UIStrings::ClickBackHint(lang), UIStrings::HoldBackHint(lang));
             HAL_Screen_Update();
             return;
         }
@@ -356,8 +340,8 @@ private:
         }
         else
         {
-            drawBottomHints(zh ? "短按删除" : "CLICK DELETE",
-                            zh ? "长按退出" : "HOLD EXIT");
+            drawBottomHints(UIStrings::ClickDeleteHint(lang),
+                            UIStrings::HoldExitHint(lang));
         }
 
         HAL_Screen_Update();
@@ -369,8 +353,7 @@ private:
             return;
 
         HAL_Sprite_Clear();
-        bool zh = (appManager.getLanguage() == LANG_ZH);
-        const char* wipe_msg = zh ? "正在删除指令..." : "PURGING RECORD...";
+        const char* wipe_msg = UIStrings::PurgingRecord(appManager.getLanguage());
         int x = (HAL_Get_Screen_Width() - HAL_Get_Text_Width(wipe_msg)) / 2;
         int y = (HAL_Get_Screen_Height() - HAL_Get_Font_Line_Height(HAL_FONT_BODY)) / 2;
         HAL_Screen_ShowLine_Font(x, y, wipe_msg, HAL_FONT_BODY, TFT_RED);
@@ -408,12 +391,12 @@ public:
         if (appManager.getLanguage() == LANG_ZH)
         {
             pool = &sys_prescripts_zh;
-            file_path = "/assets/prescripts_zh.txt";
+            file_path = TerminalLang::PrescriptPath(LANG_ZH);
         }
         else
         {
             pool = &sys_prescripts_en;
-            file_path = "/assets/prescripts_en.txt";
+            file_path = TerminalLang::PrescriptPath(LANG_EN);
         }
 
         current_idx = 0;

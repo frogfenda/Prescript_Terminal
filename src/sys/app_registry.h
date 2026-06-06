@@ -28,6 +28,7 @@ enum class AppId : uint8_t
     Gacha,
     PushNotify,
     PushSetting,
+    PrescriptTarget,
     Pomodoro,
     PomodoroRun,
     PomodoroPresets,

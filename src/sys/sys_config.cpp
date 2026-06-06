@@ -1,5 +1,5 @@
 /*
-【模块职责】配置持久化实现。把 SysConfig 序列化到 LittleFS 的 config.json，启动时读取并补默认值，同时限制数组计数避免损坏配置导致越界。
+【模块职责】配置持久化实现。把公共配置和语言配置分别序列化到 LittleFS，启动时读取实体默认配置并限制数组计数避免损坏配置导致越界。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/sys/sys_config.cpp
@@ -9,71 +9,144 @@
 
 SysConfig sysConfig;
 
-// 配置文件路径在 sys_constants.h 中统一定义。
+// 配置文件路径在 sys_constants.h / terminal_lang.h 中统一定义。
 
-// 【函数说明】从 /assets/config.json 读取配置；缺失或解析失败时使用默认值，并对数组计数做上限钳制。
+namespace {
+
+// 【函数说明】把 src JSON 对象的字段覆盖到 dst；用于把旧配置、公共配置和语言配置合成一次读取视图。
+void MergeJsonObject(JsonDocument &dst, JsonDocument &src)
+{
+    JsonObject obj = src.as<JsonObject>();
+    for (JsonPair kv : obj)
+        dst[kv.key()] = kv.value();
+}
+
+bool ParseJsonIfPresent(const String &json, JsonDocument &doc)
+{
+    if (json.length() == 0)
+        return false;
+    DeserializationError err = deserializeJson(doc, json);
+    return !err;
+}
+
+SystemLang_t DetectProfileLanguage(JsonDocument *common_doc, JsonDocument *legacy_doc)
+{
+    if (TerminalLang::LOCKED)
+        return TerminalLang::DEFAULT_LANG;
+
+    if (common_doc)
+        return TerminalLang::Normalize((*common_doc)["language"] | (uint8_t)TerminalLang::DEFAULT_LANG);
+    if (legacy_doc)
+        return TerminalLang::Normalize((*legacy_doc)["language"] | (uint8_t)TerminalLang::DEFAULT_LANG);
+    return TerminalLang::DEFAULT_LANG;
+}
+
+// 【函数说明】只有运行时配置、实体默认配置和旧配置全部失效时才使用这组急救默认。
+// 正常出厂默认值应写在 data/common/config_common.json 与 data/zh|en/config_*.json 里。
+void ApplyEmergencyDefaults(SysConfig &cfg)
+{
+    cfg.wifi_ssid = "Your_WiFi_Name";
+    cfg.wifi_pass = "12345678";
+    cfg.language = (uint8_t)TerminalLang::DEFAULT_LANG;
+    cfg.sleep_time_ms = PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
+    cfg.true_sleep_time_ms = PrescriptConst::NEVER_SLEEP_MS;
+    cfg.decode_anim_style = 0;
+    cfg.auto_push_enable = false;
+    cfg.auto_push_min_min = 30;
+    cfg.auto_push_max_min = 120;
+    cfg.time_auto_resync = true;
+    cfg.time_resync_interval_min = 15;
+    cfg.time_saved_epoch_valid = false;
+    cfg.time_saved_epoch_utc = 0;
+    cfg.coin_data.mode = 0;
+    cfg.coin_data.sanity = 0;
+    cfg.coin_data.coin_count = 1;
+    cfg.coin_data.coin_type = 0;
+    cfg.pomodoro_current_idx = 0;
+    cfg.volume = 40;
+    cfg.special_toggles = 0xFFFFFFFF;
+    cfg.coin_preset_count = 0;
+    cfg.prescript_target_count = 0;
+    cfg.current_prescript_target = "";
+    cfg.alarm_count = 0;
+    cfg.schedule_count = 0;
+    cfg.haptic_enable = true;
+    cfg.haptic_intensity = 3;
+    cfg.nfc_mode = 0;
+    cfg.gacha_stats.total = 0;
+    cfg.gacha_stats.s3 = 0;
+    cfg.gacha_stats.s2 = 0;
+    cfg.gacha_stats.s1 = 0;
+    cfg.gacha_stats.w3 = 0;
+    cfg.gacha_stats.w2 = 0;
+
+    const char *fallback_names[PrescriptConst::MAX_POMODORO_PRESETS] = {
+        "常规专注", "深度工作", "短时冲刺", "阅读模式", "冥想休息"
+    };
+    const uint32_t fallback_work[PrescriptConst::MAX_POMODORO_PRESETS] = {25, 60, 15, 45, 10};
+    const uint32_t fallback_rest[PrescriptConst::MAX_POMODORO_PRESETS] = {5, 10, 3, 10, 5};
+    for (int i = 0; i < PrescriptConst::MAX_POMODORO_PRESETS; i++)
+    {
+        cfg.pomodoro_presets[i].name = fallback_names[i];
+        cfg.pomodoro_presets[i].work_min = fallback_work[i];
+        cfg.pomodoro_presets[i].rest_min = fallback_rest[i];
+    }
+    for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++)
+        cfg.char_progress[i] = 0;
+}
+
+} // namespace
+
+// 【函数说明】读取 common/profile 双层配置；缺失时先用实体默认配置，最后才使用代码内急救默认。
 void SysConfig::load()
 {
-    // 1. 从 LittleFS 硬盘读取 JSON 文本
-    String json = SysFS_Read_File(PrescriptConst::CONFIG_FILE);
-
-    // 2. 准备 JSON 解析引擎
     JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, json);
+    JsonDocument legacy_doc;
+    JsonDocument common_doc;
+    JsonDocument common_default_doc;
+    JsonDocument profile_doc;
+    JsonDocument profile_default_doc;
 
-    // ==========================================
-    // 如果读取失败、文件不存在、或者格式错误，赋予出厂默认值
-    // ==========================================
-    if (error || json == "")
+    String legacy_json = SysFS_Read_File(PrescriptConst::CONFIG_LEGACY_FILE);
+    String common_json = SysFS_Read_File(PrescriptConst::CONFIG_COMMON_FILE);
+    String common_default_json = SysFS_Read_File(PrescriptConst::CONFIG_COMMON_DEFAULT_FILE);
+
+    bool has_legacy = ParseJsonIfPresent(legacy_json, legacy_doc);
+    bool has_common = ParseJsonIfPresent(common_json, common_doc);
+    bool has_common_default = ParseJsonIfPresent(common_default_json, common_default_doc);
+    SystemLang_t profile_lang = DetectProfileLanguage(
+        has_common ? &common_doc : (has_common_default ? &common_default_doc : nullptr),
+        has_legacy ? &legacy_doc : nullptr
+    );
+    String profile_json = SysFS_Read_File(TerminalLang::ConfigPath(profile_lang));
+    String profile_default_json = SysFS_Read_File(TerminalLang::DefaultConfigPath(profile_lang));
+    bool has_profile = ParseJsonIfPresent(profile_json, profile_doc);
+    bool has_profile_default = ParseJsonIfPresent(profile_default_json, profile_default_doc);
+
+    bool need_migrate_save = false;
+    if (has_legacy)
     {
-        Serial.println("[CONFIG] 配置文件无效或不存在，加载出厂默认协议...");
+        MergeJsonObject(doc, legacy_doc);
+        need_migrate_save = !has_common || !has_profile;
+    }
+    if (has_common_default)
+        MergeJsonObject(doc, common_default_doc);
+    if (has_profile_default)
+        MergeJsonObject(doc, profile_default_doc);
+    if (has_common)
+        MergeJsonObject(doc, common_doc);
+    if (has_profile)
+        MergeJsonObject(doc, profile_doc);
+    if (!has_common || !has_profile)
+        need_migrate_save = true;
 
-        wifi_ssid = "Your_WiFi_Name";
-        wifi_pass = "12345678";
-        language = 1;
-        sleep_time_ms = PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
-        true_sleep_time_ms = PrescriptConst::NEVER_SLEEP_MS;
-        decode_anim_style = 0;
-        auto_push_enable = false;
-        auto_push_min_min = 30;
-        auto_push_max_min = 120;
-        // 时间系统默认开启周期轻量校时。
-        // 默认 15 分钟是为了压低 ESP32 本地时钟长时间运行后的可见漂移。
-        time_auto_resync = true;
-        time_resync_interval_min = 15;
-        time_saved_epoch_valid = false;
-        time_saved_epoch_utc = 0;
-        coin_data.mode = 0;
-        coin_data.sanity = 0;
-        pomodoro_current_idx = 0;
-        volume = 40; // 【新增】：默认音量设为 40
-        special_toggles = 0xFFFFFFFF; // 默认所有特殊指令拦截全开
-        for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++) char_progress[i] = 0; // 进度全部归零
-        const char *def_names[PrescriptConst::MAX_POMODORO_PRESETS] = {"常规专注", "深度工作", "短时冲刺", "阅读模式", "冥想休息"};
-        uint32_t def_w[PrescriptConst::MAX_POMODORO_PRESETS] = {25, 60, 15, 45, 10};
-        uint32_t def_r[PrescriptConst::MAX_POMODORO_PRESETS] = {5, 10, 3, 10, 5};
-        for (int i = 0; i < PrescriptConst::MAX_POMODORO_PRESETS; i++)
-        {
-            pomodoro_presets[i].name = def_names[i];
-            pomodoro_presets[i].work_min = def_w[i];
-            pomodoro_presets[i].rest_min = def_r[i];
-        }
-
-        alarm_count = 0;
-        schedule_count = 0;
-        haptic_enable = true;
-        haptic_intensity = 3; // 默认拉满！
-        nfc_mode = 0;
-        gacha_stats.total = 0;
-        gacha_stats.s3 = 0;
-        gacha_stats.s2 = 0;
-        gacha_stats.s1 = 0;
-        gacha_stats.w3 = 0;
-        gacha_stats.w2 = 0;
-
-        // [大扫除]：删除了旧版 custom_prescript_count = 0; 的初始化
-
-        // 生成默认文件并保存
+    // ==========================================
+    // 如果运行时配置、实体默认配置和旧配置都无效，使用急救默认值让设备至少能启动。
+    // ==========================================
+    if (!has_legacy && !has_common && !has_profile && !has_common_default && !has_profile_default)
+    {
+        Serial.println("[CONFIG] 运行时配置和实体默认配置都无效，启用急救默认值。");
+        ApplyEmergencyDefaults(*this);
         save();
         return;
     }
@@ -83,7 +156,9 @@ void SysConfig::load()
     // ==========================================
     wifi_ssid = doc["wifi_ssid"] | "Your_WiFi_Name";
     wifi_pass = doc["wifi_pass"] | "12345678";
-    language = doc["language"] | 1;
+    language = (uint8_t)TerminalLang::Normalize(doc["language"] | (uint8_t)TerminalLang::DEFAULT_LANG);
+    if (TerminalLang::LOCKED)
+        language = (uint8_t)TerminalLang::DEFAULT_LANG;
     sleep_time_ms = doc["sleep_time_ms"] | PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
     true_sleep_time_ms = doc["true_sleep_time_ms"] | PrescriptConst::NEVER_SLEEP_MS;
     decode_anim_style = doc["decode_anim_style"] | 0;
@@ -97,7 +172,7 @@ void SysConfig::load()
     time_saved_epoch_valid = doc["time_saved_epoch_valid"] | false;
     time_saved_epoch_utc = doc["time_saved_epoch_utc"] | 0;
 
-    // 防止 config.json 被手动改坏后出现过短或过长的校时间隔。
+    // 防止公共配置被手动改坏后出现过短或过长的校时间隔。
     if (time_resync_interval_min < 5) time_resync_interval_min = 5;
     if (time_resync_interval_min > 240) time_resync_interval_min = 240;
 
@@ -165,6 +240,42 @@ void SysConfig::load()
         }
     }
 
+    // 【新增】：读取本地使用者 ID。
+    // 这些 ID 只用于把“致...”改写成本地显示称呼，不关联网络账号或远程身份。
+    prescript_target_count = 0;
+    current_prescript_target = doc["current_prescript_target"] | "";
+    current_prescript_target.trim();
+    if (doc["prescript_targets"].is<JsonArray>())
+    {
+        JsonArray target_arr = doc["prescript_targets"].as<JsonArray>();
+        for (JsonVariant value : target_arr)
+        {
+            if (prescript_target_count >= PrescriptConst::MAX_PRESCRIPT_TARGETS)
+                break;
+
+            String id = value.as<String>();
+            id.trim();
+            if (id.length() == 0)
+                continue;
+            if (id.length() > PrescriptConst::MAX_PRESCRIPT_TARGET_LEN)
+                id = id.substring(0, PrescriptConst::MAX_PRESCRIPT_TARGET_LEN);
+
+            prescript_targets[prescript_target_count++] = id;
+        }
+    }
+
+    bool current_found = current_prescript_target.length() == 0;
+    for (int i = 0; i < prescript_target_count; i++)
+    {
+        if (prescript_targets[i] == current_prescript_target)
+        {
+            current_found = true;
+            break;
+        }
+    }
+    if (!current_found)
+        current_prescript_target = "";
+
     alarm_count = doc["alarm_count"] | 0;
     if (alarm_count > PrescriptConst::MAX_ALARMS) alarm_count = PrescriptConst::MAX_ALARMS;
     JsonArray al_arr = doc["alarms"];
@@ -231,15 +342,28 @@ void SysConfig::load()
         // 防呆保护：如果硬盘里没有这个数组，强制清零
         for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++) char_progress[i] = 0;
     }
+
+    if (need_migrate_save)
+    {
+        Serial.println("[CONFIG] 检测到旧版配置，正在迁移为 common/profile 双层配置。");
+        save();
+    }
 }
 
 // 【函数说明】把当前 sysConfig 序列化成 JSON 写回 LittleFS，包含 WiFi、语言、音量、震动、日程、闹钟、硬币等配置。
 void SysConfig::save()
 {
+    saveCommon();
+    saveLanguageProfile(TerminalLang::Normalize(language));
+}
+
+void SysConfig::saveCommon()
+{
     JsonDocument doc;
 
     // ==========================================
-    // 将内存数据打包成 JSON 树
+    // 将设备级公共数据打包成 JSON 树。
+    // 这里不写闹钟、日程、使用者和特异点进度，避免中英文 profile 互相污染。
     // ==========================================
     doc["wifi_ssid"] = wifi_ssid;
     doc["wifi_pass"] = wifi_pass;
@@ -258,6 +382,46 @@ void SysConfig::save()
     doc["time_saved_epoch_valid"] = time_saved_epoch_valid;
     doc["time_saved_epoch_utc"] = time_saved_epoch_utc;
     doc["volume"] = volume; // 【新增】：打包音量数据
+
+    JsonObject coin_node = doc["coin_app"].to<JsonObject>();
+    coin_node["mode"] = coin_data.mode;
+    coin_node["sanity"] = coin_data.sanity;
+    coin_node["coin_count"] = coin_data.coin_count;
+    coin_node["coin_type"] = coin_data.coin_type; // 【新增写入】
+
+    JsonObject gs_node_out = doc["gacha_stats"].to<JsonObject>();
+    gs_node_out["total"] = gacha_stats.total;
+    gs_node_out["s3"] = gacha_stats.s3;
+    gs_node_out["s2"] = gacha_stats.s2;
+    gs_node_out["s1"] = gacha_stats.s1;
+    gs_node_out["w3"] = gacha_stats.w3;
+    gs_node_out["w2"] = gacha_stats.w2;
+
+    doc["hap_en"] = haptic_enable;
+    doc["hap_in"] = haptic_intensity;
+    doc["nfc_m"] = nfc_mode;
+
+    String json_output;
+    serializeJson(doc, json_output);
+    SysFS_Write_File(PrescriptConst::CONFIG_COMMON_FILE, json_output.c_str());
+
+    Serial.println("[CONFIG] 公共配置已覆写至 /common/config.json");
+}
+
+void SysConfig::loadLanguageProfile(SystemLang_t lang)
+{
+    SystemLang_t old_lang = TerminalLang::Normalize(language);
+    saveLanguageProfile(old_lang);
+    language = (uint8_t)lang;
+    saveCommon();
+    load();
+}
+
+void SysConfig::saveLanguageProfile(SystemLang_t lang)
+{
+    JsonDocument doc;
+
+    // 语言 profile 保存带文本语境或世界观进度的内容，使用者 ID 也按语言隔离。
     doc["pom_idx"] = pomodoro_current_idx;
     JsonArray pm_arr = doc["pom_presets"].to<JsonArray>();
     for (int i = 0; i < PrescriptConst::MAX_POMODORO_PRESETS; i++)
@@ -266,6 +430,28 @@ void SysConfig::save()
         obj["n"] = pomodoro_presets[i].name;
         obj["w"] = pomodoro_presets[i].work_min;
         obj["r"] = pomodoro_presets[i].rest_min;
+    }
+
+    // 【新增】：写入硬币技能预设
+    doc["coin_preset_count"] = coin_preset_count;
+    JsonArray cp_arr = doc["coin_presets"].to<JsonArray>();
+    for (int i = 0; i < coin_preset_count; i++)
+    {
+        JsonObject obj = cp_arr.add<JsonObject>();
+        obj["n"] = coin_presets[i].name;
+        obj["bp"] = coin_presets[i].base_power;
+        obj["cp"] = coin_presets[i].coin_power;
+        obj["cc"] = coin_presets[i].coin_count;
+        obj["cl"] = coin_presets[i].coin_colors;
+    }
+
+    // 【新增】：写入本地使用者 ID。
+    // 当前使用者按语言单独保存，列表为空或当前使用者被删除时允许保存为空字符串。
+    doc["current_prescript_target"] = current_prescript_target;
+    JsonArray target_arr = doc["prescript_targets"].to<JsonArray>();
+    for (int i = 0; i < prescript_target_count; i++)
+    {
+        target_arr.add(prescript_targets[i]);
     }
 
     doc["alarm_count"] = alarm_count;
@@ -293,37 +479,6 @@ void SysConfig::save()
         obj["rs"] = schedules[i].is_restored;
         obj["hd"] = schedules[i].is_hidden; // 【新增】：写入隐藏属性
     }
-    JsonObject coin_node = doc["coin_app"].to<JsonObject>();
-    coin_node["mode"] = coin_data.mode;
-    coin_node["sanity"] = coin_data.sanity;
-    coin_node["coin_count"] = coin_data.coin_count;
-    coin_node["coin_type"] = coin_data.coin_type; // 【新增写入】
-    // (在 save 函数内部，写入 coin_node 之后加上这段)
-
-    // 【新增】：写入硬币技能预设
-    doc["coin_preset_count"] = coin_preset_count;
-    JsonArray cp_arr = doc["coin_presets"].to<JsonArray>();
-    for (int i = 0; i < coin_preset_count; i++)
-    {
-        JsonObject obj = cp_arr.add<JsonObject>();
-        obj["n"] = coin_presets[i].name;
-        obj["bp"] = coin_presets[i].base_power;
-        obj["cp"] = coin_presets[i].coin_power;
-        obj["cc"] = coin_presets[i].coin_count;
-        obj["cl"] = coin_presets[i].coin_colors;
-    }
-    JsonObject gs_node_out = doc["gacha_stats"].to<JsonObject>();
-    gs_node_out["total"] = gacha_stats.total;
-    gs_node_out["s3"] = gacha_stats.s3;
-    gs_node_out["s2"] = gacha_stats.s2;
-    gs_node_out["s1"] = gacha_stats.s1;
-    gs_node_out["w3"] = gacha_stats.w3;
-    gs_node_out["w2"] = gacha_stats.w2;
-    // [大扫除]：彻底删除了所有跟 custom_p 写入硬盘相关的代码！
-    // save() 里面加：
-    doc["hap_en"] = haptic_enable;
-    doc["hap_in"] = haptic_intensity;
-    doc["nfc_m"] = nfc_mode;
     
     // 【新增】：保存特异点引擎数据
     doc["spec_tog"] = special_toggles;
@@ -338,7 +493,7 @@ void SysConfig::save()
     // ==========================================
     String json_output;
     serializeJson(doc, json_output);
-    SysFS_Write_File(PrescriptConst::CONFIG_FILE, json_output.c_str());
+    SysFS_Write_File(TerminalLang::ConfigPath(lang), json_output.c_str());
 
-    Serial.println("[CONFIG] 系统协议已覆写至 /config.json");
+    Serial.printf("[CONFIG] %s 语言配置已覆写至 %s\n", TerminalLang::Code(lang), TerminalLang::ConfigPath(lang));
 }

@@ -81,16 +81,56 @@ namespace TerminalLang
 
     inline const char *PrescriptPath(SystemLang_t lang)
     {
+        return lang == LANG_ZH ? "/zh/prescripts_zh.txt" : "/en/prescripts_en.txt";
+    }
+
+    inline const char *LegacyPrescriptPath(SystemLang_t lang)
+    {
         return lang == LANG_ZH ? "/assets/prescripts_zh.txt" : "/assets/prescripts_en.txt";
     }
 
     inline const char *PrescriptFallback(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "系统覆盖。请上传 prescripts_zh.txt" : "SYS OVERRIDE. PLEASE UPLOAD prescripts_en.txt.";
+        return lang == LANG_ZH ? "系统覆盖。请上传 zh/prescripts_zh.txt" : "SYS OVERRIDE. PLEASE UPLOAD en/prescripts_en.txt.";
     }
 
     inline const char *SpecialsPath(SystemLang_t lang)
     {
+        return lang == LANG_ZH ? "/zh/specials_zh.json" : "/en/specials_en.json";
+    }
+
+    inline const char *LegacySpecialsPath(SystemLang_t lang)
+    {
         return lang == LANG_ZH ? "/assets/specials_zh.json" : "/assets/specials_en.json";
+    }
+
+    inline const char *OraclePath(SystemLang_t lang)
+    {
+        return lang == LANG_ZH ? "/zh/oracle_zh.json" : "/en/oracle_en.json";
+    }
+
+    inline const char *LegacyOraclePath(SystemLang_t lang)
+    {
+        return lang == LANG_ZH ? "/assets/oracle_zh.json" : "/assets/oracle_en.json";
+    }
+
+    inline const char *IdsPath(SystemLang_t lang)
+    {
+        return lang == LANG_ZH ? "/zh/ids_zh.json" : "/en/ids_en.json";
+    }
+
+    inline const char *ConfigPath(SystemLang_t lang)
+    {
+        return lang == LANG_ZH ? "/zh/config.json" : "/en/config.json";
+    }
+
+    inline const char *DefaultConfigPath(SystemLang_t lang)
+    {
+        return lang == LANG_ZH ? "/zh/config_zh.json" : "/en/config_en.json";
+    }
+
+    inline const char *LegacyIdsPath()
+    {
+        return "/assets/ids.json";
     }
 }

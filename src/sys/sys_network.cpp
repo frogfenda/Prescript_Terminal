@@ -64,7 +64,7 @@ static bool _Network_IsBusy()
  *
  * 实现步骤：
  * 1. 校验 SSID 不能为空；
- * 2. 保存 SSID 和密码到 config.json；
+ * 2. 保存 SSID 和密码到公共配置；
  * 3. 回 ACK:OK:WIFI:SAVED；
  * 4. 立即启动一次完整同步，让设备拿时间并拉取隐秘指令。
  */

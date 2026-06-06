@@ -177,7 +177,7 @@ public:
         Feedback_PlayKnobTick();
     }
 
-    // 【函数说明】长按保存音量和震动设置到 config.json 并返回上一级。
+    // 【函数说明】长按保存音量和震动设置到公共配置并返回上一级。
     void onKeyLong() override
     {
         // 长按退出：执行真正的文件系统持久化存储

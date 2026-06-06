@@ -153,6 +153,18 @@ class TerminalController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> addPrescriptTarget(String id) async {
+    await sendRaw(TerminalCommands.addTarget(id), syncAfter: true);
+  }
+
+  Future<void> deletePrescriptTarget(String id) async {
+    await sendRaw(TerminalCommands.deleteTarget(id), syncAfter: true);
+  }
+
+  Future<void> setPrescriptTarget(String id) async {
+    await sendRaw(TerminalCommands.setTarget(id), syncAfter: true);
+  }
+
   void _handleRawMessage(String raw) {
     _appendLog('RX $raw', notify: false);
     final message = _parser.parse(raw);
@@ -190,6 +202,8 @@ class TerminalController extends ChangeNotifier {
           schedules: const [],
           prescripts: const [],
           coins: const [],
+          prescriptTargets: const [],
+          currentPrescriptTarget: '',
         );
       case AlarmSyncMessage():
         state = state.copyWith(alarms: [...state.alarms, message.record]);
@@ -200,6 +214,11 @@ class TerminalController extends ChangeNotifier {
             state.copyWith(prescripts: [...state.prescripts, message.record]);
       case CoinSyncMessage():
         state = state.copyWith(coins: [...state.coins, message.record]);
+      case TargetSyncMessage():
+        state = state.copyWith(
+          prescriptTargets: message.items,
+          currentPrescriptTarget: message.current,
+        );
       case SpecialMetaMessage():
         state = state.copyWith(
           specials: {...state.specials, message.record.id: message.record},

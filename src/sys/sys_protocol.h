@@ -27,7 +27,11 @@ enum class SysCommandType : uint8_t
     CoinAdd,
     CoinDel,
     SpecialForce,
-    GetSpecialText
+    GetSpecialText,
+    GetTarget,
+    TargetAdd,
+    TargetDel,
+    TargetSet
 };
 
 struct SysParsedCommand

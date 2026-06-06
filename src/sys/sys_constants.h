@@ -84,7 +84,7 @@ namespace PrescriptConst
 
     constexpr uint8_t MAX_NAV_STACK = 5;
     constexpr uint8_t MAX_BG_APPS = 10;
-    constexpr uint8_t MAX_EVENT_SUBSCRIBERS = 24;
+    constexpr uint8_t MAX_EVENT_SUBSCRIBERS = 28;
     constexpr uint8_t MAX_POMODORO_PRESETS = 5;
     constexpr uint8_t MAX_COIN_PRESETS = 10;
     constexpr uint8_t MAX_COIN_COUNT = 18;
@@ -92,12 +92,24 @@ namespace PrescriptConst
     constexpr uint8_t MAX_SCHEDULES = 15;
     constexpr uint8_t MAX_CHAR_CHAINS = 8;
     constexpr uint8_t MAX_BLE_QUEUE = 8;
+    constexpr uint8_t MAX_PRESCRIPT_TARGETS = 12;
+    constexpr uint8_t MAX_PRESCRIPT_TARGET_LEN = 24;
 
     // -----------------------------------------------------------------------------
     // Files and BLE protocol identifiers
     // -----------------------------------------------------------------------------
-    constexpr const char *CONFIG_FILE = "/assets/config.json";
-    constexpr const char *STANDBY_IMAGE_BIN = "/assets/standby.bin";
+    constexpr const char *CONFIG_COMMON_FILE = "/common/config.json";
+    constexpr const char *CONFIG_COMMON_DEFAULT_FILE = "/common/config_common.json";
+    constexpr const char *CONFIG_ZH_FILE = "/zh/config.json";
+    constexpr const char *CONFIG_EN_FILE = "/en/config.json";
+    constexpr const char *CONFIG_LEGACY_FILE = "/assets/config.json";
+    constexpr const char *STANDBY_IMAGE_BIN = "/common/standby.bin";
+    constexpr const char *STANDBY_IMAGE_LEGACY_BIN = "/assets/standby.bin";
+    constexpr const char *AUDIO_PROCEDURE_WAV = "/common/procedure.wav";
+    constexpr const char *AUDIO_FINAL_WAV = "/common/final.wav";
+    constexpr const char *AUDIO_AHAB_WAV = "/common/Ahab.wav";
+    constexpr const char *COIN_ASSET_DIR = "/common/coins/";
+    constexpr const char *COIN_ASSET_LEGACY_DIR = "/assets/coins/";
 
     constexpr const char *BLE_DEVICE_NAME = "Terminal_01";
     constexpr const char *BLE_SERVICE_UUID = "0000DEAD-0000-1000-8000-00805F9B34FB";

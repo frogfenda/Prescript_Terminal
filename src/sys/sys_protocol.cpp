@@ -150,6 +150,40 @@ SysParsedCommand SysProtocol_ParseSingle(const String &raw)
         return out;
     }
 
+    if (msg == "GET:TGT" || msg == "GET:TARGET")
+    {
+        out.type = SysCommandType::GetTarget;
+        return out;
+    }
+
+    if (msg.startsWith("TGT_ADD:"))
+    {
+        out.type = SysCommandType::TargetAdd;
+        out.id = msg.substring(8);
+        out.id.trim();
+        if (out.id.length() == 0)
+            return MakeInvalid(msg, "TGT_EMPTY_ID");
+        return out;
+    }
+
+    if (msg.startsWith("TGT_DEL:"))
+    {
+        out.type = SysCommandType::TargetDel;
+        out.id = msg.substring(8);
+        out.id.trim();
+        if (out.id.length() == 0)
+            return MakeInvalid(msg, "TGT_EMPTY_ID");
+        return out;
+    }
+
+    if (msg.startsWith("TGT_SET:"))
+    {
+        out.type = SysCommandType::TargetSet;
+        out.id = msg.substring(8);
+        out.id.trim();
+        return out;
+    }
+
     if (msg.startsWith("TXT:"))
     {
         out.type = SysCommandType::TextNotify;
@@ -416,6 +450,14 @@ const char *SysProtocol_CommandName(SysCommandType type)
         return "SPC";
     case SysCommandType::GetSpecialText:
         return "GET_SPC_TXT";
+    case SysCommandType::GetTarget:
+        return "GET_TGT";
+    case SysCommandType::TargetAdd:
+        return "TGT_ADD";
+    case SysCommandType::TargetDel:
+        return "TGT_DEL";
+    case SysCommandType::TargetSet:
+        return "TGT_SET";
     case SysCommandType::Invalid:
         return "INVALID";
     case SysCommandType::Unknown:
@@ -441,6 +483,9 @@ bool SysProtocol_IsMutating(SysCommandType type)
     case SysCommandType::CoinAdd:
     case SysCommandType::CoinDel:
     case SysCommandType::SpecialForce:
+    case SysCommandType::TargetAdd:
+    case SysCommandType::TargetDel:
+    case SysCommandType::TargetSet:
         return true;
     default:
         return false;

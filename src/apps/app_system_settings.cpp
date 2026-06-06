@@ -43,44 +43,15 @@ protected:
      */
     const char* getItemText(int index) override {
         NetworkState state = Network_GetState();
+        SystemLang_t lang = appManager.getLanguage();
 
-        if (appManager.getLanguage() == LANG_ZH) {
-            if (index == 0) {
-                if (state == NET_SYNC_SUCCESS) return "断开无线网络";
-                if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API) return "网络运行中...";
-                return "连接无线网络";
-            }
-            const char* items[] = {
-                "",
-                "同步网络时间",
-                "时间设置",
-                "提取部统计",
-                UIStrings::LanguageBuildItem(appManager.getLanguage(), TerminalLang::DEFAULT_LANG),
-                "设定休眠时间",
-                "音量与振动",
-                "解码动画配置",
-                "返回上一级"
-            };
-            return items[index];
-        } else {
-            if (index == 0) {
-                if (state == NET_SYNC_SUCCESS) return "DISCONNECT WIFI";
-                if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API) return "WIFI BUSY...";
-                return "CONNECT WIFI";
-            }
-            const char* items[] = {
-                "",
-                "SYNC NTP TIME",
-                "TIME CONFIG",
-                "GACHA STATS",
-                UIStrings::LanguageBuildItem(appManager.getLanguage(), TerminalLang::DEFAULT_LANG),
-                "SLEEP SETTINGS",
-                "VOL&HAPTIC",
-                "ANIMATION SETUP",
-                "BACK TO MAIN"
-            };
-            return items[index];
+        if (index == 0) {
+            if (state == NET_SYNC_SUCCESS) return UIStrings::WifiDisconnectItem(lang);
+            if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API) return UIStrings::WifiBusyItem(lang);
+            return UIStrings::WifiConnectItem(lang);
         }
+
+        return UIStrings::SystemSettingsItem(lang, index);
     }
 
     /**
@@ -109,8 +80,6 @@ protected:
                 return;
             }
             appManager.toggleLanguage();
-            sysConfig.language = (uint8_t)appManager.getLanguage();
-            sysConfig.save();
             drawMenuUI(visual_selection);
         }
         else if (index == 5) appManager.push(AppId::SleepSetting);

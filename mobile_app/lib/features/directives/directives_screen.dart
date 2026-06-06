@@ -59,11 +59,13 @@ class DirectiveSendTab extends StatefulWidget {
 class _DirectiveSendTabState extends State<DirectiveSendTab> {
   final txtController = TextEditingController(text: '致...终止交易。');
   final preController = TextEditingController();
+  final targetController = TextEditingController();
 
   @override
   void dispose() {
     txtController.dispose();
     preController.dispose();
+    targetController.dispose();
     super.dispose();
   }
 
@@ -78,13 +80,77 @@ class _DirectiveSendTabState extends State<DirectiveSendTab> {
         return ListView(
           children: [
             TerminalPanel(
-              title: text.pick('目标', 'Target'),
-              child: Text(
-                text.pick(
-                  '当前目标：当前绑定设备\n预留：设备编号、用户编号与远程投递队列。',
-                  'Target: current bound device\nReserved: device ID, user ID, and remote delivery queue.',
-                ),
-                style: const TextStyle(color: TerminalColors.muted),
+              title: text.pick('使用者', 'User'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        terminal.state.currentPrescriptTarget.isEmpty
+                            ? text.pick('当前使用者：未设置', 'Current user: none')
+                            : text.pick(
+                                '当前使用者：${terminal.state.currentPrescriptTarget}',
+                                'Current user: ${terminal.state.currentPrescriptTarget}',
+                              ),
+                        style: const TextStyle(color: TerminalColors.muted),
+                      ),
+                      TerminalButton(
+                        label: text.pick('清空', 'Clear'),
+                        compact: true,
+                        onPressed: connected
+                            ? () => terminal.setPrescriptTarget('')
+                            : null,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: targetController,
+                    decoration: InputDecoration(
+                        labelText: text.pick('新增使用者', 'New user')),
+                  ),
+                  const SizedBox(height: 8),
+                  TerminalButton(
+                    label: text.pick('新增并选中', 'Add and select'),
+                    onPressed: connected
+                        ? () =>
+                            terminal.addPrescriptTarget(targetController.text)
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  if (terminal.state.prescriptTargets.isEmpty)
+                    Text(
+                      text.pick('还没有使用者。新增后，设备会把指令开头的“致...”替换为该使用者。',
+                          'No users yet. After adding one, the terminal replaces the leading user marker.'),
+                      style: const TextStyle(color: TerminalColors.muted),
+                    )
+                  else
+                    ...terminal.state.prescriptTargets.map((target) {
+                      final selected =
+                          target == terminal.state.currentPrescriptTarget;
+                      return TerminalListTile(
+                        title: target,
+                        subtitle: selected
+                            ? text.pick('当前选中', 'Selected')
+                            : text.pick('点按设为当前使用者', 'Tap to select user'),
+                        onTap: connected
+                            ? () => terminal.setPrescriptTarget(target)
+                            : null,
+                        trailing: TerminalButton(
+                          label: text.delete,
+                          destructive: true,
+                          compact: true,
+                          onPressed: connected
+                              ? () => terminal.deletePrescriptTarget(target)
+                              : null,
+                        ),
+                      );
+                    }),
+                ],
               ),
             ),
             TerminalPanel(

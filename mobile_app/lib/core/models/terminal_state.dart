@@ -22,6 +22,8 @@ class TerminalState {
     this.schedules = const [],
     this.prescripts = const [],
     this.coins = const [],
+    this.prescriptTargets = const [],
+    this.currentPrescriptTarget = '',
     this.specials = const {},
   });
 
@@ -37,6 +39,8 @@ class TerminalState {
   final List<ScheduleRecord> schedules;
   final List<PrescriptRecord> prescripts;
   final List<CoinRecord> coins;
+  final List<String> prescriptTargets;
+  final String currentPrescriptTarget;
   final Map<String, SpecialRecord> specials;
 
   bool get isConnected =>
@@ -55,6 +59,8 @@ class TerminalState {
     List<ScheduleRecord>? schedules,
     List<PrescriptRecord>? prescripts,
     List<CoinRecord>? coins,
+    List<String>? prescriptTargets,
+    String? currentPrescriptTarget,
     Map<String, SpecialRecord>? specials,
   }) {
     return TerminalState(
@@ -70,6 +76,9 @@ class TerminalState {
       schedules: schedules ?? this.schedules,
       prescripts: prescripts ?? this.prescripts,
       coins: coins ?? this.coins,
+      prescriptTargets: prescriptTargets ?? this.prescriptTargets,
+      currentPrescriptTarget:
+          currentPrescriptTarget ?? this.currentPrescriptTarget,
       specials: specials ?? this.specials,
     );
   }

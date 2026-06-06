@@ -14,6 +14,7 @@
 #include "sys_specials.h"
 #include "sys_power.h"
 #include "sys_constants.h"
+#include "sys_prescript_target.h"
 
 void setup()
 {
@@ -58,6 +59,7 @@ void setup()
 
     extern void SysRouter_Init();
     SysRouter_Init();
+    SysPrescriptTarget_Init();
 
     sysHaptic.begin();
     SysAutoPush_Init();

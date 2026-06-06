@@ -75,11 +75,18 @@ class TerminalCommands {
 
   static String deleteCoin(String name) =>
       'COIN_DEL:${sanitizeCommandField(name)}';
+  static String addTarget(String id) =>
+      'TGT_ADD:${sanitizeCommandField(id, keepColon: true)}';
+  static String deleteTarget(String id) =>
+      'TGT_DEL:${sanitizeCommandField(id, keepColon: true)}';
+  static String setTarget(String id) =>
+      'TGT_SET:${sanitizeCommandField(id, keepColon: true)}';
 
   static bool commandNeedsSync(String command) {
     return RegExp(
-            r'^(ALM:|ALM_DEL:|SCH:|SCH_DEL:|POM:|PRE:|PRE_DEL:|COIN:|COIN_DEL:)')
-        .hasMatch(command);
+                r'^(ALM:|ALM_DEL:|SCH:|SCH_DEL:|POM:|PRE:|PRE_DEL:|COIN:|COIN_DEL:)')
+            .hasMatch(command) ||
+        command.startsWith('TGT_');
   }
 }
 
@@ -133,6 +140,16 @@ class PrescriptSyncMessage extends TerminalMessage {
 class CoinSyncMessage extends TerminalMessage {
   const CoinSyncMessage(this.record);
   final CoinRecord record;
+}
+
+class TargetSyncMessage extends TerminalMessage {
+  const TargetSyncMessage({
+    required this.current,
+    required this.items,
+  });
+
+  final String current;
+  final List<String> items;
 }
 
 class SpecialMetaMessage extends TerminalMessage {
@@ -190,6 +207,17 @@ class TerminalProtocolParser {
     if (raw.startsWith('SYNC:COIN:')) {
       return _safeJson(raw, 'SYNC:COIN:',
           (json) => CoinSyncMessage(CoinRecord.fromJson(json)));
+    }
+    if (raw.startsWith('SYNC:TGT:')) {
+      return _safeJson(raw, 'SYNC:TGT:', (json) {
+        final items = json['items'];
+        return TargetSyncMessage(
+          current: json['current']?.toString() ?? '',
+          items: items is List
+              ? items.map((item) => item.toString()).toList()
+              : const [],
+        );
+      });
     }
     if (raw.startsWith('SPC_META:')) {
       return SpecialMetaMessage(

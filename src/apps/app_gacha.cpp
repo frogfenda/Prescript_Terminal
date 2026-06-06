@@ -155,7 +155,7 @@ private:
             revealed[i] = false; 
         }
         
-        sysConfig.save(); // 【新增】：十连结束瞬间，将 config.json 永久覆写至硬盘！
+        sysConfig.save(); // 【新增】：十连结束瞬间，将公共配置和当前语言配置永久覆写至硬盘！
     }
 
     void skipToResult()

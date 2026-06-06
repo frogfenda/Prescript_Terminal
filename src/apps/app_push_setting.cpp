@@ -6,6 +6,7 @@
 #include "app_menu_base.h" 
 #include "sys_config.h"
 #include "sys_auto_push.h"
+#include "../lang/ui_strings.h"
 
 class AppPushSetting : public AppMenuBase { 
 private:
@@ -15,31 +16,25 @@ private:
     int t_max;
 
 protected:
-    // 【函数说明】返回自动推送设置的四项：开关、最小间隔、最大间隔、返回。
-    int getMenuCount() override { return 4; }
+    // 【函数说明】返回自动推送设置的五项：开关、最小间隔、最大间隔、使用者、保存返回。
+    int getMenuCount() override { return 5; }
 
     const char* getTitle() override {
-        // 【改名】：由都市推送改为指令推送
-        return (appManager.getLanguage() == LANG_ZH) ? "指令推送配置" : "PUSH CONFIG";
+        return UIStrings::PushSettingTitle(appManager.getLanguage());
     }
 
     // 【函数说明】返回每个设置项的完整显示文本。
     const char* getItemText(int index) override {
         static char buf[64];
         const char* edit_mark = (is_editing && index == current_selection) ? " <" : "";
+        SystemLang_t lang = appManager.getLanguage();
 
-        if (appManager.getLanguage() == LANG_ZH) {
-            // 【改名】
-            if (index == 0) sprintf(buf, "指令推送: %s%s", t_en ? "开启" : "关闭", edit_mark);
-            else if (index == 1) sprintf(buf, "最短潜伏: %d 分钟%s", t_min, edit_mark);
-            else if (index == 2) sprintf(buf, "最长潜伏: %d 分钟%s", t_max, edit_mark);
-            else if (index == 3) strcpy(buf, "保存并接入主系统");
-        } else {
-            if (index == 0) sprintf(buf, "AUTO PUSH: %s%s", t_en ? "ON" : "OFF", edit_mark);
-            else if (index == 1) sprintf(buf, "MIN TIME: %d MIN%s", t_min, edit_mark);
-            else if (index == 2) sprintf(buf, "MAX TIME: %d MIN%s", t_max, edit_mark);
-            else if (index == 3) strcpy(buf, "SAVE & RETURN");
-        }
+        if (index == 0) snprintf(buf, sizeof(buf), "%s%s%s", UIStrings::PushEnableLabel(lang), UIStrings::OnOff(lang, t_en), edit_mark);
+        else if (index == 1) snprintf(buf, sizeof(buf), "%s%d%s%s", UIStrings::PushMinLabel(lang), t_min, UIStrings::PushMinuteSuffix(lang), edit_mark);
+        else if (index == 2) snprintf(buf, sizeof(buf), "%s%d%s%s", UIStrings::PushMaxLabel(lang), t_max, UIStrings::PushMinuteSuffix(lang), edit_mark);
+        else if (index == 3) strncpy(buf, UIStrings::PushUserItem(lang), sizeof(buf));
+        else if (index == 4) strncpy(buf, UIStrings::SaveAndReturnItem(lang), sizeof(buf));
+        buf[sizeof(buf) - 1] = '\0';
         return buf;
     }
 
@@ -50,36 +45,21 @@ protected:
         static char buf_val[16];
         static char buf_pref[32];
         static char buf_suff[32];
+        SystemLang_t lang = appManager.getLanguage();
 
-        if (appManager.getLanguage() == LANG_ZH) {
-            if (index == 0) {
-                strcpy(buf_pref, "指令推送: "); // 【改名】
-                strcpy(buf_val, t_en ? "开启" : "关闭");
-                strcpy(buf_suff, " <");
-            } else if (index == 1) {
-                strcpy(buf_pref, "最短潜伏: ");
-                sprintf(buf_val, "%d", t_min);
-                strcpy(buf_suff, " 分钟 <");
-            } else if (index == 2) {
-                strcpy(buf_pref, "最长潜伏: ");
-                sprintf(buf_val, "%d", t_max);
-                strcpy(buf_suff, " 分钟 <");
-            } else return false;
-        } else {
-            if (index == 0) {
-                strcpy(buf_pref, "AUTO PUSH: ");
-                strcpy(buf_val, t_en ? "ON" : "OFF");
-                strcpy(buf_suff, " <");
-            } else if (index == 1) {
-                strcpy(buf_pref, "MIN TIME: ");
-                sprintf(buf_val, "%d", t_min);
-                strcpy(buf_suff, " MIN <");
-            } else if (index == 2) {
-                strcpy(buf_pref, "MAX TIME: ");
-                sprintf(buf_val, "%d", t_max);
-                strcpy(buf_suff, " MIN <");
-            } else return false;
-        }
+        if (index == 0) {
+            strcpy(buf_pref, UIStrings::PushEnableLabel(lang));
+            strcpy(buf_val, UIStrings::OnOff(lang, t_en));
+            strcpy(buf_suff, " <");
+        } else if (index == 1) {
+            strcpy(buf_pref, UIStrings::PushMinLabel(lang));
+            snprintf(buf_val, sizeof(buf_val), "%d", t_min);
+            snprintf(buf_suff, sizeof(buf_suff), "%s <", UIStrings::PushMinuteSuffix(lang));
+        } else if (index == 2) {
+            strcpy(buf_pref, UIStrings::PushMaxLabel(lang));
+            snprintf(buf_val, sizeof(buf_val), "%d", t_max);
+            snprintf(buf_suff, sizeof(buf_suff), "%s <", UIStrings::PushMinuteSuffix(lang));
+        } else return false;
         
         *prefix = buf_pref;
         *anim_val = buf_val;
@@ -89,9 +69,12 @@ protected:
 
     // 【函数说明】短按切换编辑状态或保存并返回；开关项直接翻转启用状态。
     void onItemClicked(int index) override {
-        if (index == 3) { 
+        if (index == 4) { 
             SysAutoPush_UpdateConfig(t_en, t_min, t_max);
             appManager.popApp();
+        } else if (index == 3) {
+            SysAutoPush_UpdateConfig(t_en, t_min, t_max);
+            appManager.push(AppId::PrescriptTarget);
         } else {
             is_editing = !is_editing;
             drawMenuUI(visual_selection); 

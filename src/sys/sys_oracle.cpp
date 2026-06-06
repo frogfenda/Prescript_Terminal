@@ -43,7 +43,7 @@ String g_last_food_id;
 
 const char* oraclePath(SystemLang_t lang)
 {
-    return lang == LANG_ZH ? "/assets/oracle_zh.json" : "/assets/oracle_en.json";
+    return TerminalLang::OraclePath(lang);
 }
 
 const char* oracleJsonData(SystemLang_t lang)

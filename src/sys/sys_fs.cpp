@@ -14,25 +14,35 @@ void SysFS_Init() {
         Serial.println("[SYS_FS] ERROR: LittleFS 挂载失败！");
         return;
     }
-    if (!LittleFS.exists("/assets")) {
-        LittleFS.mkdir("/assets");
-    }
+    if (!LittleFS.exists("/common")) LittleFS.mkdir("/common");
+    if (!LittleFS.exists("/zh")) LittleFS.mkdir("/zh");
+    if (!LittleFS.exists("/en")) LittleFS.mkdir("/en");
+    // 旧目录只作为迁移兜底，不主动创建；这样新设备的文件系统结构更干净。
 }
 
 // 通用读取函数
-void load_pool(const char* path, std::vector<String>& pool, const char* fallback) {
-    pool.clear();
+void load_pool_from_path(const char* path, std::vector<String>& pool, bool clear_first) {
+    if (clear_first)
+        pool.clear();
     File file = LittleFS.open(path, "r");
-    if (!file) {
-        pool.push_back(fallback);
+    if (!file)
         return;
-    }
     while(file.available()) {
         String line = file.readStringUntil('\n');
         line.trim();
         if (line.length() > 0) pool.push_back(line);
     }
     file.close();
+}
+
+// 【函数说明】按新路径优先加载指令池；旧 /assets 路径只作过渡兜底，方便尚未重刷 LittleFS 的开发板启动。
+void load_pool(SystemLang_t lang, std::vector<String>& pool) {
+    pool.clear();
+    load_pool_from_path(TerminalLang::PrescriptPath(lang), pool, false);
+    if (pool.empty())
+        load_pool_from_path(TerminalLang::LegacyPrescriptPath(lang), pool, false);
+    if (pool.empty())
+        pool.push_back(TerminalLang::PrescriptFallback(lang));
 }
 
 void SysFS_Load_Prescripts() {
@@ -45,20 +55,20 @@ void SysFS_Load_Prescripts() {
         SystemLang_t lang = TerminalLang::DEFAULT_LANG;
         if (lang == LANG_ZH)
         {
-            load_pool(TerminalLang::PrescriptPath(LANG_ZH), sys_prescripts_zh, TerminalLang::PrescriptFallback(LANG_ZH));
+            load_pool(LANG_ZH, sys_prescripts_zh);
             Serial.printf("[SYS_FS] 中文锁定版数据库载入：中文 %d 条，英文库跳过。\n", (int)sys_prescripts_zh.size());
         }
         else
         {
-            load_pool(TerminalLang::PrescriptPath(LANG_EN), sys_prescripts_en, TerminalLang::PrescriptFallback(LANG_EN));
+            load_pool(LANG_EN, sys_prescripts_en);
             Serial.printf("[SYS_FS] EN locked DB loaded: EN %d records, ZH pool skipped.\n", (int)sys_prescripts_en.size());
         }
         return;
     }
 
     // 运行时语言切换版保持旧行为：同时加载双语库。
-    load_pool(TerminalLang::PrescriptPath(LANG_ZH), sys_prescripts_zh, TerminalLang::PrescriptFallback(LANG_ZH));
-    load_pool(TerminalLang::PrescriptPath(LANG_EN), sys_prescripts_en, TerminalLang::PrescriptFallback(LANG_EN));
+    load_pool(LANG_ZH, sys_prescripts_zh);
+    load_pool(LANG_EN, sys_prescripts_en);
     Serial.printf("[SYS_FS] 数据库载入！中文: %d 条, 英文: %d 条\n", (int)sys_prescripts_zh.size(), (int)sys_prescripts_en.size());
 }
 

@@ -7,6 +7,7 @@
 #define __SYS_CONFIG_H
 #include <Arduino.h>
 #include "sys_constants.h"
+#include "../lang/terminal_lang.h"
 
 struct PomodoroPreset
 {
@@ -89,6 +90,9 @@ public:
     GachaStatsData gacha_stats; // <--- 【新增】：抽卡统计数据全局接入口
     CoinPreset coin_presets[PrescriptConst::MAX_COIN_PRESETS];
     int coin_preset_count = 0;
+    uint8_t prescript_target_count = 0;
+    String prescript_targets[PrescriptConst::MAX_PRESCRIPT_TARGETS];
+    String current_prescript_target;
     uint8_t alarm_count;
     AlarmPreset alarms[PrescriptConst::MAX_ALARMS];
     uint8_t decode_anim_style; // 【新增】：解码动画样式 (0:动画一, 1:动画二)
@@ -101,9 +105,14 @@ public:
     uint8_t nfc_mode;
     uint32_t special_toggles; // 开关位掩码 (默认 0xFFFFFFFF 全开)
     uint8_t char_progress[PrescriptConst::MAX_CHAR_CHAINS]; // 人物链条进度表 (最多支持 8 个特殊人物)
-    // 【接口说明】读取 config.json 并填充 SysConfig 字段。
+    // 【接口说明】读取公共配置和当前语言配置，并填充 SysConfig 字段。
     void load();
     void save();
+    // 【接口说明】只保存设备级公共配置，例如 WiFi、音量、休眠、网络校时和当前语言。
+    void saveCommon();
+    // 【接口说明】读取/保存指定语言的内容配置，例如闹钟、日程、使用者、特异点进度和文本预设。
+    void loadLanguageProfile(SystemLang_t lang);
+    void saveLanguageProfile(SystemLang_t lang);
 };
 
 extern SysConfig sysConfig;
