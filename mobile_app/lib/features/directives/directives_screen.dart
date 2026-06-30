@@ -334,6 +334,13 @@ class SpecialDirectiveTab extends StatelessWidget {
           children: [
             TerminalPanel(
               title: text.pick('特异点数据库', 'Special Directive Database'),
+              action: TerminalButton(
+                label: text.refresh,
+                compact: true,
+                onPressed: terminal.state.isConnected
+                    ? () => terminal.requestSyncScope('SPC')
+                    : null,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: specials.isEmpty

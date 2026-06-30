@@ -1,20 +1,20 @@
-#include <Arduino.h>
+﻿#include <Arduino.h>
 #include <WiFi.h>
-#include "sys_config.h"
-#include "sys_time.h"
-#include "sys_network.h"
-#include "sys_auto_push.h"
-#include "sys_ble.h"
-#include "sys_fs.h"
-#include "hal.h"
-#include "app_manager.h"
+#include "sys/sys_config.h"
+#include "sys/sys_time.h"
+#include "sys/sys_network.h"
+#include "sys/sys_auto_push.h"
+#include "sys/sys_ble.h"
+#include "sys/sys_fs.h"
+#include "hal/hal.h"
+#include "sys/app_manager.h"
 #include "sys/sys_audio.h"
-#include "sys_haptic.h"
-#include "sys_nfc.h"
-#include "sys_specials.h"
-#include "sys_power.h"
-#include "sys_constants.h"
-#include "sys_prescript_target.h"
+#include "sys/sys_haptic.h"
+#include "sys/sys_nfc.h"
+#include "sys/sys_specials.h"
+#include "sys/sys_power.h"
+#include "sys/sys_constants.h"
+#include "sys/sys_prescript_target.h"
 
 void setup()
 {

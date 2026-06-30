@@ -35,8 +35,9 @@ class TerminalController extends ChangeNotifier {
   final TerminalProtocolParser _parser = TerminalProtocolParser();
   StreamSubscription<String>? _messageSub;
   StreamSubscription<bool>? _connectionSub;
-  int _pendingAckSyncCount = 0;
+  final List<String> _pendingAckSyncScopes = [];
   Timer? _syncTimer;
+  final Map<String, Timer> _scopeSyncTimers = {};
 
   TerminalState state = const TerminalState();
   List<CloudDirective> cloudDirectives = const [];
@@ -66,14 +67,21 @@ class TerminalController extends ChangeNotifier {
 
   Future<void> disconnect() => _ble.disconnect();
 
-  Future<void> sendRaw(String command, {bool? syncAfter}) async {
+  Future<void> sendRaw(String command,
+      {bool? syncAfter, String? syncScope}) async {
     final shouldSync = syncAfter ?? TerminalCommands.commandNeedsSync(command);
-    if (shouldSync) _pendingAckSyncCount++;
+    if (shouldSync) {
+      _pendingAckSyncScopes.add(
+          (syncScope ?? TerminalCommands.syncScopeForCommand(command))
+              .toUpperCase());
+    }
     try {
       await _ble.write(command);
       _appendLog('TX $command');
     } catch (error) {
-      if (shouldSync && _pendingAckSyncCount > 0) _pendingAckSyncCount--;
+      if (shouldSync && _pendingAckSyncScopes.isNotEmpty) {
+        _pendingAckSyncScopes.removeAt(0);
+      }
       _appendLog('TX ERR $error');
       rethrow;
     }
@@ -81,8 +89,26 @@ class TerminalController extends ChangeNotifier {
 
   void requestSync({Duration delay = const Duration(milliseconds: 180)}) {
     _syncTimer?.cancel();
+    for (final timer in _scopeSyncTimers.values) {
+      timer.cancel();
+    }
+    _scopeSyncTimers.clear();
     _syncTimer = Timer(delay, () {
       sendRaw(TerminalCommands.sync(state.language), syncAfter: false);
+    });
+  }
+
+  void requestSyncScope(String scope,
+      {Duration delay = const Duration(milliseconds: 180)}) {
+    final normalized = scope.toUpperCase();
+    if (normalized == 'ALL') {
+      requestSync(delay: delay);
+      return;
+    }
+    _scopeSyncTimers[normalized]?.cancel();
+    _scopeSyncTimers[normalized] = Timer(delay, () {
+      _scopeSyncTimers.remove(normalized);
+      sendRaw(TerminalCommands.syncScope(normalized), syncAfter: false);
     });
   }
 
@@ -190,21 +216,14 @@ class TerminalController extends ChangeNotifier {
           lastAck: message.raw,
           lastStatus: 'ACK ${message.level}: ${message.label}',
         );
-        if (_pendingAckSyncCount > 0) {
-          _pendingAckSyncCount--;
+        if (_pendingAckSyncScopes.isNotEmpty) {
+          final scope = _pendingAckSyncScopes.removeAt(0);
           if (message.level != 'ERR') {
-            requestSync(delay: const Duration(milliseconds: 160));
+            requestSyncScope(scope, delay: const Duration(milliseconds: 160));
           }
         }
       case SyncClearMessage():
-        state = state.copyWith(
-          alarms: const [],
-          schedules: const [],
-          prescripts: const [],
-          coins: const [],
-          prescriptTargets: const [],
-          currentPrescriptTarget: '',
-        );
+        _clearSyncScope(message.scope);
       case AlarmSyncMessage():
         state = state.copyWith(alarms: [...state.alarms, message.record]);
       case ScheduleSyncMessage():
@@ -214,6 +233,8 @@ class TerminalController extends ChangeNotifier {
             state.copyWith(prescripts: [...state.prescripts, message.record]);
       case CoinSyncMessage():
         state = state.copyWith(coins: [...state.coins, message.record]);
+      case PomodoroSyncMessage():
+        state = state.copyWith(pomodoros: [...state.pomodoros, message.record]);
       case TargetSyncMessage():
         state = state.copyWith(
           prescriptTargets: message.items,
@@ -239,6 +260,37 @@ class TerminalController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _clearSyncScope(String scope) {
+    switch (scope.toUpperCase()) {
+      case 'ALM':
+        state = state.copyWith(alarms: const []);
+      case 'SCH':
+        state = state.copyWith(schedules: const []);
+      case 'COIN':
+        state = state.copyWith(coins: const []);
+      case 'POM':
+        state = state.copyWith(pomodoros: const []);
+      case 'SPC':
+        state = state.copyWith(specials: const {});
+      case 'TGT':
+        state = state.copyWith(
+          prescriptTargets: const [],
+          currentPrescriptTarget: '',
+        );
+      default:
+        state = state.copyWith(
+          alarms: const [],
+          schedules: const [],
+          prescripts: const [],
+          coins: const [],
+          pomodoros: const [],
+          prescriptTargets: const [],
+          currentPrescriptTarget: '',
+          specials: const {},
+        );
+    }
+  }
+
   void _appendLog(String line, {bool notify = true}) {
     final next = [line, ...state.logs].take(80).toList();
     state = state.copyWith(logs: next);
@@ -248,6 +300,9 @@ class TerminalController extends ChangeNotifier {
   @override
   void dispose() {
     _syncTimer?.cancel();
+    for (final timer in _scopeSyncTimers.values) {
+      timer.cancel();
+    }
     _messageSub?.cancel();
     _connectionSub?.cancel();
     _ble.dispose();

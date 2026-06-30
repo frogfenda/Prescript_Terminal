@@ -67,6 +67,34 @@ class CoinRecord {
   }
 }
 
+class PomodoroRecord {
+  const PomodoroRecord({
+    required this.slot,
+    required this.name,
+    required this.workMinutes,
+    required this.restMinutes,
+    required this.currentSlot,
+  });
+
+  final int slot;
+  final String name;
+  final int workMinutes;
+  final int restMinutes;
+  final int currentSlot;
+
+  bool get isCurrent => slot == currentSlot;
+
+  factory PomodoroRecord.fromJson(Map<String, dynamic> json) {
+    return PomodoroRecord(
+      slot: (json['slot'] as num?)?.toInt() ?? 0,
+      name: json['n']?.toString() ?? '',
+      workMinutes: (json['w'] as num?)?.toInt() ?? 0,
+      restMinutes: (json['r'] as num?)?.toInt() ?? 0,
+      currentSlot: (json['cur'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 class PrescriptRecord {
   const PrescriptRecord({
     required this.text,

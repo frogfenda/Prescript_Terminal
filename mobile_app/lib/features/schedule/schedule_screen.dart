@@ -167,6 +167,7 @@ class _CoinPresetTabState extends State<CoinPresetTab> {
                                 name: nameController.text,
                               ),
                               syncAfter: true,
+                              syncScope: 'COIN',
                             )
                         : null,
                   ),
@@ -175,6 +176,13 @@ class _CoinPresetTabState extends State<CoinPresetTab> {
             ),
             TerminalPanel(
               title: text.pick('已同步硬币预设', 'Synced Coin Presets'),
+              action: TerminalButton(
+                label: text.refresh,
+                compact: true,
+                onPressed: terminal.state.isConnected
+                    ? () => terminal.requestSyncScope('COIN')
+                    : null,
+              ),
               child: Column(
                 children: terminal.state.coins.isEmpty
                     ? [
@@ -196,7 +204,8 @@ class _CoinPresetTabState extends State<CoinPresetTab> {
                             onPressed: terminal.state.isConnected
                                 ? () => terminal.sendRaw(
                                     TerminalCommands.deleteCoin(coin.name),
-                                    syncAfter: true)
+                                    syncAfter: true,
+                                    syncScope: 'COIN')
                                 : null,
                           ),
                         );
@@ -274,6 +283,7 @@ class _AlarmTabState extends State<AlarmTab> {
                                 text: textController.text,
                               ),
                               syncAfter: true,
+                              syncScope: 'ALM',
                             )
                         : null,
                   ),
@@ -282,6 +292,13 @@ class _AlarmTabState extends State<AlarmTab> {
             ),
             TerminalPanel(
               title: text.pick('已同步闹钟', 'Synced Alarms'),
+              action: TerminalButton(
+                label: text.refresh,
+                compact: true,
+                onPressed: terminal.state.isConnected
+                    ? () => terminal.requestSyncScope('ALM')
+                    : null,
+              ),
               child: Column(
                 children: terminal.state.alarms.isEmpty
                     ? [
@@ -302,7 +319,8 @@ class _AlarmTabState extends State<AlarmTab> {
                             onPressed: terminal.state.isConnected
                                 ? () => terminal.sendRaw(
                                     TerminalCommands.deleteAlarm(alarm.name),
-                                    syncAfter: true)
+                                    syncAfter: true,
+                                    syncScope: 'ALM')
                                 : null,
                           ),
                         );
@@ -391,6 +409,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                                 text: textController.text,
                               ),
                               syncAfter: true,
+                              syncScope: 'SCH',
                             )
                         : null,
                   ),
@@ -399,6 +418,13 @@ class _ScheduleTabState extends State<ScheduleTab> {
             ),
             TerminalPanel(
               title: text.pick('生效日程', 'Active Schedules'),
+              action: TerminalButton(
+                label: text.refresh,
+                compact: true,
+                onPressed: terminal.state.isConnected
+                    ? () => terminal.requestSyncScope('SCH')
+                    : null,
+              ),
               child: Column(
                 children: terminal.state.schedules.isEmpty
                     ? [
@@ -420,7 +446,8 @@ class _ScheduleTabState extends State<ScheduleTab> {
                                 ? () => terminal.sendRaw(
                                     TerminalCommands.deleteSchedule(
                                         schedule.name),
-                                    syncAfter: true)
+                                    syncAfter: true,
+                                    syncScope: 'SCH')
                                 : null,
                           ),
                         );
@@ -478,14 +505,13 @@ class _PomodoroTabState extends State<PomodoroTab> {
                     initialValue: slot,
                     decoration:
                         InputDecoration(labelText: text.pick('槽位', 'Slot')),
-                    items: [
-                      DropdownMenuItem(
-                          value: 0, child: Text(text.pick('槽位 0', 'Slot 0'))),
-                      DropdownMenuItem(
-                          value: 1, child: Text(text.pick('槽位 1', 'Slot 1'))),
-                      DropdownMenuItem(
-                          value: 2, child: Text(text.pick('槽位 2', 'Slot 2'))),
-                    ],
+                    items: List.generate(
+                      5,
+                      (index) => DropdownMenuItem(
+                        value: index,
+                        child: Text(text.pick('槽位 $index', 'Slot $index')),
+                      ),
+                    ),
                     onChanged: (value) => setState(() => slot = value ?? 0),
                   ),
                   const SizedBox(height: 8),
@@ -519,6 +545,7 @@ class _PomodoroTabState extends State<PomodoroTab> {
                                     int.tryParse(restController.text) ?? 5,
                               ),
                               syncAfter: true,
+                              syncScope: 'POM',
                             )
                         : null,
                   ),
@@ -526,13 +553,41 @@ class _PomodoroTabState extends State<PomodoroTab> {
               ),
             ),
             TerminalPanel(
-              title: text.pick('未来时间线', 'Future Timeline'),
-              child: Text(
-                text.pick(
-                  '预留：隐藏日程、远程投递计划、周期指令、云端待投递队列。',
-                  'Reserved: hidden schedules, remote delivery plans, recurring directives, and pending cloud queue.',
-                ),
-                style: const TextStyle(color: TerminalColors.muted),
+              title: text.pick('已同步专注预设', 'Synced Focus Presets'),
+              action: TerminalButton(
+                label: text.refresh,
+                compact: true,
+                onPressed: terminal.state.isConnected
+                    ? () => terminal.requestSyncScope('POM')
+                    : null,
+              ),
+              child: Column(
+                children: terminal.state.pomodoros.isEmpty
+                    ? [
+                        Text(
+                          text.pick(
+                              '等待设备同步专注预设。', 'Waiting for focus preset sync.'),
+                          style: const TextStyle(color: TerminalColors.muted),
+                        ),
+                      ]
+                    : terminal.state.pomodoros.map((pomodoro) {
+                        return TerminalListTile(
+                          title:
+                              '${pomodoro.isCurrent ? '* ' : ''}${text.pick('槽位', 'Slot')} ${pomodoro.slot} ${pomodoro.name}',
+                          subtitle:
+                              '${text.pick('专注', 'Work')} ${pomodoro.workMinutes} / ${text.pick('休息', 'Rest')} ${pomodoro.restMinutes}',
+                          onTap: () {
+                            setState(() {
+                              slot = pomodoro.slot;
+                              nameController.text = pomodoro.name;
+                              workController.text =
+                                  pomodoro.workMinutes.toString();
+                              restController.text =
+                                  pomodoro.restMinutes.toString();
+                            });
+                          },
+                        );
+                      }).toList(),
               ),
             ),
           ],

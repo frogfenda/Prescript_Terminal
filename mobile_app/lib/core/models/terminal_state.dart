@@ -22,6 +22,7 @@ class TerminalState {
     this.schedules = const [],
     this.prescripts = const [],
     this.coins = const [],
+    this.pomodoros = const [],
     this.prescriptTargets = const [],
     this.currentPrescriptTarget = '',
     this.specials = const {},
@@ -39,6 +40,7 @@ class TerminalState {
   final List<ScheduleRecord> schedules;
   final List<PrescriptRecord> prescripts;
   final List<CoinRecord> coins;
+  final List<PomodoroRecord> pomodoros;
   final List<String> prescriptTargets;
   final String currentPrescriptTarget;
   final Map<String, SpecialRecord> specials;
@@ -59,6 +61,7 @@ class TerminalState {
     List<ScheduleRecord>? schedules,
     List<PrescriptRecord>? prescripts,
     List<CoinRecord>? coins,
+    List<PomodoroRecord>? pomodoros,
     List<String>? prescriptTargets,
     String? currentPrescriptTarget,
     Map<String, SpecialRecord>? specials,
@@ -76,6 +79,7 @@ class TerminalState {
       schedules: schedules ?? this.schedules,
       prescripts: prescripts ?? this.prescripts,
       coins: coins ?? this.coins,
+      pomodoros: pomodoros ?? this.pomodoros,
       prescriptTargets: prescriptTargets ?? this.prescriptTargets,
       currentPrescriptTarget:
           currentPrescriptTarget ?? this.currentPrescriptTarget,

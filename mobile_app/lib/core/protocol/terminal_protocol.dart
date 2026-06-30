@@ -16,6 +16,7 @@ String sanitizeCommandField(String value, {bool keepColon = false}) {
 class TerminalCommands {
   static String getLanguage() => 'GET:LANG';
   static String sync(String lang) => 'GET:SYNC:${lang.toUpperCase()}';
+  static String syncScope(String scope) => 'GET:SYNC:${scope.toUpperCase()}';
   static String getSpecialText(String id) =>
       'GET:SPC_TXT:${sanitizeCommandField(id, keepColon: true)}';
   static String textNotify(String text) => 'TXT:${sanitizeCommandField(text)}';
@@ -88,6 +89,23 @@ class TerminalCommands {
             .hasMatch(command) ||
         command.startsWith('TGT_');
   }
+
+  static String syncScopeForCommand(String command) {
+    if (command.startsWith('ALM:') || command.startsWith('ALM_DEL:')) {
+      return 'ALM';
+    }
+    if (command.startsWith('SCH:') ||
+        command.startsWith('SCH_HID:') ||
+        command.startsWith('SCH_DEL:')) {
+      return 'SCH';
+    }
+    if (command.startsWith('COIN:') || command.startsWith('COIN_DEL:')) {
+      return 'COIN';
+    }
+    if (command.startsWith('POM:')) return 'POM';
+    if (command.startsWith('TGT_')) return 'TGT';
+    return 'ALL';
+  }
 }
 
 sealed class TerminalMessage {
@@ -119,7 +137,9 @@ class AckMessage extends TerminalMessage {
 }
 
 class SyncClearMessage extends TerminalMessage {
-  const SyncClearMessage();
+  const SyncClearMessage({this.scope = 'ALL'});
+
+  final String scope;
 }
 
 class AlarmSyncMessage extends TerminalMessage {
@@ -140,6 +160,11 @@ class PrescriptSyncMessage extends TerminalMessage {
 class CoinSyncMessage extends TerminalMessage {
   const CoinSyncMessage(this.record);
   final CoinRecord record;
+}
+
+class PomodoroSyncMessage extends TerminalMessage {
+  const PomodoroSyncMessage(this.record);
+  final PomodoroRecord record;
 }
 
 class TargetSyncMessage extends TerminalMessage {
@@ -192,6 +217,9 @@ class TerminalProtocolParser {
       return AckMessage(level: level, label: label, raw: raw);
     }
     if (raw == 'SYNC:CLEAR') return const SyncClearMessage();
+    if (raw.startsWith('SYNC:CLEAR:')) {
+      return SyncClearMessage(scope: raw.substring(11).toUpperCase());
+    }
     if (raw.startsWith('SYNC:ALM:')) {
       return _safeJson(raw, 'SYNC:ALM:',
           (json) => AlarmSyncMessage(AlarmRecord.fromJson(json)));
@@ -207,6 +235,10 @@ class TerminalProtocolParser {
     if (raw.startsWith('SYNC:COIN:')) {
       return _safeJson(raw, 'SYNC:COIN:',
           (json) => CoinSyncMessage(CoinRecord.fromJson(json)));
+    }
+    if (raw.startsWith('SYNC:POM:')) {
+      return _safeJson(raw, 'SYNC:POM:',
+          (json) => PomodoroSyncMessage(PomodoroRecord.fromJson(json)));
     }
     if (raw.startsWith('SYNC:TGT:')) {
       return _safeJson(raw, 'SYNC:TGT:', (json) {

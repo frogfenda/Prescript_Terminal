@@ -7,6 +7,7 @@ V1 keeps the firmware's text command protocol intact.
 ```text
 GET:LANG
 GET:SYNC:ZH
+GET:SYNC:<ALM|SCH|COIN|POM|SPC|TGT>
 GET:SPC_TXT:Rien
 TXT:<text>
 SPC:<id>
@@ -30,10 +31,13 @@ ACK:OK:PRE:ADDED
 ACK:WARN:ALM:UPDATED
 ACK:ERR:SCH:SCH_INVALID_TIME
 SYNC:CLEAR
+SYNC:CLEAR:<ALM|SCH|COIN|POM|SPC|TGT>
 SYNC:ALM:{...}
 SYNC:SCH:{...}
 SYNC:PRE:{...}
 SYNC:COIN:{...}
+SYNC:POM:{...}
+SYNC:TGT:{...}
 SPC_META:C|Rien|...|...
 SPC_TXT:Rien|...
 ```

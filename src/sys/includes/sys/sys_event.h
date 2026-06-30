@@ -1,0 +1,79 @@
+/*
+【模块职责】同步事件总线接口。SysRouter、NFC、网络等模块发布事件，App 与系统服务订阅事件完成实际保存、删除和弹窗。
+【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+*/
+// 文件：src/sys/sys_event.h
+#pragma once
+#include <Arduino.h>
+#include <string.h>
+
+// 1. 在 enum SysEventID 里面加一行：
+enum SysEventID {
+    EVT_SCHEDULE_ADD,
+    EVT_SCHEDULE_DEL,
+    EVT_ALARM_ADD,
+    EVT_ALARM_DEL,
+    EVT_POMODORO_UPDATE,
+    EVT_NOTIFY_CUSTOM,
+    EVT_BLE_SYNC_REQ,
+    EVT_NFC_SCANNED,
+    EVT_PRESCRIPT_ADD,   // 【新增】：添加都市指令频道
+    EVT_WIFI_SET,
+    EVT_COIN_PRESET_ADD, // 【新增】：添加或覆写硬币预设
+    EVT_COIN_PRESET_DEL,  // 【新增】：删除硬币预设
+    EVT_PRESCRIPT_DEL,   // 【新增】：删除都市指令频道
+    EVT_SPECIAL_FORCE    // 【新增】：特异点/人物剧情强制触发频道
+};
+
+
+// 2. 在下方结构体区域，增加弹窗专用电报：
+struct Evt_Notify_t { const char* text; bool keep_stack; };
+// 2. 定义电报数据包 (Payload)
+struct Evt_SchAdd_t { uint32_t tt; const char* title; const char* text; bool is_hidden; };
+struct Evt_SchDel_t { const char* title; };
+struct Evt_AlmAdd_t { const char* name; int hour; int min; const char* text; };
+struct Evt_AlmDel_t { const char* name; };
+struct Evt_PomUpd_t { int idx; const char* name; int w; int r; };
+struct Evt_BleSyncReq_t { const char* scope; };
+
+// 【函数说明】判断一次蓝牙同步请求是否属于当前模块；空载荷和 ALL 都按旧版全量同步处理。
+inline bool SysEvent_BleSyncScopeMatches(void* payload, const char* scope)
+{
+    Evt_BleSyncReq_t* req = (Evt_BleSyncReq_t*)payload;
+    if (!req || !req->scope || strcmp(req->scope, "ALL") == 0)
+        return true;
+    return strcmp(req->scope, scope) == 0;
+}
+// 2. 在下方结构体区域，增加对应的数据包：
+struct Evt_PreAdd_t { 
+    int lang; // 0代表中文(ZH)，1代表英文(EN)
+    const char* text; 
+};
+struct Evt_PreDel_t { 
+    int lang; 
+    const char* text; 
+};
+// 定义一个 NFC 电报包裹
+struct Evt_NfcScanned_t {
+    char uid[32];     // 卡片的物理 UID
+    char payload[512]; // 解析出的文本指令 (如 "PRE:ZH:生成E.G.O侵蚀警告")
+};
+// 【新增】：硬币预设的数据包裹
+
+struct Evt_CoinAdd_t { int bp; int cp; int cc; const char* colors; const char* name; };
+struct Evt_CoinDel_t { const char* name; };
+
+struct Evt_WifiSet_t { 
+    const char* ssid; 
+    const char* pass; 
+};
+
+// 【新增】：特异点强推的数据包裹
+struct Evt_SpcForce_t { const char* id; };
+
+// 3. 邮局接口声明
+typedef void (*SysEventCallback)(void* payload);
+
+// 【接口说明】订阅一个系统事件，事件发布时回调会被同步调用。
+void SysEvent_Subscribe(SysEventID evt, SysEventCallback cb);
+void SysEvent_Publish(SysEventID evt, void* payload);
