@@ -9,6 +9,10 @@
 */
 #include "sys/sys_time.h"
 #include "sys/sys_config.h"
+/*
+//接入RTC
+#include "bsp/bsp_pcf8563.h"
+*/
 #include <sys/time.h>
 #include <limits.h>
 
@@ -227,6 +231,14 @@ void SysTime_Init()
     s_has_network_sync = false;
 
     /*
+    //接入RTC
+    BSP::Pcf8563::Begin()
+    BSP::Pcf8563::ReadTime(&rtc_info)
+    _EpochFromLocalDateTime(...)
+    _SetSystemEpoch(rtc_epoch)
+    */
+
+    /*
      * 使用最近一次网络对时保存下来的 UTC epoch 作为开机兜底时间。
      * 这一步只解决开机显示不再停在 1970/异常日期；由于设备断电期间没有可靠计时，
      * 这里不会设置 s_has_network_sync，Network_Update 仍会按策略尽快发起真正的 NTP 校时。
@@ -312,6 +324,10 @@ void SysTime_MarkNetworkSynced()
 
         struct tm info;
         localtime_r(&now_epoch, &info);
+        /*
+        //接入RTC
+        BSP::Pcf8563::WriteTime(info)
+        */
         Serial.printf(
             "[时间] 已保存本次网络对时时间：%04d-%02d-%02d %02d:%02d:%02d，epoch=%lu。\n",
             info.tm_year + 1900,
@@ -389,6 +405,10 @@ void SysTime_SetTodayClock(uint8_t hour, uint8_t minute)
     time_t now = time(nullptr);
     struct tm verify;
     localtime_r(&now, &verify);
+    /*
+    //接入RTC
+    BSP::Pcf8563::WriteTime(verify)
+    */
 
     Serial.printf(
         "[时间] 已手动设置当日时间：%04u-%02u-%02u %02u:%02u:00，校验显示=%04d-%02d-%02d %02d:%02d。\n",
@@ -444,6 +464,10 @@ void SysTime_SetDate(uint16_t year, uint8_t month, uint8_t day)
     time_t now = time(nullptr);
     struct tm verify;
     localtime_r(&now, &verify);
+    /*
+    //接入RTC
+    BSP::Pcf8563::WriteTime(verify)
+    */
 
     Serial.printf(
         "[时间] 已手动设置日期：%04u-%02u-%02u，保留时间=%02u:%02u:%02u，校验显示=%04d-%02d-%02d %02d:%02d:%02d。\n",
