@@ -30,7 +30,6 @@ namespace PrescriptConst
 
     constexpr int PIN_I2C_SDA = BSP::Pins::I2C_SDA;
     constexpr int PIN_I2C_SCL = BSP::Pins::I2C_SCL;
-    constexpr uint8_t DRV2605_ADDR = 0x5A;
 
     constexpr int PIN_NFC_SCK = BSP::Pins::NFC_SCK;
     constexpr int PIN_NFC_MISO = BSP::Pins::NFC_MISO;
@@ -43,18 +42,17 @@ namespace PrescriptConst
     // -----------------------------------------------------------------------------
     /*
      * 新屏幕说明：
-     * - 面板可视区：142×428；设备横向使用后为 428×142；
-     * - TFT_eSPI 仍借用 ST7789 驱动通道，但通过 HAL 补发 NV3007 初始化序列；
-     * - platformio.ini 中 TFT_WIDTH 必须设为 156、TFT_HEIGHT 设为 428；
-     * - 156 不是可视宽度，而是控制器原生方向的 RAM 宽度，用来覆盖 column offset 后的可视范围；
-     * - DISPLAY_RAM_OFFSET_Y=14 是实测后的横屏写入偏移，用来消除底部花线并保持画面居中。
+     * - 面板物理可视区：168×428；设备横向使用后，工程 UI 仍保持 428×142 逻辑画布；
+     * - BSP::DisplayNv3007 通过 QSPI 直写 NV3007，不再依赖 TFT_eSPI 的面板驱动；
+     * - DISPLAY_ROTATION=3 为当前外壳方向的反向横屏，等价于相对 rotation=1 反转 180 度；
+     * - rotation=3 时需要把 142px 逻辑短边推到 168px 物理短边的另一侧，偏移为 168-142=26。
      */
     constexpr uint16_t DISPLAY_VISIBLE_WIDTH = 428;
     constexpr uint16_t DISPLAY_VISIBLE_HEIGHT = 142;
-    constexpr uint8_t DISPLAY_ROTATION = 1;
+    constexpr uint8_t DISPLAY_ROTATION = 3;
 
     constexpr int16_t DISPLAY_RAM_OFFSET_X = 0;
-    constexpr int16_t DISPLAY_RAM_OFFSET_Y = 14;
+    constexpr int16_t DISPLAY_RAM_OFFSET_Y = 26;
 
     // 逻辑 UI 画布：本分支不保留旧兼容模式，所有页面直接面向 428×142 设计。
     constexpr uint16_t UI_SCREEN_WIDTH = DISPLAY_VISIBLE_WIDTH;
@@ -76,7 +74,19 @@ namespace PrescriptConst
     // -----------------------------------------------------------------------------
     // Runtime timings and capacities
     // -----------------------------------------------------------------------------
-    constexpr uint8_t CPU_RUNTIME_MHZ = 160;
+    // 运行期保持 240MHz；菜单全屏重绘、U8g2 测宽和 QSPI 旋转推屏都吃 CPU。
+    constexpr uint8_t CPU_RUNTIME_MHZ = 240;
+
+    /*
+     * 当前旋钮为 12 脉冲/圈的 AB 相编码器。
+     * HAL 使用完整正交解码：每个物理脉冲包含 4 个边沿，因此 12 脉冲/圈对应 12 个菜单步进/圈。
+     */
+    constexpr uint8_t ENCODER_PULSES_PER_REV = 12;
+    constexpr uint8_t ENCODER_EDGES_PER_PULSE = 4;
+    constexpr uint16_t ENCODER_EDGE_DEBOUNCE_US = 120;
+    constexpr uint8_t ENCODER_PREDICT_MIN_EDGES = 2;
+    constexpr uint16_t ENCODER_PREDICT_IDLE_US = 8000;
+    constexpr uint16_t ENCODER_STATS_INTERVAL_MS = 2000;
     constexpr uint32_t DEFAULT_IDLE_SLEEP_MS = 30000UL;
     constexpr uint32_t NEVER_SLEEP_MS = 0xFFFFFFFFUL;
     constexpr uint32_t BUTTON_LONG_MS = 800UL;

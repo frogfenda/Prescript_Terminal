@@ -1,5 +1,5 @@
 ﻿/*
-【模块职责】硬件抽象实现。负责 NV3007 长条屏 + U8g2 显示、旋钮 A/B 相中断计数、两个按键的短按/长按/双击识别，以及通过 BSP 调度背光、功放、屏幕休眠等硬件动作。
+【模块职责】硬件抽象实现。负责 NV3007 QSPI 长条屏 + U8g2 内存画布显示、旋钮 A/B 相中断计数、两个按键的短按/长按/双击识别，以及通过 BSP 调度背光、功放、屏幕休眠等硬件动作。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/hal/hal.cpp
@@ -22,16 +22,31 @@ TFT_eSprite textSprite = TFT_eSprite(&tft);
 U8g2_for_TFT_eSPI u8f;
 
 volatile int raw_knob_counter = 0;
+static volatile uint8_t knob_last_ab = 0xFF;
+static volatile uint8_t knob_rest_ab = 0xFF;
+static volatile int8_t knob_edge_accum = 0;
+static volatile int8_t knob_last_dir = 0;
+static volatile uint32_t knob_last_valid_edge_us = 0;
+static volatile uint32_t knob_last_irq_us = 0;
+static volatile uint32_t knob_stat_irq = 0;
+static volatile uint32_t knob_stat_valid_edges = 0;
+static volatile uint32_t knob_stat_steps = 0;
+static volatile int32_t knob_stat_position = 0;
+static volatile uint32_t knob_stat_predicted = 0;
+static volatile uint32_t knob_stat_debounce = 0;
+static volatile uint32_t knob_stat_duplicate = 0;
+static volatile uint32_t knob_stat_invalid = 0;
+static volatile uint32_t knob_stat_reversal = 0;
 
 /*
- * 将逻辑 UI 坐标转换为 NV3007 实际写屏坐标。
+ * 将逻辑 UI 坐标转换为 NV3007 QSPI 驱动的横屏逻辑坐标。
  *
  * UI_PUSH_X / UI_PUSH_Y 表示逻辑 Sprite 在新横屏 428×142 可视区域中的位置；当前全屏适配阶段为 0,0；
- * DISPLAY_RAM_OFFSET_X / DISPLAY_RAM_OFFSET_Y 表示 NV3007 控制器内部 GRAM 可视区偏移。
+ * DISPLAY_RAM_OFFSET_X / DISPLAY_RAM_OFFSET_Y 表示横屏逻辑画布在物理面板中的偏移。
  *
  * 这两个偏移必须分开：
  * - 想调整 UI 在可视区中的位置，改 UI_PUSH_X / UI_PUSH_Y；
- * - 想修正 NV3007 控制器写窗口错位，改 DISPLAY_RAM_OFFSET_*。
+ * - 想修正 NV3007 物理面板上的画布位置，改 DISPLAY_RAM_OFFSET_*。
  */
 static inline int16_t HAL_DisplayRawX(int16_t logical_x)
 {
@@ -43,33 +58,95 @@ static inline int16_t HAL_DisplayRawY(int16_t logical_y)
     return logical_y + PrescriptConst::DISPLAY_RAM_OFFSET_Y;
 }
 
-// NV3007/NV3006A1 初始化序列已下放到 BSP::DisplayNv3007，HAL 只保留绘图与输入抽象。
+// NV3007/NV3006A1 QSPI 初始化和刷新已下放到 BSP::DisplayNv3007，HAL 只保留绘图与输入抽象。
 
-// 【函数说明】旋钮 A 相中断：读取 B 相判断方向，将 raw_knob_counter 加一或减一。
+// 【函数说明】旋钮 A/B 相中断：带轻量消抖和统计的 12 脉冲机械编码器正交解码。
 IRAM_ATTR void ISR_Knob_Turn()
 {
-    static uint8_t old_AB = 3;
     static const int8_t enc_states[] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+
+    uint32_t now_us = micros();
+    ++knob_stat_irq;
+
     uint8_t A = digitalRead(PIN_KNOB_A);
     uint8_t B = digitalRead(PIN_KNOB_B);
-    old_AB <<= 2;
-    old_AB |= ((A << 1) | B);
-    raw_knob_counter += enc_states[(old_AB & 0x0f)];
+    uint8_t state = (uint8_t)((A << 1) | B);
+    uint8_t old_state = knob_last_ab;
+
+    if (old_state > 0x03)
+    {
+        knob_last_ab = state;
+        return;
+    }
+
+    if (state == old_state)
+    {
+        ++knob_stat_duplicate;
+        return;
+    }
+
+    uint8_t transition = (uint8_t)(((old_state << 2) | state) & 0x0F);
+    knob_last_ab = state;
+
+    int8_t edge_delta = enc_states[transition];
+    if (edge_delta == 0)
+    {
+        // 机械触点抖动或两相近同时变化时会出现非法跳变；忽略它，保留已累计的有效边沿。
+        ++knob_stat_invalid;
+        return;
+    }
+
+    if (knob_last_irq_us != 0 &&
+        (uint32_t)(now_us - knob_last_irq_us) < PrescriptConst::ENCODER_EDGE_DEBOUNCE_US)
+    {
+        ++knob_stat_debounce;
+        return;
+    }
+
+    knob_last_irq_us = now_us;
+    knob_last_valid_edge_us = now_us;
+    ++knob_stat_valid_edges;
+
+    int8_t accum = knob_edge_accum;
+    if ((accum > 0 && edge_delta < 0) || (accum < 0 && edge_delta > 0))
+    {
+        accum = 0;
+        ++knob_stat_reversal;
+    }
+
+    accum += edge_delta;
+    knob_last_dir = edge_delta;
+
+    if (accum >= PrescriptConst::ENCODER_EDGES_PER_PULSE)
+    {
+        ++raw_knob_counter;
+        ++knob_stat_steps;
+        ++knob_stat_position;
+        accum = 0;
+        knob_last_dir = 0;
+    }
+    else if (accum <= -PrescriptConst::ENCODER_EDGES_PER_PULSE)
+    {
+        --raw_knob_counter;
+        ++knob_stat_steps;
+        --knob_stat_position;
+        accum = 0;
+        knob_last_dir = 0;
+    }
+
+    knob_edge_accum = accum;
 }
 
 // 【函数说明】配置显示、旋钮、按键等 HAL 资源，并调用 BSP 初始化电源轨；创建 428×142 全屏 Sprite 并设置中文字体。
 void HAL_Init()
 {
-    tft.init();
-
     /*
-     * 2.79 寸 142×428 新屏不是原来的小屏初始化序列。
-     * 这里在 TFT_eSPI 建立 SPI/引脚能力后，交给 BSP 补发厂家例程中的 NV3007 初始化命令。
-     * 初始化后再设置 rotation=1，把竖屏 142×428 转成横向 428×142 坐标系。
+     * TFT_eSPI/TFT_eSprite 这里只作为内存画布和颜色工具使用。
+     * 物理屏幕总线由 BSP::DisplayNv3007 的 QSPI 驱动接管，避免旧 SPI 面板驱动和 NV3007 时序冲突。
      */
-    BSP::DisplayNv3007::Init142x428(tft);
-    tft.setRotation(PrescriptConst::DISPLAY_ROTATION);
-    tft.fillScreen(TFT_BLACK);
+    bool displayOk = BSP::DisplayNv3007::Begin();
+    if (!displayOk)
+        BSP::DisplayNv3007::PrintDiagnostics();
 
     BSP::Power::BeginRails();
 
@@ -94,6 +171,12 @@ void HAL_Init()
     pinMode(PIN_BTN, INPUT_PULLUP);
     pinMode(PIN_KNOB_A, INPUT_PULLUP);
     pinMode(PIN_KNOB_B, INPUT_PULLUP);
+    knob_rest_ab = (uint8_t)((digitalRead(PIN_KNOB_A) << 1) | digitalRead(PIN_KNOB_B));
+    knob_last_ab = knob_rest_ab;
+    knob_edge_accum = 0;
+    knob_last_dir = 0;
+    knob_last_valid_edge_us = 0;
+    knob_last_irq_us = 0;
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_A), ISR_Knob_Turn, CHANGE);
     attachInterrupt(digitalPinToInterrupt(PIN_KNOB_B), ISR_Knob_Turn, CHANGE);
     HAL_Btn2_Init();
@@ -105,24 +188,94 @@ void HAL_Init()
     u8f.setFont(UIFontConfig::Body().font);
 }
 
-// 【函数说明】原子读取并清零旋钮累计步数，把中断层的脉冲转换为 AppManager 每帧可消费的 delta。
+// 【函数说明】原子读取并清零已经确认的旋钮 detent 步数，并在半格漏边沿时做预测补偿。
 int HAL_Get_Knob_Delta(void)
 {
-    int raw;
+    uint32_t now_us = micros();
+    int delta;
+    int8_t pending_edges;
+    uint8_t current_state;
+    uint8_t rest_state;
+    uint32_t last_edge_us;
+    uint32_t stat_irq;
+    uint32_t stat_valid;
+    uint32_t stat_steps;
+    int32_t stat_pos;
+    uint32_t stat_pred;
+    uint32_t stat_db;
+    uint32_t stat_dup;
+    uint32_t stat_invalid;
+    uint32_t stat_rev;
+
     noInterrupts();
-    raw = raw_knob_counter;
-    int delta = raw / 4;
-    if (delta != 0) {
-        raw_knob_counter -= delta * 4;
+    pending_edges = knob_edge_accum;
+    current_state = knob_last_ab;
+    rest_state = knob_rest_ab;
+    last_edge_us = knob_last_valid_edge_us;
+
+    int pending_abs = pending_edges >= 0 ? pending_edges : -pending_edges;
+    if (raw_knob_counter == 0 &&
+        pending_abs >= PrescriptConst::ENCODER_PREDICT_MIN_EDGES &&
+        current_state == rest_state &&
+        last_edge_us != 0 &&
+        (uint32_t)(now_us - last_edge_us) >= PrescriptConst::ENCODER_PREDICT_IDLE_US)
+    {
+        int predicted = (pending_edges > 0) ? 1 : -1;
+        raw_knob_counter += predicted;
+        knob_edge_accum = 0;
+        knob_last_dir = 0;
+        ++knob_stat_predicted;
+        ++knob_stat_steps;
+        knob_stat_position += predicted;
+        pending_edges = 0;
     }
+
+    delta = raw_knob_counter;
+    raw_knob_counter = 0;
+    stat_irq = knob_stat_irq;
+    stat_valid = knob_stat_valid_edges;
+    stat_steps = knob_stat_steps;
+    stat_pos = knob_stat_position;
+    stat_pred = knob_stat_predicted;
+    stat_db = knob_stat_debounce;
+    stat_dup = knob_stat_duplicate;
+    stat_invalid = knob_stat_invalid;
+    stat_rev = knob_stat_reversal;
+    pending_edges = knob_edge_accum;
+    current_state = knob_last_ab;
     interrupts();
+
+    static uint32_t last_print_ms = 0;
+    static uint32_t last_print_irq = 0;
+    uint32_t now_ms = millis();
+    if (PrescriptConst::ENCODER_STATS_INTERVAL_MS > 0 &&
+        stat_irq != last_print_irq &&
+        (now_ms - last_print_ms) >= PrescriptConst::ENCODER_STATS_INTERVAL_MS)
+    {
+        last_print_ms = now_ms;
+        last_print_irq = stat_irq;
+        Serial.printf("[ENC] irq=%lu valid=%lu step=%lu pos=%ld pred=%lu db=%lu dup=%lu invalid=%lu rev=%lu pending=%d state=%u delta=%d\n",
+                      (unsigned long)stat_irq,
+                      (unsigned long)stat_valid,
+                      (unsigned long)stat_steps,
+                      (long)stat_pos,
+                      (unsigned long)stat_pred,
+                      (unsigned long)stat_db,
+                      (unsigned long)stat_dup,
+                      (unsigned long)stat_invalid,
+                      (unsigned long)stat_rev,
+                      (int)pending_edges,
+                      (unsigned int)current_state,
+                      delta);
+    }
+
     return delta;
 }
 bool HAL_Is_Key_Pressed() { return digitalRead(PIN_BTN) == LOW; }
 
 void HAL_Screen_Clear()
 {
-    tft.fillScreen(TFT_BLACK);
+    BSP::DisplayNv3007::FillScreen(TFT_BLACK);
     textSprite.fillSprite(TFT_BLACK);
 }
 
@@ -135,7 +288,7 @@ void HAL_Screen_DrawHeader()
 }
 
 // 【函数说明】绘制待机图。
-// 新屏全屏模式下，standby.bin 必须是 428×142 的 RGB565 原始图，文件大小应为 428*142*2=121552 字节。
+// 新屏横屏模式下，standby.bin 必须匹配 HAL_Get_Screen_Width/Height 的 RGB565 原始图。
 // 如果仍然使用旧 284×76 待机图，本函数不会强行读取，避免读越界或显示错乱，而是在屏幕上给出尺寸提示。
 void HAL_Screen_DrawStandbyImage()
 {
@@ -152,7 +305,9 @@ void HAL_Screen_DrawStandbyImage()
         textSprite.drawRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_RED);
         textSprite.setTextColor(TFT_RED, TFT_BLACK);
         textSprite.drawString("NO standby.bin", 12, 12);
-        textSprite.drawString("need 428x142 RGB565", 12, 28);
+        char need_buf[40];
+        snprintf(need_buf, sizeof(need_buf), "need %ux%u RGB565", HAL_Get_Screen_Width(), HAL_Get_Screen_Height());
+        textSprite.drawString(need_buf, 12, 28);
         return;
     }
 
@@ -166,7 +321,9 @@ void HAL_Screen_DrawStandbyImage()
         textSprite.drawRect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), TFT_ORANGE);
         textSprite.setTextColor(TFT_ORANGE, TFT_BLACK);
         textSprite.drawString("standby.bin size mismatch", 12, 12);
-        textSprite.drawString("need 428x142 RGB565", 12, 28);
+        char need_buf[40];
+        snprintf(need_buf, sizeof(need_buf), "need %ux%u RGB565", HAL_Get_Screen_Width(), HAL_Get_Screen_Height());
+        textSprite.drawString(need_buf, 12, 28);
         return;
     }
 
@@ -314,13 +471,21 @@ void HAL_Screen_Update()
     /*
      * 整屏刷新逻辑 Sprite。
      *
-     * 这里实际写到物理屏幕的位置 = UI 几何居中偏移 + NV3007 GRAM 内部偏移。
-     * 这样可以在不破坏 UI 布局坐标的情况下，单独修正新屏底部花线/写窗口错位问题。
+     * 这里实际写到物理屏幕的位置 = UI 几何偏移 + NV3007 横屏逻辑偏移。
+     * BSP 会按 DISPLAY_ROTATION 把 428×142 逻辑画布旋转到 168×428 物理面板中。
      */
-    textSprite.pushSprite(
-        HAL_DisplayRawX(PrescriptConst::UI_PUSH_X),
-        HAL_DisplayRawY(PrescriptConst::UI_PUSH_Y)
-    );
+    uint16_t *sprite_ptr = (uint16_t *)textSprite.getPointer();
+    if (!sprite_ptr)
+        return;
+
+    BSP::DisplayNv3007::PushImageRotated(PrescriptConst::DISPLAY_ROTATION,
+                                         HAL_DisplayRawX(PrescriptConst::UI_PUSH_X),
+                                         HAL_DisplayRawY(PrescriptConst::UI_PUSH_Y),
+                                         HAL_Get_Screen_Width(),
+                                         HAL_Get_Screen_Height(),
+                                         sprite_ptr,
+                                         HAL_Get_Screen_Width(),
+                                         true);
 }
 
 void HAL_Draw_Line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color)
@@ -357,17 +522,44 @@ void HAL_Screen_Update_Area(int32_t x, int32_t y, int32_t w, int32_t h)
      * 局部刷新 Sprite 的某个区域。
      *
      * x/y/w/h 是逻辑 Sprite 内部区域；
-     * 真实屏幕目标坐标仍然要叠加 UI 居中偏移和 NV3007 GRAM 偏移，
-     * 否则局部刷新页面可能重新在底部留下脏线。
+     * 真实屏幕目标坐标仍然要叠加 UI 偏移和 NV3007 横屏逻辑偏移。
      */
-    textSprite.pushSprite(
-        HAL_DisplayRawX(x + PrescriptConst::UI_PUSH_X),
-        HAL_DisplayRawY(y + PrescriptConst::UI_PUSH_Y),
-        x,
-        y,
-        w,
-        h
-    );
+    if (w <= 0 || h <= 0)
+        return;
+
+    uint16_t sw = HAL_Get_Screen_Width();
+    uint16_t sh = HAL_Get_Screen_Height();
+    if (x < 0)
+    {
+        w += x;
+        x = 0;
+    }
+    if (y < 0)
+    {
+        h += y;
+        y = 0;
+    }
+    if (x >= sw || y >= sh)
+        return;
+    if (x + w > sw)
+        w = sw - x;
+    if (y + h > sh)
+        h = sh - y;
+    if (w <= 0 || h <= 0)
+        return;
+
+    uint16_t *sprite_ptr = (uint16_t *)textSprite.getPointer();
+    if (!sprite_ptr)
+        return;
+
+    BSP::DisplayNv3007::PushImageRotated(PrescriptConst::DISPLAY_ROTATION,
+                                         HAL_DisplayRawX(x + PrescriptConst::UI_PUSH_X),
+                                         HAL_DisplayRawY(y + PrescriptConst::UI_PUSH_Y),
+                                         (uint16_t)w,
+                                         (uint16_t)h,
+                                         sprite_ptr + (size_t)y * sw + x,
+                                         sw,
+                                         true);
 }
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data)
 {
@@ -491,7 +683,7 @@ void HAL_Sleep_Enter_Prepare()
     BSP::Power::HoldBacklightAndAudio();
 
     // 2. 屏幕驱动 IC 内部挂起
-    BSP::DisplayNv3007::Sleep(tft);
+    BSP::DisplayNv3007::Sleep();
 }
 
 // 【函数说明】配置主按键唤醒源并进入 esp_light_sleep_start，返回时说明用户已经按键唤醒。
@@ -506,7 +698,7 @@ void HAL_Sleep_Start()
 void HAL_Sleep_Wakeup_Post()
 {
     // 1. 唤醒屏幕驱动 IC
-    BSP::DisplayNv3007::Wakeup(tft);
+    BSP::DisplayNv3007::Wakeup();
 
     // 2. 趁着背光还没点亮，先把待机画面刷进屏幕 GRAM。
     // 这样开灯瞬间就能看到完整画面，而不是黑屏或随机显存噪点。

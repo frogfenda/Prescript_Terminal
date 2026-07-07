@@ -48,10 +48,42 @@ protected:
     struct WrappedMenuText
     {
         String lines[2];
+        int line_widths[2] = {0, 0};
         uint8_t line_count = 0;
         int width = 0;
         int height = 0;
     };
+
+    static constexpr int MENU_LAYOUT_CACHE_MAX = 24;
+
+    struct MenuLayoutCacheEntry
+    {
+        bool valid = false;
+        bool compact_valid = false;
+        bool wrapped_valid = false;
+        int max_width = 0;
+        String text;
+        WrappedMenuText compact;
+        WrappedMenuText wrapped;
+    };
+
+    static MenuLayoutCacheEntry *sharedMenuLayoutCache()
+    {
+        static MenuLayoutCacheEntry cache[MENU_LAYOUT_CACHE_MAX];
+        return cache;
+    }
+
+    static int &sharedMenuLayoutCacheRealCount()
+    {
+        static int real_count = -1;
+        return real_count;
+    }
+
+    static int &sharedMenuLayoutCacheTextMaxWidth()
+    {
+        static int text_max_width = -1;
+        return text_max_width;
+    }
 
     static int positiveMod(int value, int modulo)
     {
@@ -216,6 +248,52 @@ protected:
         return (best.length() > 0) ? best : String(ellipsis);
     }
 
+    void clearMenuLayoutCache()
+    {
+        MenuLayoutCacheEntry *cache = sharedMenuLayoutCache();
+        for (int i = 0; i < MENU_LAYOUT_CACHE_MAX; ++i)
+        {
+            cache[i].valid = false;
+            cache[i].compact_valid = false;
+            cache[i].wrapped_valid = false;
+            cache[i].max_width = 0;
+            cache[i].text = "";
+        }
+        sharedMenuLayoutCacheRealCount() = -1;
+        sharedMenuLayoutCacheTextMaxWidth() = -1;
+    }
+
+    void prepareMenuLayoutCache(int real_count, int text_max_width)
+    {
+        if (sharedMenuLayoutCacheRealCount() == real_count &&
+            sharedMenuLayoutCacheTextMaxWidth() == text_max_width)
+            return;
+
+        clearMenuLayoutCache();
+        sharedMenuLayoutCacheRealCount() = real_count;
+        sharedMenuLayoutCacheTextMaxWidth() = text_max_width;
+    }
+
+    MenuLayoutCacheEntry *findMenuLayoutCacheEntry(int index, const char *text, int max_width)
+    {
+        if (index < 0 || index >= MENU_LAYOUT_CACHE_MAX)
+            return nullptr;
+
+        const char *safe_text = text ? text : "";
+        MenuLayoutCacheEntry &entry = sharedMenuLayoutCache()[index];
+        if (!entry.valid || entry.max_width != max_width || !entry.text.equals(safe_text))
+        {
+            entry.valid = true;
+            entry.compact_valid = false;
+            entry.wrapped_valid = false;
+            entry.max_width = max_width;
+            entry.text = safe_text;
+            entry.compact = WrappedMenuText();
+            entry.wrapped = WrappedMenuText();
+        }
+        return &entry;
+    }
+
     void buildCompactMenuText(const char *text, int max_width, WrappedMenuText &out) const
     {
         out = WrappedMenuText();
@@ -231,6 +309,7 @@ protected:
         }
 
         out.lines[0] = one_line;
+        out.line_widths[0] = w;
         out.line_count = 1;
         out.width = w;
         out.height = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
@@ -248,6 +327,7 @@ protected:
         if (full_w <= max_width)
         {
             out.lines[0] = full;
+            out.line_widths[0] = full_w;
             out.line_count = 1;
             out.width = full_w;
             out.height = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
@@ -311,10 +391,45 @@ protected:
         for (uint8_t i = 0; i < out.line_count; ++i)
         {
             int line_w = HAL_Get_Text_Width_Font(out.lines[i].c_str(), HAL_FONT_BODY);
+            out.line_widths[i] = line_w;
             if (line_w > out.width)
                 out.width = line_w;
         }
         out.height = (out.line_count == 0) ? line_h : (out.line_count * line_h + (out.line_count - 1) * 2);
+    }
+
+    const WrappedMenuText *getCachedCompactMenuText(int index, const char *text, int max_width, WrappedMenuText &fallback)
+    {
+        MenuLayoutCacheEntry *entry = findMenuLayoutCacheEntry(index, text, max_width);
+        if (!entry)
+        {
+            buildCompactMenuText(text, max_width, fallback);
+            return &fallback;
+        }
+
+        if (!entry->compact_valid)
+        {
+            buildCompactMenuText(entry->text.c_str(), max_width, entry->compact);
+            entry->compact_valid = true;
+        }
+        return &entry->compact;
+    }
+
+    const WrappedMenuText *getCachedWrappedMenuText(int index, const char *text, int max_width, WrappedMenuText &fallback)
+    {
+        MenuLayoutCacheEntry *entry = findMenuLayoutCacheEntry(index, text, max_width);
+        if (!entry)
+        {
+            buildWrappedMenuText(text, max_width, fallback);
+            return &fallback;
+        }
+
+        if (!entry->wrapped_valid)
+        {
+            buildWrappedMenuText(entry->text.c_str(), max_width, entry->wrapped);
+            entry->wrapped_valid = true;
+        }
+        return &entry->wrapped;
     }
 
     bool updateCurveEnergy()
@@ -441,7 +556,9 @@ protected:
         int line_h = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
         for (uint8_t i = 0; i < layout.line_count; ++i)
         {
-            int line_w = HAL_Get_Text_Width_Font(layout.lines[i].c_str(), HAL_FONT_BODY);
+            int line_w = layout.line_widths[i];
+            if (line_w <= 0)
+                line_w = HAL_Get_Text_Width_Font(layout.lines[i].c_str(), HAL_FONT_BODY);
             int line_x = x + (layout.width - line_w) / 2;
             int line_y = y + i * (line_h + 2);
             HAL_Screen_ShowChineseLine_Faded_Color(line_x, line_y, layout.lines[i].c_str(), distance, color);
@@ -499,9 +616,13 @@ protected:
         int text_max_w = max(24, box_w - UI_PADDING_X * 2 - UI_SCROLL_BAR_W - 18);
 
         int display_selection = positiveMod((int)roundf(v_pos), real_count);
+        prepareMenuLayoutCache(real_count, text_max_w);
 
-        WrappedMenuText selected_layout;
-        buildWrappedMenuText(getItemText(display_selection), text_max_w, selected_layout);
+        WrappedMenuText selected_fallback;
+        const WrappedMenuText *selected_layout = getCachedWrappedMenuText(display_selection,
+                                                                          getItemText(display_selection),
+                                                                          text_max_w,
+                                                                          selected_fallback);
 
         // 绘制使用平滑后的甩动强度，不直接使用瞬时旋钮速度。
         // 这样中心项和外圈条目的回弹会连续过渡，不会在停下瞬间跳回。
@@ -510,7 +631,7 @@ protected:
         // 静止布局：选中项回到 HUD 竖线右侧区域的视觉中心，保证停下来时页面是稳定居中的。
         // 动态布局：只有滚轮仍在追赶目标位置时，中心项才随速度向左产生弹性甩动；
         // 这样中心项不会一直固定在原地，也不会在停稳后残留偏移。
-        int selected_text_w_for_pos = max(12, selected_layout.width);
+        int selected_text_w_for_pos = max(12, selected_layout->width);
         int rest_center_x = right_panel_x + right_panel_w / 2;
         int speed_center_x = rest_center_x - (int)(active_sling * UITheme::Menu::CenterFlingX());
         int min_center_x = right_panel_x + UITheme::Menu::CenterMinLeftGap() + selected_text_w_for_pos / 2;
@@ -521,7 +642,7 @@ protected:
         if (max_center_x >= min_center_x && center_x > max_center_x)
             center_x = max_center_x;
 
-        int dynamic_box_h = max(UI_BASE_SCAN_BOX_H, selected_layout.height + 8);
+        int dynamic_box_h = max(UI_BASE_SCAN_BOX_H, selected_layout->height + 8);
         dynamic_box_h = min(dynamic_box_h, sh - 18);
         // 长选项允许截断/半露出，不再为了完整显示每一项把间距拉得很大。
         // 两行选中项只轻微撑开滚轮，保证一屏能看到更多条目。
@@ -535,7 +656,7 @@ protected:
         int tri_size = constrain(dynamic_box_h / 3, 5, 11);
         HAL_Fill_Triangle(tri_x, center_y - tri_size, tri_x, center_y + tri_size, tri_x - tri_size - 1, center_y, 1);
 
-        float dynamic_text_w = selected_layout.width;
+        float dynamic_text_w = selected_layout->width;
 
         // 动态尾随方块放在文字左边，尺寸跟随选中框。
         int block_x = center_x - (int)(dynamic_text_w / 2.0f) - UI_PADDING_X - UI_SCROLL_BAR_W;
@@ -567,14 +688,15 @@ protected:
             int real_idx = logical_idx % real_count;
             const char *text = getItemText(real_idx);
 
-            WrappedMenuText item_layout;
+            WrappedMenuText item_fallback;
+            const WrappedMenuText *item_layout = nullptr;
             bool is_center_slot = distance < 0.55f;
             if (is_center_slot && real_idx == display_selection)
                 item_layout = selected_layout;
             else
-                buildCompactMenuText(text, text_max_w, item_layout);
+                item_layout = getCachedCompactMenuText(real_idx, text, text_max_w, item_fallback);
 
-            int text_width = item_layout.width;
+            int text_width = item_layout->width;
             int base_x = center_x - (text_width / 2);
 
             // 3D 侧弯仍保持右退，速度甩动则向左；二者叠加后能形成更明显的旋钮惯性。
@@ -585,8 +707,8 @@ protected:
             if (item_x < right_panel_x + 2)
                 item_x = right_panel_x + 2;
 
-            int final_y = item_y - (item_layout.height / 2);
-            if (item_layout.line_count == 0)
+            int final_y = item_y - (item_layout->height / 2);
+            if (item_layout->line_count == 0)
                 final_y = item_y - line_h / 2;
 
             const char *p_pref = nullptr, *p_val = nullptr, *p_suff = nullptr;
@@ -606,7 +728,7 @@ protected:
             else
             {
                 uint16_t item_color = getItemColor(real_idx);
-                drawWrappedMenuText(item_x, final_y, item_layout, distance, item_color);
+                drawWrappedMenuText(item_x, final_y, *item_layout, distance, item_color);
             }
         }
         HAL_Screen_Update();
@@ -624,6 +746,7 @@ public:
         menu_last_knob_tick = 0;
         menu_curve_last_tick = millis();
         menu_sling_last_tick = millis();
+        clearMenuLayoutCache();
         onResume();
     }
 
@@ -633,6 +756,7 @@ public:
         syncMenuPositionToSelection();
         menu_sling_display = 0.0f;
         menu_sling_last_tick = millis();
+        clearMenuLayoutCache();
         drawMenuUI(visual_selection);
     }
     void onBackground() override {}
