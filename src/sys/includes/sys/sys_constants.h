@@ -77,16 +77,6 @@ namespace PrescriptConst
     // 运行期保持 240MHz；菜单全屏重绘、U8g2 测宽和 QSPI 旋转推屏都吃 CPU。
     constexpr uint8_t CPU_RUNTIME_MHZ = 240;
 
-    /*
-     * 当前旋钮为 12 脉冲/圈的 AB 相编码器。
-     * HAL 使用完整正交解码：每个物理脉冲包含 4 个边沿，因此 12 脉冲/圈对应 12 个菜单步进/圈。
-     */
-    constexpr uint8_t ENCODER_PULSES_PER_REV = 12;
-    constexpr uint8_t ENCODER_EDGES_PER_PULSE = 4;
-    constexpr uint16_t ENCODER_EDGE_DEBOUNCE_US = 120;
-    constexpr uint8_t ENCODER_PREDICT_MIN_EDGES = 2;
-    constexpr uint16_t ENCODER_PREDICT_IDLE_US = 8000;
-    constexpr uint16_t ENCODER_STATS_INTERVAL_MS = 2000;
     constexpr uint32_t DEFAULT_IDLE_SLEEP_MS = 30000UL;
     constexpr uint32_t NEVER_SLEEP_MS = 0xFFFFFFFFUL;
     constexpr uint32_t BUTTON_LONG_MS = 800UL;
