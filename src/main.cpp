@@ -6,6 +6,7 @@
 #include "sys/sys_auto_push.h"
 #include "sys/sys_ble.h"
 #include "sys/sys_fs.h"
+#include "sys/sys_boot_test.h"
 #include "hal/hal.h"
 #include "sys/app_manager.h"
 #include "sys/sys_audio.h"
@@ -18,6 +19,12 @@
 
 void setup()
 {
+    if (SysBootTest::Enabled())
+    {
+        SysBootTest::Setup();
+        return;
+    }
+
     setCpuFrequencyMhz(PrescriptConst::CPU_RUNTIME_MHZ);
 
     Serial.begin(115200);
@@ -78,6 +85,12 @@ void setup()
 
 void loop()
 {
+    if (SysBootTest::Enabled())
+    {
+        SysBootTest::Loop();
+        return;
+    }
+
     /*
      * 网络轻量维护：
      * - 到点触发开机自动同步；
