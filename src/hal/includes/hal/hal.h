@@ -5,31 +5,17 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 #include "sys/sys_audio.h"
-#include "sys/sys_constants.h"
 
 /*
  * HAL 对外硬件接口。
  *
  * 说明：
- * - 引脚号和屏幕尺寸已经集中到 sys_constants.h；
- * - 这里保留 PIN_XXX 宏，是为了兼容现有 APP/SYS 文件里直接使用旧宏名的代码；
- * - 后续如果继续解耦，可以逐步把这些宏替换为 PrescriptConst::PIN_XXX。
+ * - 上层只通过 HAL 函数读取输入、绘制屏幕和进入休眠；
+ * - 板级引脚不再从 HAL 公共头暴露，避免 APP/SYS 继续依赖旧 PIN_XXX 宏。
  */
-#define PIN_KNOB_A  PrescriptConst::PIN_KNOB_A
-#define PIN_KNOB_B  PrescriptConst::PIN_KNOB_B
-#define PIN_BTN     PrescriptConst::PIN_BTN_MAIN
-#define PIN_BTN2    PrescriptConst::PIN_BTN_SIDE
-
-#define PIN_I2S_BCLK PrescriptConst::PIN_I2S_BCLK
-#define PIN_I2S_LRC  PrescriptConst::PIN_I2S_LRC
-#define PIN_I2S_DOUT PrescriptConst::PIN_I2S_DOUT
-#define PIN_AUDIO_SD PrescriptConst::PIN_AUDIO_SD
-#define PIN_BLK      PrescriptConst::PIN_BACKLIGHT
-
-#define PIN_BAT_ADC PrescriptConst::PIN_BAT_ADC
-#define PIN_CHRG    PrescriptConst::PIN_CHRG
 
 // 旧 UI 常量别名，兼容已有代码。
+#include "sys/sys_constants.h"
 #define UI_HEADER_HEIGHT PrescriptConst::UI_HEADER_HEIGHT
 #define UI_MARGIN_LEFT   PrescriptConst::UI_MARGIN_LEFT
 #define UI_MARGIN_RIGHT  PrescriptConst::UI_MARGIN_RIGHT

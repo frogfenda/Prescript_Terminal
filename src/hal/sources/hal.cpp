@@ -12,6 +12,7 @@
 #include "sys/sys_audio.h"
 #include "sys/sys_nfc.h"
 #include "ui/ui_font_config.h"
+#include "bsp/bsp_pins.h"
 #include "bsp/bsp_display_nv3007.h"
 #include "bsp/bsp_power.h"
 #include <freertos/FreeRTOS.h>
@@ -50,8 +51,8 @@ IRAM_ATTR void ISR_Knob_Turn()
 {
     static uint8_t old_AB = 3;
     static const int8_t enc_states[] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
-    uint8_t A = digitalRead(PIN_KNOB_A);
-    uint8_t B = digitalRead(PIN_KNOB_B);
+    uint8_t A = digitalRead(BSP::Pins::KNOB_A);
+    uint8_t B = digitalRead(BSP::Pins::KNOB_B);
     old_AB <<= 2;
     old_AB |= ((A << 1) | B);
     raw_knob_counter += enc_states[(old_AB & 0x0f)];
@@ -91,11 +92,11 @@ void HAL_Init()
     textSprite.fillSprite(TFT_BLACK);
     textSprite.setTextWrap(false);
 
-    pinMode(PIN_BTN, INPUT_PULLUP);
-    pinMode(PIN_KNOB_A, INPUT_PULLUP);
-    pinMode(PIN_KNOB_B, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(PIN_KNOB_A), ISR_Knob_Turn, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(PIN_KNOB_B), ISR_Knob_Turn, CHANGE);
+    pinMode(BSP::Pins::BTN_MAIN, INPUT_PULLUP);
+    pinMode(BSP::Pins::KNOB_A, INPUT_PULLUP);
+    pinMode(BSP::Pins::KNOB_B, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(BSP::Pins::KNOB_A), ISR_Knob_Turn, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(BSP::Pins::KNOB_B), ISR_Knob_Turn, CHANGE);
     HAL_Btn2_Init();
     u8f.begin(textSprite);
     u8f.setFontMode(1);
@@ -118,7 +119,7 @@ int HAL_Get_Knob_Delta(void)
     interrupts();
     return delta;
 }
-bool HAL_Is_Key_Pressed() { return digitalRead(PIN_BTN) == LOW; }
+bool HAL_Is_Key_Pressed() { return digitalRead(BSP::Pins::BTN_MAIN) == LOW; }
 
 void HAL_Screen_Clear()
 {
@@ -498,7 +499,7 @@ void HAL_Sleep_Enter_Prepare()
 void HAL_Sleep_Start()
 {
     // 3. 真正的浅睡眠触发
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BTN, 0);
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)BSP::Pins::BTN_MAIN, 0);
     esp_light_sleep_start();
 }
 
@@ -527,7 +528,7 @@ void HAL_Sleep_Wakeup_Post()
     SysNfc_Wakeup();
 
     // 6. 防误触：吞掉唤醒时的那次点击
-    while (digitalRead(PIN_BTN) == LOW || digitalRead(PIN_BTN2) == LOW)
+    while (digitalRead(BSP::Pins::BTN_MAIN) == LOW || digitalRead(BSP::Pins::BTN_SIDE) == LOW)
     {
         delay(10);
     }
@@ -537,7 +538,7 @@ void HAL_Sleep_Wakeup_Post()
 
 void HAL_Btn2_Init()
 {
-    pinMode(PIN_BTN2, INPUT_PULLUP);
+    pinMode(BSP::Pins::BTN_SIDE, INPUT_PULLUP);
 }
 
 BtnEvent HAL_Get_Btn_Main_Event()
@@ -549,7 +550,7 @@ BtnEvent HAL_Get_Btn_Main_Event()
 BtnEvent HAL_Get_Btn2_Event()
 {
     // 读取引脚并喂给状态机引擎
-    BtnEvent evt = engineBtn2.update(digitalRead(PIN_BTN2) == LOW);
+    BtnEvent evt = engineBtn2.update(digitalRead(BSP::Pins::BTN_SIDE) == LOW);
 
     // 【物理雷达】：只要硬件没接错，按下去必定会打印！
     if (evt == BTN_SHORT)

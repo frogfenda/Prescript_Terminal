@@ -3,11 +3,13 @@
 */
 #include "bsp/bsp_haptic_drv2605.h"
 #include "bsp/bsp_pins.h"
-#include "sys/sys_constants.h"
 #include <Wire.h>
 
 namespace
 {
+    // DRV2605L 固定 I2C 地址。放在 BSP 内部，避免板级驱动反向依赖 SYS 常量。
+    constexpr uint8_t kDrv2605Address = 0x5A;
+
     // 记录 DRV2605L 最近一次初始化或寄存器写入是否正常。
     bool s_ready = false;
 }
@@ -18,7 +20,7 @@ namespace BSP::HapticDrv2605
     bool WriteReg(uint8_t reg, uint8_t value)
     {
         // 所有 Wire1 访问集中在 BSP，sys_haptic 只负责选择业务波形。
-        Wire1.beginTransmission(PrescriptConst::DRV2605_ADDR);
+        Wire1.beginTransmission(kDrv2605Address);
         Wire1.write(reg);
         Wire1.write(value);
         uint8_t err = Wire1.endTransmission();

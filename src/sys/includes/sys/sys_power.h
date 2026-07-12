@@ -2,15 +2,6 @@
 // 职责：电源接口：暴露电池百分比、充电状态和电池图标绘制函数。
 #pragma once
 #include <Arduino.h>
-#include "sys/sys_constants.h"
-
-// Compatibility aliases. The source of truth is sys_constants.h.
-#ifndef PIN_BAT_ADC
-#define PIN_BAT_ADC PrescriptConst::PIN_BAT_ADC
-#endif
-#ifndef PIN_CHRG
-#define PIN_CHRG PrescriptConst::PIN_CHRG
-#endif
 
 class SysPower
 {
