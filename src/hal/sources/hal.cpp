@@ -536,28 +536,33 @@ void HAL_Sleep_Start()
 // 【函数说明】唤醒后恢复屏幕、背光、功放、音频、震动和 NFC，并等待主按键释放。
 void HAL_Sleep_Wakeup_Post()
 {
-    // 1. 唤醒屏幕驱动 IC
+    // 1. 先解除 hold 并明确保持背光/功放关闭，避免 wake 过程露出空白帧。
+    BSP::Power::ReleaseBacklightAndAudio();
+    BSP::Power::SetBacklight(false);
+    BSP::Power::SetAudioAmp(false);
+
+    // 2. 唤醒屏幕驱动 IC。DisplayOn 会等新画面写入后再发送。
     BSP::DisplayNv3007::Wakeup();
 
-    // 2. 趁着背光还没点亮，先把待机画面刷进屏幕 GRAM。
+    // 3. 趁着背光还没点亮，先把待机画面刷进屏幕 GRAM。
     // 这样开灯瞬间就能看到完整画面，而不是黑屏或随机显存噪点。
     HAL_Screen_DrawStandbyImage();
     HAL_Screen_Update();
+    BSP::DisplayNv3007::DisplayOn();
 
-    // 3. 等待面板从 sleep out 恢复。NV3007 也需要一段液晶/电荷泵稳定时间。
-    delay(120);
+    // 4. display-on 后留一点稳定时间，再打开背光。
+    delay(20);
 
-    // 4. 画面稳了，再解锁并点亮背光
-    BSP::Power::ReleaseBacklightAndAudio();
+    // 5. 画面稳了，再点亮背光与功放。
     BSP::Power::SetAudioAmp(true);
     BSP::Power::SetBacklight(true); // 新屏背光高电平点亮，画面瞬间浮现
 
-    // 5. 唤醒外设
+    // 6. 唤醒外设
     SysHaptic_Wakeup();
     SysAudio_Wakeup();
     SysNfc_Wakeup();
 
-    // 6. 防误触：吞掉唤醒时的那次点击
+    // 7. 防误触：吞掉唤醒时的那次点击
     while (digitalRead(BSP::Pins::BTN_MAIN) == LOW || digitalRead(BSP::Pins::BTN_SIDE) == LOW)
     {
         delay(10);

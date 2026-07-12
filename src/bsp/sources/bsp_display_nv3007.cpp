@@ -269,6 +269,12 @@ namespace
                 return;
             writeCommand(0x11);
             delay(120);
+        }
+
+        void displayOn()
+        {
+            if (!ready_)
+                return;
             writeCommand(0x29);
         }
 
@@ -1147,5 +1153,10 @@ namespace BSP::DisplayNv3007
     void Wakeup()
     {
         s_lcd.wakeup();
+    }
+
+    void DisplayOn()
+    {
+        s_lcd.displayOn();
     }
 }

@@ -86,4 +86,7 @@ namespace BSP::DisplayNv3007
 
     // 【函数说明】让屏幕控制器退出 sleep 状态；画面刷新和背光点亮由 HAL 统一安排。
     void Wakeup();
+
+    // Send display-on after GRAM has been refreshed, so the backlight never reveals a blank wake frame.
+    void DisplayOn();
 }

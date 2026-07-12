@@ -21,13 +21,19 @@ namespace BSP::Power
     // 【函数说明】设置屏幕背光开关。当前硬件为高电平点亮。
     void SetBacklight(bool on)
     {
-        digitalWrite(Pins::BACKLIGHT, on ? HIGH : LOW);
+        gpio_num_t pin = (gpio_num_t)Pins::BACKLIGHT;
+        gpio_hold_dis(pin);
+        gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+        gpio_set_level(pin, on ? 1 : 0);
     }
 
     // 【函数说明】设置音频功放使能。当前硬件为高电平启用。
     void SetAudioAmp(bool on)
     {
-        digitalWrite(Pins::AUDIO_SD, on ? HIGH : LOW);
+        gpio_num_t pin = (gpio_num_t)Pins::AUDIO_SD;
+        gpio_hold_dis(pin);
+        gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+        gpio_set_level(pin, on ? 1 : 0);
     }
 
     // 【函数说明】Light Sleep 前锁住背光和功放 GPIO 电平，避免睡眠过程中引脚浮动。
