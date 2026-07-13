@@ -422,20 +422,25 @@ class ButtonEngine
 private:
     uint32_t press_time = 0;
     uint32_t release_time = 0;
+    uint32_t raw_change_time = 0;
     bool is_pressed = false;
     bool wait_double = false;
     bool long_triggered = false;
+    bool raw_state = false;
+    bool stable_state = false;
 
     uint32_t long_press_ms;
     uint32_t double_gap_ms;
+    uint32_t debounce_ms;
     bool enable_double_click;
 
 public:
-    ButtonEngine(uint32_t lp_ms = 800, uint32_t dg_ms = 250, bool enable_dbl = true)
+    ButtonEngine(uint32_t lp_ms = 800, uint32_t dg_ms = 250, bool enable_dbl = true, uint32_t db_ms = 35)
     {
         long_press_ms = lp_ms;
         double_gap_ms = dg_ms;
         enable_double_click = enable_dbl;
+        debounce_ms = db_ms;
     }
 
     void reset()
@@ -443,12 +448,28 @@ public:
         is_pressed = false;
         wait_double = false;
         long_triggered = false;
+        raw_state = false;
+        stable_state = false;
+        raw_change_time = millis();
     }
 
-    BtnEvent update(bool current_state)
+    BtnEvent update(bool raw_pressed)
     {
         uint32_t now = millis();
         BtnEvent result = BTN_NONE;
+
+        if (raw_pressed != raw_state)
+        {
+            raw_state = raw_pressed;
+            raw_change_time = now;
+        }
+
+        bool current_state = stable_state;
+        if (raw_state != stable_state && (now - raw_change_time >= debounce_ms))
+        {
+            stable_state = raw_state;
+            current_state = stable_state;
+        }
 
         // 【事件 1】：按键被按下的瞬间
         if (current_state && !is_pressed)
@@ -471,7 +492,7 @@ public:
             is_pressed = false;
             uint32_t duration = now - press_time;
 
-            if (!long_triggered && duration > PrescriptConst::BUTTON_DEBOUNCE_MS)
+            if (!long_triggered && duration > debounce_ms)
             {
                 if (enable_double_click)
                 {
@@ -507,8 +528,14 @@ public:
     }
 };
 
-ButtonEngine engineMainBtn(PrescriptConst::BUTTON_LONG_MS, PrescriptConst::BUTTON_DOUBLE_GAP_MS, false);
-ButtonEngine engineBtn2(PrescriptConst::BUTTON_LONG_MS, PrescriptConst::BUTTON_DOUBLE_GAP_MS, true);
+ButtonEngine engineMainBtn(PrescriptConst::BUTTON_LONG_MS,
+                           PrescriptConst::BUTTON_DOUBLE_GAP_MS,
+                           false,
+                           PrescriptConst::BUTTON_MAIN_DEBOUNCE_MS);
+ButtonEngine engineBtn2(PrescriptConst::BUTTON_LONG_MS,
+                        PrescriptConst::BUTTON_DOUBLE_GAP_MS,
+                        true,
+                        PrescriptConst::BUTTON_SIDE_DEBOUNCE_MS);
 
 // ==========================================
 // 【休眠系统原子化】：将休眠拆解，供 AppStandby 统一调度

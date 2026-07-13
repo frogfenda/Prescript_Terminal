@@ -1,5 +1,5 @@
 ﻿/*
-【模块职责】App 调度核心。每帧先处理后台任务和 BLE 队列，再把旋钮/按键事件分派到当前 App；副按键双击进入指令页、长按开启 NFC 伪装、短按取消伪装的全局规则也在这里。
+【模块职责】App 调度核心。每帧先处理后台任务和 BLE 队列，再把旋钮/按键事件分派到当前 App；副按键双击全局进入指令页，主菜单长按开启 NFC 伪装，其余短按/长按作为旋钮主按键的平行输入。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/sys/app_manager.cpp
@@ -237,7 +237,7 @@ void AppManager::run()
     }
 
     // ==========================================
-    // 2. 副按键 (Btn2) 全局拦截分发
+    // 2. 副按键 (Btn2) 分发
     // ==========================================
     BtnEvent b2_evt = HAL_Get_Btn2_Event();
 
@@ -253,27 +253,24 @@ void AppManager::run()
     else if (b2_evt == BTN_LONG) {
         resetIdleTimer();
         SYS_SOUND_LONG();
-        if (isCurrent(AppId::Prescript)) {
-            currentApp->onBtn2Long();
-        } else {
-            // 【核心连线】：在其他界面长按，瞬间引爆 60 秒伪装！
+        if (isCurrent(AppId::MainMenu)) {
+            // 【全局例外】卡伪装只允许在主菜单由侧键长按启动，避免抢占其他界面的长按操作。
             SysNfc_StartEmulation();
+        } else {
+            // 【平行输入】其他界面的侧键长按等价于旋钮主按键长按。
+            currentApp->onKeyLong();
         }
     }
     else if (b2_evt == BTN_SHORT) {
         resetIdleTimer();
-        
-        // ==========================================
-        // 【核心修复】：增加白名单判断！
-        // 只要在伪装，且【当前不在抽取指令界面】，短按才是“取消”！
-        // ==========================================
-        // 【修改】：加入了 && currentApp != prescriptApp
+
         if (SysNfc_IsEmulating() && !isCurrent(AppId::Prescript)) {
+            // 【安全出口】卡伪装进行中时，侧键短按优先取消伪装；普通状态下再作为确认键使用。
             SysNfc_StopEmulation();         // 下发撤退指令
             Feedback_PlayAbort();    // 播放一声低频“滴”，确认打断
         } else {
-            // 如果没在伪装，或者此时正处于指令抽取界面，按键正常下发给 UI！
-            currentApp->onBtn2Short();
+            // 【平行输入】普通状态下，侧键短按等价于旋钮主按键短按。
+            currentApp->onKeyShort();
         }
     }
     currentApp->onLoop(); // 继续执行 UI 刷新

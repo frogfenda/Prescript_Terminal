@@ -7,6 +7,12 @@
 
 namespace BSP::Power
 {
+    namespace
+    {
+        constexpr int BAT_ADC_TOP_OHMS = 20000;
+        constexpr int BAT_ADC_BOTTOM_OHMS = 20000;
+    }
+
     // 【函数说明】初始化背光和功放使能脚，并设置成当前固件默认的“可显示、可发声”状态。
     void BeginRails()
     {
@@ -55,9 +61,9 @@ namespace BSP::Power
     // 【函数说明】初始化电池检测相关引脚。
     void BeginBatterySense()
     {
-        // BAT_ADC 是模拟输入；CHRG 使用上拉，低电平表示充电芯片正在充电。
+        // 新版原理图：VIN 经过 20k/20k 分压到 BAT_ADC；BQ24075 CHG# 经 CHAG 网到 MCU，外部 1k 上拉，低电平表示正在充电。
         pinMode(Pins::BAT_ADC, ANALOG);
-        pinMode(Pins::CHRG, INPUT_PULLUP);
+        pinMode(Pins::CHRG, INPUT);
         Serial.println("[BSP][电源] 电池 ADC 与充电检测引脚已初始化。");
     }
 
@@ -73,10 +79,11 @@ namespace BSP::Power
         return analogReadMilliVolts(Pins::BAT_ADC);
     }
 
-    // 【函数说明】把 ADC 端电压换算成电池端电压。当前硬件分压比例为 1/2。
+    // 【函数说明】把 ADC 端电压换算成电池端电压。
     int ReadBatteryMilliVolts()
     {
-        return ReadBatteryAdcMilliVolts() * 2;
+        int adc_mv = ReadBatteryAdcMilliVolts();
+        return adc_mv * (BAT_ADC_TOP_OHMS + BAT_ADC_BOTTOM_OHMS) / BAT_ADC_BOTTOM_OHMS;
     }
 }
 

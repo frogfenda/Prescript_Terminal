@@ -25,7 +25,7 @@ namespace BSP::Pins
     constexpr int BACKLIGHT = LCD_BLK;
 
     constexpr int BAT_ADC = 8;
-    constexpr int CHRG = 16;
+    constexpr int CHRG = 39; // BQ24075 CHG# status, schematic net CHAG, active-low.
 
     constexpr int I2C_SDA = 18;
     constexpr int I2C_SCL = 17;
