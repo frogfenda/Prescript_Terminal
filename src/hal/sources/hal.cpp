@@ -7,6 +7,7 @@
 #include <LittleFS.h>
 #include <U8g2_for_TFT_eSPI.h>
 #include "esp_sleep.h"
+#include "driver/gpio.h"
 #include "sys/sys_config.h" // 【新增】：引入全局配置
 #include "sys/sys_haptic.h"
 #include "sys/sys_audio.h"
@@ -443,13 +444,21 @@ public:
         debounce_ms = db_ms;
     }
 
-    void reset()
+    /**
+     * 【函数说明】把按键引擎复位到当前真实电平，并清除双击/长按历史。
+     * 【唤醒场景】如果 raw_pressed=true，说明用于唤醒的按键尚未释放：
+     * 引擎会把这次按压标记为已经处理，只等待并吞掉它的释放，不生成短按或长按事件。
+     * 这样唤醒恢复函数无需阻塞等待机械按键释放，主循环可以立即恢复运行。
+     */
+    void reset(bool raw_pressed = false)
     {
-        is_pressed = false;
+        is_pressed = raw_pressed;
         wait_double = false;
-        long_triggered = false;
-        raw_state = false;
-        stable_state = false;
+        long_triggered = raw_pressed;
+        raw_state = raw_pressed;
+        stable_state = raw_pressed;
+        press_time = millis();
+        release_time = 0;
         raw_change_time = millis();
     }
 
@@ -537,6 +546,26 @@ ButtonEngine engineBtn2(PrescriptConst::BUTTON_LONG_MS,
                         true,
                         PrescriptConst::BUTTON_SIDE_DEBOUNCE_MS);
 
+/**
+ * 【函数说明】把两个实体按键统一恢复为普通轮询输入，并明确清除 Light Sleep 遗留的电平中断类型。
+ * 【调用时机】每次 Light Sleep 返回、关闭 GPIO 唤醒源之后调用。
+ * 【实现原因】当前 Arduino-ESP32 框架的 pinMode() 会沿用 GPIO 寄存器中原有的 intr_type；
+ * gpio_wakeup_enable(..., GPIO_INTR_LOW_LEVEL) 设置过的低电平类型不能只靠再次 pinMode(INPUT_PULLUP) 清除。
+ * 如果残留低电平中断配置，唤醒后的普通 digitalRead 轮询可能持续受到该配置干扰，表现为两个按键都不再产生事件。
+ * 【返回值】返回 ESP-IDF 的 GPIO 配置结果，调用者必须在失败时打印错误，但不阻塞设备继续运行。
+ */
+static esp_err_t HAL_RestoreButtonInputs()
+{
+    gpio_config_t button_config = {};
+    button_config.pin_bit_mask = (1ULL << BSP::Pins::BTN_MAIN) |
+                                 (1ULL << BSP::Pins::BTN_SIDE);
+    button_config.mode = GPIO_MODE_INPUT;
+    button_config.pull_up_en = GPIO_PULLUP_ENABLE;
+    button_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    button_config.intr_type = GPIO_INTR_DISABLE;
+    return gpio_config(&button_config);
+}
+
 // ==========================================
 // 【休眠系统原子化】：将休眠拆解，供 AppStandby 统一调度
 // ==========================================
@@ -552,17 +581,103 @@ void HAL_Sleep_Enter_Prepare()
     BSP::DisplayNv3007::Sleep();
 }
 
-// 【函数说明】配置主按键唤醒源并进入 esp_light_sleep_start，返回时说明用户已经按键唤醒。
+/*
+ * 【函数说明】把旋钮主按键和侧键同时配置为 Light Sleep 唤醒源，然后进入浅睡眠。
+ * 【实现约束】两个按键都是 INPUT_PULLUP、低电平按下，因此统一使用 GPIO_INTR_LOW_LEVEL。
+ * 这里使用 ESP-IDF 的 Light Sleep GPIO 唤醒接口，不再使用只能绑定单个 RTC IO 的 EXT0：
+ * - 主按键 GPIO21 和侧键 GPIO15 都可以唤醒；
+ * - 唤醒后按键仍由普通数字 GPIO 管理，避免主按键留在 RTC IO 状态而无法继续轮询。
+ */
 void HAL_Sleep_Start()
 {
-    // 3. 真正的浅睡眠触发
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)BSP::Pins::BTN_MAIN, 0);
-    esp_light_sleep_start();
+    const gpio_num_t main_button = (gpio_num_t)BSP::Pins::BTN_MAIN;
+    const gpio_num_t side_button = (gpio_num_t)BSP::Pins::BTN_SIDE;
+
+    // 1. 休眠前先从确定的普通输入状态开始，避免上一次异常退出遗留 GPIO 中断类型。
+    esp_err_t input_config_err = HAL_RestoreButtonInputs();
+    if (input_config_err != ESP_OK)
+    {
+        Serial.printf("[休眠] 休眠前按键 GPIO 配置失败：错误码=%d，本次不进入休眠。\n",
+                      (int)input_config_err);
+        return;
+    }
+
+    // 2. Light Sleep 的 GPIO 唤醒接口支持多个 RTC/普通数字 GPIO，正好覆盖两个实体按键。
+    esp_err_t main_wakeup_err = gpio_wakeup_enable(main_button, GPIO_INTR_LOW_LEVEL);
+    esp_err_t side_wakeup_err = gpio_wakeup_enable(side_button, GPIO_INTR_LOW_LEVEL);
+    esp_err_t source_err = esp_sleep_enable_gpio_wakeup();
+
+    if (main_wakeup_err != ESP_OK || side_wakeup_err != ESP_OK || source_err != ESP_OK)
+    {
+        Serial.printf("[休眠] 按键唤醒源配置失败：主键=%d，侧键=%d，GPIO源=%d。\n",
+                      (int)main_wakeup_err,
+                      (int)side_wakeup_err,
+                      (int)source_err);
+
+        // 唤醒源不完整时不能冒险进入无可靠出口的睡眠；清理本轮配置并恢复普通输入。
+        gpio_wakeup_disable(main_button);
+        gpio_wakeup_disable(side_button);
+        if (source_err == ESP_OK)
+            esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+
+        esp_err_t cleanup_err = HAL_RestoreButtonInputs();
+        if (cleanup_err != ESP_OK)
+        {
+            Serial.printf("[休眠] 唤醒源配置失败后的按键 GPIO 恢复也失败：错误码=%d。\n",
+                          (int)cleanup_err);
+        }
+        return;
+    }
+
+    // 3. CPU 在这里暂停，直到任一按键被按下或休眠请求被底层拒绝。
+    esp_err_t sleep_err = esp_light_sleep_start();
+    esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
+    bool main_button_active = gpio_get_level(main_button) == 0;
+    bool side_button_active = gpio_get_level(side_button) == 0;
+
+    /*
+     * 4. 唤醒源只服务本次 Light Sleep，返回后立即解除。
+     * gpio_wakeup_disable() 只负责关闭唤醒能力；随后必须用 intr_type=GPIO_INTR_DISABLE
+     * 重新配置普通输入，不能调用会保留旧 intr_type 的 Arduino pinMode()。
+     */
+    gpio_wakeup_disable(main_button);
+    gpio_wakeup_disable(side_button);
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+
+    esp_err_t restore_err = HAL_RestoreButtonInputs();
+    if (restore_err != ESP_OK)
+    {
+        Serial.printf("[休眠] 按键 GPIO 普通输入模式恢复失败：错误码=%d。\n", (int)restore_err);
+    }
+
+    if (sleep_err != ESP_OK)
+    {
+        Serial.printf("[休眠] Light Sleep 未正常执行，错误码=%d。\n", (int)sleep_err);
+    }
+    else if (side_button_active)
+    {
+        Serial.println("[休眠] 检测到侧键唤醒。");
+    }
+    else if (main_button_active)
+    {
+        Serial.println("[休眠] 检测到旋钮主按键唤醒。");
+    }
+    else if (wakeup_cause == ESP_SLEEP_WAKEUP_GPIO)
+    {
+        // 用户可能很快松开按键，导致返回后已经读不到低电平；通用 GPIO 原因仍能确认唤醒链路正常。
+        Serial.println("[休眠] 检测到实体按键唤醒，按键已快速释放。");
+    }
+    else
+    {
+        Serial.println("[休眠] 设备已唤醒，但未取得按键唤醒标记。");
+    }
 }
 
-// 【函数说明】唤醒后恢复屏幕、背光、功放、音频、震动和 NFC，并等待主按键释放。
+// 【函数说明】唤醒后恢复屏幕、背光、功放、音频、震动和 NFC，并让按键引擎非阻塞地吞掉唤醒按压。
 void HAL_Sleep_Wakeup_Post()
 {
+    Serial.println("[休眠恢复] HAL 恢复流程开始。");
+
     // 1. 先解除 hold 并明确保持背光/功放关闭，避免 wake 过程露出空白帧。
     BSP::Power::ReleaseBacklightAndAudio();
     BSP::Power::SetBacklight(false);
@@ -576,6 +691,7 @@ void HAL_Sleep_Wakeup_Post()
     HAL_Screen_DrawStandbyImage();
     HAL_Screen_Update();
     BSP::DisplayNv3007::DisplayOn();
+    Serial.println("[休眠恢复] 屏幕恢复完成。");
 
     // 4. display-on 后留一点稳定时间，再打开背光。
     delay(20);
@@ -584,18 +700,37 @@ void HAL_Sleep_Wakeup_Post()
     BSP::Power::SetAudioAmp(true);
     BSP::Power::SetBacklight(true); // 新屏背光高电平点亮，画面瞬间浮现
 
-    // 6. 唤醒外设
+    // 6. 逐项唤醒外设；阶段日志用于确认屏幕点亮后主线程是否仍能完整返回。
+    Serial.println("[休眠恢复] 震动恢复开始。");
     SysHaptic_Wakeup();
-    SysAudio_Wakeup();
-    SysNfc_Wakeup();
+    Serial.println("[休眠恢复] 震动恢复完成。");
 
-    // 7. 防误触：吞掉唤醒时的那次点击
-    while (digitalRead(BSP::Pins::BTN_MAIN) == LOW || digitalRead(BSP::Pins::BTN_SIDE) == LOW)
-    {
-        delay(10);
-    }
-    engineMainBtn.reset();
-    engineBtn2.reset();
+    Serial.println("[休眠恢复] 音频恢复开始。");
+    SysAudio_Wakeup();
+    Serial.println("[休眠恢复] 音频恢复完成。");
+
+    Serial.println("[休眠恢复] NFC 恢复开始。");
+    SysNfc_Wakeup();
+    Serial.println("[休眠恢复] NFC 恢复完成。");
+
+    /*
+     * 7. 按当前真实电平重置事件引擎。
+     * 旧逻辑会在这里阻塞等待“两键同时稳定释放”，一旦任一 GPIO 没有及时回到高电平，
+     * 屏幕虽然已经显示待机图，AppManager 却永远无法继续运行，后续两个按键都会失效。
+     * 新逻辑不再等待：仍处于低电平的唤醒按键由 ButtonEngine 在主循环中静默吞掉释放事件，
+     * 释放后的下一次完整按压才会正常产生 BTN_SHORT/BTN_LONG/BTN_DOUBLE。
+     * 两个 GPIO 的输入、上拉和中断类型已经在 HAL_Sleep_Start() 返回前由
+     * HAL_RestoreButtonInputs() 原子恢复，这里不能再用会保留中断类型的 pinMode() 覆盖。
+     */
+    bool main_still_pressed = digitalRead(BSP::Pins::BTN_MAIN) == LOW;
+    bool side_still_pressed = digitalRead(BSP::Pins::BTN_SIDE) == LOW;
+    engineMainBtn.reset(main_still_pressed);
+    engineBtn2.reset(side_still_pressed);
+
+    Serial.printf("[休眠] 按键事件引擎已恢复：主键=%s，侧键=%s。\n",
+                  main_still_pressed ? "等待释放" : "已释放",
+                  side_still_pressed ? "等待释放" : "已释放");
+    Serial.println("[休眠恢复] HAL 恢复流程结束。");
 }
 
 void HAL_Btn2_Init()
@@ -606,7 +741,17 @@ void HAL_Btn2_Init()
 BtnEvent HAL_Get_Btn_Main_Event()
 {
     extern bool HAL_Is_Key_Pressed();
-    return engineMainBtn.update(HAL_Is_Key_Pressed());
+    BtnEvent evt = engineMainBtn.update(HAL_Is_Key_Pressed());
+
+    // 主按键和侧键使用同一套中文事件日志，方便确认唤醒后事件引擎是否重新工作。
+    if (evt == BTN_SHORT)
+        Serial.println("[硬件层] 侦测到旋钮主按键：短按");
+    else if (evt == BTN_DOUBLE)
+        Serial.println("[硬件层] 侦测到旋钮主按键：双击");
+    else if (evt == BTN_LONG)
+        Serial.println("[硬件层] 侦测到旋钮主按键：长按");
+
+    return evt;
 }
 
 BtnEvent HAL_Get_Btn2_Event()

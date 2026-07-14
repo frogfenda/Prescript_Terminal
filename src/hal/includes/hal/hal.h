@@ -92,7 +92,9 @@ void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* 
 void HAL_Sprite_Clear(void);
 
 void HAL_Sleep_Enter_Prepare();
+/** 配置旋钮主按键和侧键为低电平 Light Sleep 唤醒源，并阻塞到任一按键唤醒。 */
 void HAL_Sleep_Start();
+/** 恢复休眠外设，并让两个按键事件引擎非阻塞地吞掉本次唤醒按压。 */
 void HAL_Sleep_Wakeup_Post();
 
 uint16_t HAL_Get_Screen_Width(void);

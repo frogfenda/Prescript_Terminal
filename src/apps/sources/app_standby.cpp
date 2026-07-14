@@ -28,7 +28,7 @@ public:
         is_sleeping = false;
     }
 
-    // 【函数说明】待机页循环：检测主按键进入主菜单，达到 true_sleep_time_ms 后执行 Light Sleep 并在唤醒后重绘待机图。
+    // 【函数说明】待机页循环：达到 true_sleep_time_ms 后执行 Light Sleep，任一实体按键唤醒后恢复并重绘待机图。
     void onLoop() override
     {
         // 【防呆检查】：如果设置为“永不休眠”，直接退出，不计时！
@@ -54,11 +54,12 @@ public:
             HAL_Sleep_Start();         // 触发真实的 esp_light_sleep_start
 
             // ==========================================
-            // CPU 停转，直到用户物理按压旋钮唤醒
+            // CPU 停转，直到用户按下旋钮主按键或侧键唤醒
             // ==========================================
 
-            // --- 4. 唤醒：HAL_Sleep_Wakeup_Post() 统一恢复屏幕、背光、功放、震动、音频、NFC，并吞掉唤醒按键 ---
+            // --- 4. 唤醒：恢复屏幕与外设，并把本次唤醒按压交给 ButtonEngine 非阻塞吞掉 ---
             HAL_Sleep_Wakeup_Post();
+            Serial.println("[待机] HAL 唤醒恢复已返回主循环。");
 
             // --- 5. 业务逻辑恢复 ---
             // 唤醒后仍停留在待机页面，避免重复调用各模块 wakeup。
@@ -74,11 +75,12 @@ public:
     void onDestroy() override {}
     void onKnob(int delta) override {}
 
-    // 【函数说明】主按键短按从待机页进入主菜单。
+    // 【函数说明】亮屏待机时，旋钮主按键或由 AppManager 映射过来的侧键短按都会进入主菜单。
     void onKeyShort() override
     {
         // 因为底层的 HAL_Sleep_Wakeup_Post 已经吞掉了“唤醒那一下”的按键
-        // 所以当代码走到这里，说明是用户真正在亮屏待机状态下，短按了旋钮
+        // 所以当代码走到这里，说明用户在亮屏待机状态下完成了一次新的主键/侧键短按。
+        Serial.println("[待机] 收到短按事件，正在进入主菜单。");
         Feedback_PlayWake();
         appManager.launch(AppId::MainMenu);
     }
