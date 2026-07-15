@@ -5,13 +5,14 @@
 不能在 HUD 绘制路径里调用带等待参数的 getLocalTime()，否则开机无网、NTP 未同步时，
 每帧菜单动画都会被时间读取拖慢。
 
-本模块提供三类能力：
+本模块提供五类能力：
 1. 非阻塞读取当前时间，用于 HUD、闹钟、日程和时间设置页；
-2. 手动设置“当日时分”，用于用户离线修正当前显示时间；
-3. 记录最近一次 NTP 成功对时发生在本次开机后的 millis，用于网络模块判断是否需要周期校时；
-4. 把最近一次网络对时成功得到的 UTC epoch 保存到配置文件，下次开机作为默认显示时间。
+2. 开机从 PCF8563 恢复断电期间持续走时的年月日时分秒；
+3. NTP 或手动设时成功后把系统时间写回 RTC；
+4. 记录最近一次 NTP 成功对时发生在本次开机后的 millis，用于网络模块判断是否需要周期校时；
+5. 把最近一次网络对时成功得到的 UTC epoch 保存到配置文件，作为 RTC 不可用时的开机兜底。
 
-注意：保存的网络时间只用来避开 1970/异常默认时间；断电期间没有可靠计时，
+注意：保存的网络时间本身不会在断电期间继续计时，只用于 RTC 不可用时避开 1970/异常默认时间；
 所以它不会被当成本次开机已经完成过 NTP，网络模块仍会按策略重新校时。
 */
 #ifndef __SYS_TIME_H
@@ -20,19 +21,55 @@
 #include <Arduino.h>
 #include <time.h>
 
+/** 当前 ESP32 系统时间最近一次由哪个来源建立或校准。 */
+enum class SysTimeSource : uint8_t
+{
+    Uncalibrated,
+    Rtc,
+    SavedNetwork,
+    Network,
+    Manual,
+};
+
+/**
+ * 时间服务运行状态快照。
+ * APP/UI 只能通过本结构了解 RTC 和时间来源，不应直接包含 BSP 头或访问 PCF8563 寄存器。
+ */
+struct SysTimeStatus
+{
+    SysTimeSource source;
+    bool rtc_available;
+    bool rtc_time_valid;
+    bool rtc_write_attempted;
+    bool rtc_last_write_ok;
+};
+
 /**
  * 初始化系统时间模块。
  *
  * 实现内容：
  * - 设置 POSIX 时区字符串 CST-8，对应 UTC+8；
  * - 清空本次开机的 NTP 对时记录；
- * - 如果配置里有上次网络对时保存的可信 epoch，则先设置为开机默认时间；
- * - 不联网、不等待 NTP，不把保存时间当成本次网络对时成功。
+ * - 优先初始化并读取 PCF8563，VL/BCD/日期校验通过后设置系统时间；
+ * - RTC 不可用时，才使用配置中上次网络对时保存的可信 epoch；
+ * - 不联网、不等待 NTP，不把 RTC/保存时间当成本次网络对时成功。
  *
  * 调用时机：
  * - main.cpp 的 setup() 中，在配置加载后、网络同步前调用一次。
  */
 void SysTime_Init();
+
+/**
+ * 获取时间来源和 RTC 健康状态的立即快照；仅复制内存状态，不访问 I2C，也不会阻塞 UI。
+ * 返回 false 仅表示 out_status 为空。
+ */
+bool SysTime_GetStatus(SysTimeStatus *out_status);
+
+/**
+ * 把当前 ESP32 系统本地时间写入 PCF8563。
+ * 用于 NTP 成功、用户手动设时以及未来维护页面的显式校准；执行一次短 I2C 事务，不能在每帧调用。
+ */
+bool SysTime_SyncRtcFromSystem();
 
 /**
  * 获取 HUD / 菜单显示用的 HH:MM 字符串。

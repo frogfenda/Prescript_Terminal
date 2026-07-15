@@ -59,7 +59,6 @@ public:
 
             // --- 4. 唤醒：恢复屏幕与外设，并把本次唤醒按压交给 ButtonEngine 非阻塞吞掉 ---
             HAL_Sleep_Wakeup_Post();
-            Serial.println("[待机] HAL 唤醒恢复已返回主循环。");
 
             // --- 5. 业务逻辑恢复 ---
             // 唤醒后仍停留在待机页面，避免重复调用各模块 wakeup。
@@ -80,7 +79,6 @@ public:
     {
         // 因为底层的 HAL_Sleep_Wakeup_Post 已经吞掉了“唤醒那一下”的按键
         // 所以当代码走到这里，说明用户在亮屏待机状态下完成了一次新的主键/侧键短按。
-        Serial.println("[待机] 收到短按事件，正在进入主菜单。");
         Feedback_PlayWake();
         appManager.launch(AppId::MainMenu);
     }

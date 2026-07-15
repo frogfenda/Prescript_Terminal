@@ -77,8 +77,8 @@ public:
      * time_resync_interval_min：周期校时间隔，单位分钟；当前时间设置 UI 只允许 5/15/30/60。
      * time_saved_epoch_valid / time_saved_epoch_utc：最近一次网络对时成功后保存的 UTC epoch。
      *
-     * 注意：保存的 epoch 只作为下次开机的兜底显示时间，不能代表断电期间真实经过了多久；
-     * 所以 SysTime_Init 会用它设置一个非 1970 的默认时间，但不会把它当成本次网络对时成功。
+     * 注意：保存的 epoch 只在板载 RTC 不可用或时间不可信时作为开机兜底，
+     * 它本身不能代表断电期间真实经过了多久，也不会被当成本次网络对时成功。
      */
     bool time_auto_resync;
     uint16_t time_resync_interval_min;

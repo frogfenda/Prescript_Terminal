@@ -1,18 +1,17 @@
 ﻿/*
 【模块职责】系统时间实现。
 
-这里把“显示时间”和“网络对时记录”分开处理：
+这里把“显示时间”“RTC 持续计时”和“网络对时记录”分开处理：
 - 显示时间直接读 time()/localtime_r()，保证 UI 不阻塞；
+- 开机优先从 PCF8563 恢复本地时间，RTC 不可信时才使用配置中的旧 NTP 时间兜底；
+- NTP 成功或用户手动设时后，把校准结果写回 RTC；
 - 网络对时记录保存最近一次 NTP 成功时的 millis，用于周期校时判断；
 - 最近一次 NTP 成功得到的 UTC epoch 会写入配置文件，下次开机作为默认时间；
 - 手动设置时间使用 settimeofday() 写入 ESP32 系统时间。
 */
 #include "sys/sys_time.h"
 #include "sys/sys_config.h"
-/*
-//接入RTC
 #include "bsp/bsp_pcf8563.h"
-*/
 #include <sys/time.h>
 #include <limits.h>
 
@@ -21,6 +20,18 @@ static uint32_t s_last_network_sync_millis = 0;
 
 /* 本次开机是否已经完成过至少一次 NTP 对时。 */
 static bool s_has_network_sync = false;
+
+/*
+ * RTC/时间来源状态只在主任务内更新，HUD 等调用者通过 SysTime_GetStatus() 读取快照。
+ * 初始状态明确标记为未校准，避免把 ESP32 上电后的 1970 时间误认为有效来源。
+ */
+static SysTimeStatus s_time_status = {
+    SysTimeSource::Uncalibrated,
+    false,
+    false,
+    false,
+    false,
+};
 
 
 /*
@@ -217,6 +228,66 @@ static void _GetSafeDateForManualClock(uint16_t &year, uint8_t &month, uint8_t &
     day = (uint8_t)current_day;
 }
 
+/**
+ * 尝试用 PCF8563 的本地年月日时分秒建立 ESP32 UTC epoch。
+ * 返回 true 表示 RTC 数据通过 VL、BCD、日期范围和 settimeofday 全部校验；
+ * 返回 false 时调用方继续使用配置中的旧 NTP epoch 作为兜底。
+ */
+static bool _RestoreSystemTimeFromRtc()
+{
+    struct tm rtc_info = {};
+    BSP::Pcf8563::TimeReadResult result = BSP::Pcf8563::ReadTime(&rtc_info);
+
+    if (result == BSP::Pcf8563::TimeReadResult::Ok)
+    {
+        s_time_status.rtc_time_valid = true;
+
+        time_t rtc_epoch = _EpochFromLocalDateTime(
+            (uint16_t)(rtc_info.tm_year + 1900),
+            (uint8_t)(rtc_info.tm_mon + 1),
+            (uint8_t)rtc_info.tm_mday,
+            (uint8_t)rtc_info.tm_hour,
+            (uint8_t)rtc_info.tm_min,
+            (uint8_t)rtc_info.tm_sec
+        );
+
+        if (!_SetSystemEpoch(rtc_epoch))
+            return false;
+
+        s_time_status.source = SysTimeSource::Rtc;
+        Serial.printf(
+            "[时间] 已从 RTC 恢复系统时间：%04d-%02d-%02d %02d:%02d:%02d。\n",
+            rtc_info.tm_year + 1900,
+            rtc_info.tm_mon + 1,
+            rtc_info.tm_mday,
+            rtc_info.tm_hour,
+            rtc_info.tm_min,
+            rtc_info.tm_sec
+        );
+        return true;
+    }
+
+    s_time_status.rtc_time_valid = false;
+    if (result == BSP::Pcf8563::TimeReadResult::VoltageLow)
+    {
+        Serial.println("[时间-警告] RTC 的 VL 低压标志已置位，备用电池或晶振曾异常，本次不采用 RTC 时间。");
+    }
+    else if (result == BSP::Pcf8563::TimeReadResult::InvalidData)
+    {
+        Serial.println("[时间-警告] RTC 寄存器中的 BCD 日期时间非法，本次不采用 RTC 时间。");
+    }
+    else if (result == BSP::Pcf8563::TimeReadResult::BusError)
+    {
+        s_time_status.rtc_available = false;
+        Serial.println("[时间-错误] 读取 RTC 时 I2C 通信失败，本次改用保存时间兜底。");
+    }
+    else
+    {
+        Serial.println("[时间-错误] RTC 驱动未完成初始化，无法恢复系统时间。");
+    }
+    return false;
+}
+
 void SysTime_Init()
 {
     /*
@@ -229,25 +300,31 @@ void SysTime_Init()
 
     s_last_network_sync_millis = 0;
     s_has_network_sync = false;
+    s_time_status = {
+        SysTimeSource::Uncalibrated,
+        false,
+        false,
+        false,
+        false,
+    };
+
+    // RTC 由备用电池持续供电，是断电重启后的首选时间源；初始化只访问本地 I2C，不联网。
+    s_time_status.rtc_available = BSP::Pcf8563::Begin();
+    bool restored_from_rtc = s_time_status.rtc_available && _RestoreSystemTimeFromRtc();
 
     /*
-    //接入RTC
-    BSP::Pcf8563::Begin()
-    BSP::Pcf8563::ReadTime(&rtc_info)
-    _EpochFromLocalDateTime(...)
-    _SetSystemEpoch(rtc_epoch)
-    */
-
-    /*
-     * 使用最近一次网络对时保存下来的 UTC epoch 作为开机兜底时间。
-     * 这一步只解决开机显示不再停在 1970/异常日期；由于设备断电期间没有可靠计时，
+     * RTC 不可用或时间不可信时，使用最近一次网络对时保存下来的 UTC epoch 作为开机兜底。
+     * 这一步只解决开机显示不再停在 1970/异常日期；保存值在设备断电期间不会自行前进，
      * 这里不会设置 s_has_network_sync，Network_Update 仍会按策略尽快发起真正的 NTP 校时。
      */
-    if (sysConfig.time_saved_epoch_valid && _IsPersistedEpochTrusted((time_t)sysConfig.time_saved_epoch_utc))
+    if (!restored_from_rtc &&
+        sysConfig.time_saved_epoch_valid &&
+        _IsPersistedEpochTrusted((time_t)sysConfig.time_saved_epoch_utc))
     {
         time_t saved_epoch = (time_t)sysConfig.time_saved_epoch_utc;
         if (_SetSystemEpoch(saved_epoch))
         {
+            s_time_status.source = SysTimeSource::SavedNetwork;
             struct tm info;
             localtime_r(&saved_epoch, &info);
             Serial.printf(
@@ -261,13 +338,42 @@ void SysTime_Init()
             );
         }
     }
-    else if (sysConfig.time_saved_epoch_valid)
+    else if (!restored_from_rtc && sysConfig.time_saved_epoch_valid)
     {
         Serial.printf(
             "[时间-警告] 配置中的保存时间不可信，已忽略：epoch=%lu。\n",
             (unsigned long)sysConfig.time_saved_epoch_utc
         );
     }
+}
+
+bool SysTime_GetStatus(SysTimeStatus *out_status)
+{
+    if (!out_status)
+        return false;
+
+    *out_status = s_time_status;
+    return true;
+}
+
+bool SysTime_SyncRtcFromSystem()
+{
+    time_t now = time(nullptr);
+    struct tm local_info = {};
+    localtime_r(&now, &local_info);
+
+    s_time_status.rtc_write_attempted = true;
+    s_time_status.rtc_last_write_ok = BSP::Pcf8563::WriteTime(local_info);
+    if (!s_time_status.rtc_last_write_ok)
+    {
+        s_time_status.rtc_available = BSP::Pcf8563::IsPresent();
+        Serial.println("[时间-警告] 当前系统时间写入 RTC 失败，ESP32 本次运行时间仍然有效。");
+        return false;
+    }
+
+    s_time_status.rtc_available = true;
+    s_time_status.rtc_time_valid = true;
+    return true;
 }
 
 void SysTime_GetTimeString(char* out_str)
@@ -301,6 +407,7 @@ void SysTime_MarkNetworkSynced()
 {
     s_has_network_sync = true;
     s_last_network_sync_millis = millis();
+    s_time_status.source = SysTimeSource::Network;
 
     Serial.printf(
         "[时间] NTP 对时完成，周期校时计时点重置为 %lu ms。\n",
@@ -324,10 +431,7 @@ void SysTime_MarkNetworkSynced()
 
         struct tm info;
         localtime_r(&now_epoch, &info);
-        /*
-        //接入RTC
-        BSP::Pcf8563::WriteTime(info)
-        */
+        SysTime_SyncRtcFromSystem();
         Serial.printf(
             "[时间] 已保存本次网络对时时间：%04d-%02d-%02d %02d:%02d:%02d，epoch=%lu。\n",
             info.tm_year + 1900,
@@ -405,10 +509,8 @@ void SysTime_SetTodayClock(uint8_t hour, uint8_t minute)
     time_t now = time(nullptr);
     struct tm verify;
     localtime_r(&now, &verify);
-    /*
-    //接入RTC
-    BSP::Pcf8563::WriteTime(verify)
-    */
+    s_time_status.source = SysTimeSource::Manual;
+    SysTime_SyncRtcFromSystem();
 
     Serial.printf(
         "[时间] 已手动设置当日时间：%04u-%02u-%02u %02u:%02u:00，校验显示=%04d-%02d-%02d %02d:%02d。\n",
@@ -464,10 +566,8 @@ void SysTime_SetDate(uint16_t year, uint8_t month, uint8_t day)
     time_t now = time(nullptr);
     struct tm verify;
     localtime_r(&now, &verify);
-    /*
-    //接入RTC
-    BSP::Pcf8563::WriteTime(verify)
-    */
+    s_time_status.source = SysTimeSource::Manual;
+    SysTime_SyncRtcFromSystem();
 
     Serial.printf(
         "[时间] 已手动设置日期：%04u-%02u-%02u，保留时间=%02u:%02u:%02u，校验显示=%04d-%02d-%02d %02d:%02d:%02d。\n",

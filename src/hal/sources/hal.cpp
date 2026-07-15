@@ -632,8 +632,6 @@ void HAL_Sleep_Start()
     // 3. CPU 在这里暂停，直到任一按键被按下或休眠请求被底层拒绝。
     esp_err_t sleep_err = esp_light_sleep_start();
     esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
-    bool main_button_active = gpio_get_level(main_button) == 0;
-    bool side_button_active = gpio_get_level(side_button) == 0;
 
     /*
      * 4. 唤醒源只服务本次 Light Sleep，返回后立即解除。
@@ -654,20 +652,7 @@ void HAL_Sleep_Start()
     {
         Serial.printf("[休眠] Light Sleep 未正常执行，错误码=%d。\n", (int)sleep_err);
     }
-    else if (side_button_active)
-    {
-        Serial.println("[休眠] 检测到侧键唤醒。");
-    }
-    else if (main_button_active)
-    {
-        Serial.println("[休眠] 检测到旋钮主按键唤醒。");
-    }
-    else if (wakeup_cause == ESP_SLEEP_WAKEUP_GPIO)
-    {
-        // 用户可能很快松开按键，导致返回后已经读不到低电平；通用 GPIO 原因仍能确认唤醒链路正常。
-        Serial.println("[休眠] 检测到实体按键唤醒，按键已快速释放。");
-    }
-    else
+    else if (wakeup_cause != ESP_SLEEP_WAKEUP_GPIO)
     {
         Serial.println("[休眠] 设备已唤醒，但未取得按键唤醒标记。");
     }
@@ -676,8 +661,6 @@ void HAL_Sleep_Start()
 // 【函数说明】唤醒后恢复屏幕、背光、功放、音频、震动和 NFC，并让按键引擎非阻塞地吞掉唤醒按压。
 void HAL_Sleep_Wakeup_Post()
 {
-    Serial.println("[休眠恢复] HAL 恢复流程开始。");
-
     // 1. 先解除 hold 并明确保持背光/功放关闭，避免 wake 过程露出空白帧。
     BSP::Power::ReleaseBacklightAndAudio();
     BSP::Power::SetBacklight(false);
@@ -691,7 +674,6 @@ void HAL_Sleep_Wakeup_Post()
     HAL_Screen_DrawStandbyImage();
     HAL_Screen_Update();
     BSP::DisplayNv3007::DisplayOn();
-    Serial.println("[休眠恢复] 屏幕恢复完成。");
 
     // 4. display-on 后留一点稳定时间，再打开背光。
     delay(20);
@@ -700,18 +682,10 @@ void HAL_Sleep_Wakeup_Post()
     BSP::Power::SetAudioAmp(true);
     BSP::Power::SetBacklight(true); // 新屏背光高电平点亮，画面瞬间浮现
 
-    // 6. 逐项唤醒外设；阶段日志用于确认屏幕点亮后主线程是否仍能完整返回。
-    Serial.println("[休眠恢复] 震动恢复开始。");
+    // 6. 逐项唤醒外设。
     SysHaptic_Wakeup();
-    Serial.println("[休眠恢复] 震动恢复完成。");
-
-    Serial.println("[休眠恢复] 音频恢复开始。");
     SysAudio_Wakeup();
-    Serial.println("[休眠恢复] 音频恢复完成。");
-
-    Serial.println("[休眠恢复] NFC 恢复开始。");
     SysNfc_Wakeup();
-    Serial.println("[休眠恢复] NFC 恢复完成。");
 
     /*
      * 7. 按当前真实电平重置事件引擎。
@@ -726,11 +700,6 @@ void HAL_Sleep_Wakeup_Post()
     bool side_still_pressed = digitalRead(BSP::Pins::BTN_SIDE) == LOW;
     engineMainBtn.reset(main_still_pressed);
     engineBtn2.reset(side_still_pressed);
-
-    Serial.printf("[休眠] 按键事件引擎已恢复：主键=%s，侧键=%s。\n",
-                  main_still_pressed ? "等待释放" : "已释放",
-                  side_still_pressed ? "等待释放" : "已释放");
-    Serial.println("[休眠恢复] HAL 恢复流程结束。");
 }
 
 void HAL_Btn2_Init()
@@ -741,33 +710,13 @@ void HAL_Btn2_Init()
 BtnEvent HAL_Get_Btn_Main_Event()
 {
     extern bool HAL_Is_Key_Pressed();
-    BtnEvent evt = engineMainBtn.update(HAL_Is_Key_Pressed());
-
-    // 主按键和侧键使用同一套中文事件日志，方便确认唤醒后事件引擎是否重新工作。
-    if (evt == BTN_SHORT)
-        Serial.println("[硬件层] 侦测到旋钮主按键：短按");
-    else if (evt == BTN_DOUBLE)
-        Serial.println("[硬件层] 侦测到旋钮主按键：双击");
-    else if (evt == BTN_LONG)
-        Serial.println("[硬件层] 侦测到旋钮主按键：长按");
-
-    return evt;
+    return engineMainBtn.update(HAL_Is_Key_Pressed());
 }
 
 BtnEvent HAL_Get_Btn2_Event()
 {
-    // 读取引脚并喂给状态机引擎
-    BtnEvent evt = engineBtn2.update(digitalRead(BSP::Pins::BTN_SIDE) == LOW);
-
-    // 【物理雷达】：只要硬件没接错，按下去必定会打印！
-    if (evt == BTN_SHORT)
-        Serial.println("[硬件层] 侦测到 Btn2: 短按");
-    else if (evt == BTN_DOUBLE)
-        Serial.println("[硬件层] 侦测到 Btn2: 双击");
-    else if (evt == BTN_LONG)
-        Serial.println("[硬件层] 侦测到 Btn2: 长按");
-
-    return evt;
+    // 读取侧键真实电平并交给统一按键状态机；正常按键事件不再持续输出串口日志。
+    return engineBtn2.update(digitalRead(BSP::Pins::BTN_SIDE) == LOW);
 }
 
 void HAL_Screen_ShowChineseLine_Color(int32_t x, int32_t y, const char *str, uint16_t color)

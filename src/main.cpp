@@ -54,7 +54,8 @@ void setup()
     sysSpecials.begin();
 
     /*
-     * SysTime_Init 只设置时区和清空本次开机的 NTP 记录，不联网。
+     * SysTime_Init 设置时区并优先从板载 RTC 恢复时间；RTC 不可信时再使用保存的 NTP 时间兜底。
+     * 该过程只访问本地 I2C，不联网。
      * 网络对时由 Network_Init + Network_RequestBootSync 延迟完成。
      */
     SysTime_Init();
