@@ -11,7 +11,7 @@
 void SysAutoPush_UpdateConfig(bool enable, uint32_t min_m, uint32_t max_m);
 
 void SysAutoPush_Init();
-// 【接口说明】每轮 loop 检查是否到达推送时间，到点后向运行状态层提交推送请求并重置下一次时间。
+// 【接口说明】每轮 loop 检查是否到达推送时间；成功提交统一提醒后重置并登记下一次休眠唤醒。
 void SysAutoPush_Update();
 void SysAutoPush_ResetTimer();
 

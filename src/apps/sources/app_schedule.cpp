@@ -12,6 +12,9 @@
 #include "sys/sys_event.h"
 #include "sys/sys_ble.h"
 #include "sys/sys_command_result.h"
+#include "sys/sys_reminder.h"
+#include "sys/sys_sleep_scheduler.h"
+#include "sys/sys_time.h"
 #include "lang/ui_strings.h"
 
 int g_schedule_edit_idx = -1;
@@ -19,6 +22,27 @@ int g_schedule_edit_idx = -1;
 void _Cb_SchAdd(void* payload);
 void _Cb_SchDel(void* payload);
 void _Cb_SchSync(void* payload);
+
+namespace
+{
+    /** 把最早的未过期日程提交给统一休眠调度器；没有活动日程时清空该来源。 */
+    void Schedule_UpdateNextWake()
+    {
+        time_t earliest = 0;
+        for (int i = 0; i < sysConfig.schedule_count; ++i)
+        {
+            const ScheduleItem &item = sysConfig.schedules[i];
+            if (!item.is_expired && item.target_time > 0 &&
+                (earliest == 0 || item.target_time < earliest))
+                earliest = item.target_time;
+        }
+        if (earliest > 0)
+            SysSleep_ScheduleEpoch(SysSleepSource::Schedule, earliest, SysSleepWakeAction::Foreground);
+        else
+            SysSleep_Cancel(SysSleepSource::Schedule);
+    }
+}
+
 void Schedule_DeleteMobile(const char *title)
 {
     String target = String(title);
@@ -47,6 +71,7 @@ void Schedule_DeleteMobile(const char *title)
     if (deletedCount > 0)
     {
         sysConfig.save();
+        Schedule_UpdateNextWake();
         SysCmdResult_Ok("DELETED", target);
     }
     else
@@ -140,6 +165,7 @@ void Schedule_AddMobile(uint32_t target_time, const char *title, const char *tex
     sysConfig.schedule_count++;
     Sort_Schedules();
     sysConfig.save();
+    Schedule_UpdateNextWake();
 
     if (recycledExpired)
         SysCmdResult_Warn("ADDED_RECYCLED_EXPIRED", safeTitle);
@@ -149,7 +175,7 @@ void Schedule_AddMobile(uint32_t target_time, const char *title, const char *tex
 
 class AppScheduleEdit : public AppBase
 {
-    int mo, d, h, m, t_idx, p_idx, phase;
+    int y, mo, d, h, m, t_idx, p_idx, phase;
 
     DialAnimator dialAnim;       // 实例化刻度盘引擎
     TacticalLinkEngine linkAnim; // 实例化战术链路引擎
@@ -182,7 +208,7 @@ class AppScheduleEdit : public AppBase
             if (phase == 0)
                 dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), mo, 1, 12, "");
             else if (phase == 1)
-                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), d, 1, 31, "");
+                dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), d, 1, SysTime_DaysInMonth(y, mo), "");
             else if (phase == 2)
                 dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), h, 0, 23, "");
             else if (phase == 3)
@@ -227,6 +253,7 @@ public:
                 tt = now;
             struct tm s_info;
             localtime_r(&tt, &s_info);
+            y = s_info.tm_year + 1900;
             mo = s_info.tm_mon + 1;
             d = s_info.tm_mday;
             h = s_info.tm_hour;
@@ -236,6 +263,7 @@ public:
         }
         else
         {
+            y = t_info.tm_year + 1900;
             mo = t_info.tm_mon + 1;
             d = t_info.tm_mday;
             h = t_info.tm_hour;
@@ -273,13 +301,17 @@ public:
                 mo = 12;
             if (mo > 12)
                 mo = 1;
+            int max_day = SysTime_DaysInMonth((uint16_t)y, (uint8_t)mo);
+            if (d > max_day)
+                d = max_day;
         }
         if (phase == 1)
         {
+            int max_day = SysTime_DaysInMonth((uint16_t)y, (uint8_t)mo);
             d += delta;
             if (d < 1)
-                d = 31;
-            if (d > 31)
+                d = max_day;
+            if (d > max_day)
                 d = 1;
         }
         if (phase == 2)
@@ -339,18 +371,40 @@ public:
         {
             time_t now;
             time(&now);
-            struct tm t_info;
-            localtime_r(&now, &t_info);
-            t_info.tm_mon = mo - 1;
-            t_info.tm_mday = d;
-            t_info.tm_hour = h;
-            t_info.tm_min = m;
-            t_info.tm_sec = 0;
-            time_t new_target = mktime(&t_info);
+            time_t new_target = 0;
+            if (!SysTime_LocalDateTimeToEpoch(
+                    (uint16_t)y,
+                    (uint8_t)mo,
+                    (uint8_t)d,
+                    (uint8_t)h,
+                    (uint8_t)m,
+                    0,
+                    &new_target))
+            {
+                Serial.println("[日程-警告] 当前年月日时分无效，本次日程未保存。");
+                SYS_SOUND_LONG();
+                return;
+            }
+
             if (new_target < now)
             {
-                t_info.tm_year += 1;
-                new_target = mktime(&t_info);
+                ++y;
+                int max_day = SysTime_DaysInMonth((uint16_t)y, (uint8_t)mo);
+                if (d > max_day)
+                    d = max_day;
+                if (!SysTime_LocalDateTimeToEpoch(
+                        (uint16_t)y,
+                        (uint8_t)mo,
+                        (uint8_t)d,
+                        (uint8_t)h,
+                        (uint8_t)m,
+                        0,
+                        &new_target))
+                {
+                    Serial.println("[日程-警告] 下一年度的目标日期无效，本次日程未保存。");
+                    SYS_SOUND_LONG();
+                    return;
+                }
             }
 
             if (g_schedule_edit_idx >= 0)
@@ -366,6 +420,12 @@ public:
             }
             else
             {
+                if (sysConfig.schedule_count >= PrescriptConst::MAX_SCHEDULES)
+                {
+                    Serial.println("[日程-警告] 日程数量已满，本次新增未保存。");
+                    SYS_SOUND_LONG();
+                    return;
+                }
                 int idx = sysConfig.schedule_count;
                 sysConfig.schedules[idx].target_time = new_target;
                 sysConfig.schedules[idx].title = Get_Title_Preset(t_idx);
@@ -377,6 +437,7 @@ public:
             }
             Sort_Schedules();
             sysConfig.save();
+            Schedule_UpdateNextWake();
             appManager.popApp();
         }
     }
@@ -391,6 +452,7 @@ public:
                 sysConfig.schedules[i] = sysConfig.schedules[i + 1];
             sysConfig.schedule_count--;
             sysConfig.save();
+            Schedule_UpdateNextWake();
             appManager.popApp();
         }
         else if (phase > 0)
@@ -560,6 +622,7 @@ public:
         
         // 2. 向系统总管申请后台巡逻权限！
         appManager.registerBackgroundApp(this);
+        Schedule_UpdateNextWake();
     }
        void onBackgroundTick() override
     {
@@ -602,25 +665,24 @@ public:
                 continue;
             }
 
-            // 处理到点引爆
+            // 到期提醒先进入统一队列；入队失败时保持未过期，下一秒继续重试，不能静默丢失。
             if (!s.is_expired && now >= s.target_time)
             {
+                bool queued = s.prescript.length() == 0
+                    ? SysReminder_Submit(SysReminderKind::Random, nullptr, false)
+                    : SysReminder_Submit(SysReminderKind::Custom, s.prescript.c_str(), false);
+                if (!queued)
+                    continue;
+
                 s.is_expired = true;
                 s.expire_time = now;
                 s.is_restored = false;
                 need_save = true;
-
-                if (s.prescript.length() == 0)
-                    PushNotify_Trigger_Random(false);
-                else
-                    PushNotify_Trigger_Custom(s.prescript.c_str(), false);
-                
-                // 💡 妙笔：引爆后 is_expired 变为 true。
-                // 到了下一秒的循环，隐秘日程就会被上面的 should_destroy 瞬间碾碎！
             }
         }
         if (need_save)
             sysConfig.save();
+        Schedule_UpdateNextWake();
     }
 
 };

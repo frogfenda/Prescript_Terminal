@@ -10,6 +10,7 @@
 #include "sys/sys_ble_queue.h"
 #include "sys/sys_haptic.h"
 #include "sys/sys_audio.h"
+#include "sys/sys_sleep_scheduler.h"
 #include "bsp/bsp_nfc_pn532.h"
 
 SysNFC sysNfc;
@@ -18,6 +19,21 @@ TaskHandle_t nfcTaskHandle = NULL;
 volatile bool g_nfc_is_emulating = false;
 volatile bool g_nfc_just_started_emu = false;
 volatile uint32_t g_nfc_emu_end_time = 0;
+
+/** NFC 靶卡模式需要 PN532 持续工作；状态变化时同步维护统一休眠 blocker。 */
+static void nfc_set_emulating(bool active)
+{
+    g_nfc_is_emulating = active;
+    SysSleep_SetBlocker(SysSleepBlocker::NfcEmulation, active);
+}
+
+/** 60 秒窗口远小于 INT32_MAX；使用有符号差值即可安全跨过 millis() 的 32 位回绕。 */
+static bool nfc_emu_deadline_reached(uint32_t now = millis())
+{
+    if (g_nfc_emu_end_time == 0)
+        return true;
+    return (int32_t)(now - g_nfc_emu_end_time) >= 0;
+}
 
 // 【稳定性参数】普通“没有卡”不是错误，因此空轮询只做低频自恢复；真正读到 UID 后的块/页异常才快速触发恢复。
 static constexpr uint16_t NFC_IDLE_RECOVER_LIMIT = 300;       // 约 90 秒无卡轮询后轻量重置一次 PN532，防止芯片偶发假死。
@@ -43,7 +59,7 @@ static void nfc_enter_offline(const char *reason, uint32_t retry_delay_ms = NFC_
 // 【函数说明】启动 60 秒靶卡伪装窗口，设置结束时间和首次复位标志，并播放确认反馈。
 void SysNfc_StartEmulation()
 {
-    g_nfc_is_emulating = true;
+    nfc_set_emulating(true);
     g_nfc_just_started_emu = true;
     g_nfc_emu_end_time = millis() + 60000;
     Serial.println("[NFC-硬件SPI] 停止主动雷达，进入【边狱巴士】模拟伪装模式 60 秒！");
@@ -53,9 +69,9 @@ void SysNfc_StartEmulation()
 // 【函数说明】返回伪装状态；如果当前时间超过结束时间，先自动清除伪装标志。
 bool SysNfc_IsEmulating()
 {
-    if (g_nfc_is_emulating && millis() >= g_nfc_emu_end_time)
+    if (g_nfc_is_emulating && nfc_emu_deadline_reached())
     {
-        g_nfc_is_emulating = false;
+        nfc_set_emulating(false);
     }
     return g_nfc_is_emulating;
 }
@@ -76,7 +92,7 @@ int SysNfc_GetEmulationRemainingSeconds()
 {
     if (!SysNfc_IsEmulating()) return 0;
     uint32_t now = millis();
-    if (g_nfc_emu_end_time <= now) return 0;
+    if (nfc_emu_deadline_reached(now)) return 0;
     return (int)((g_nfc_emu_end_time - now) / 1000);
 }
 
@@ -292,9 +308,9 @@ void nfc_bg_task(void *pvParameters)
         // 不再让 NFC 服务永久离线。
         if (!g_nfc_ready)
         {
-            if (g_nfc_is_emulating && millis() >= g_nfc_emu_end_time)
+            if (g_nfc_is_emulating && nfc_emu_deadline_reached())
             {
-                g_nfc_is_emulating = false;
+                nfc_set_emulating(false);
                 Serial.println("[NFC-自恢复] 伪装窗口已超时，但 PN532 尚未恢复，保持离线重试。");
             }
 
@@ -317,11 +333,11 @@ void nfc_bg_task(void *pvParameters)
 
         if (g_nfc_is_emulating)
         {
-            if (millis() > g_nfc_emu_end_time)
+            if (nfc_emu_deadline_reached())
             {
                 Serial.println("[NFC-硬件SPI] 60秒伪装结束，恢复主动雷达扫描！");
                 Feedback_PlayKnobTick();
-                g_nfc_is_emulating = false;
+                nfc_set_emulating(false);
 
                 if (nfc_reinitialize("伪装窗口结束，恢复主动读卡", false))
                     g_nfc_ready = true;
@@ -347,7 +363,7 @@ void nfc_bg_task(void *pvParameters)
                 uint8_t response[128];
                 bool connected = false;
 
-                while (g_nfc_is_emulating && millis() < g_nfc_emu_end_time)
+                while (g_nfc_is_emulating && !nfc_emu_deadline_reached())
                 {
                     if (raw_readResponse(response, sizeof(response), 500) > 0)
                     {
@@ -365,7 +381,7 @@ void nfc_bg_task(void *pvParameters)
 
                     int timeout_err_cnt = 0;
 
-                    while (g_nfc_is_emulating && millis() < g_nfc_emu_end_time)
+                    while (g_nfc_is_emulating && !nfc_emu_deadline_reached())
                     {
                         uint8_t tgGet[] = {0x86};
                         if (!raw_sendCommand(tgGet, 1))

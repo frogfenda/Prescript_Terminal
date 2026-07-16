@@ -29,6 +29,13 @@ enum BtnEvent {
     BTN_DOUBLE
 };
 
+/** Light Sleep 返回原因；HAL 只区分业务需要的按键、定时器和失败三类。 */
+enum class HALSleepWakeReason : uint8_t {
+    Button,
+    Timer,
+    Error
+};
+
 /**
  * HAL 字体角色。
  *
@@ -92,8 +99,11 @@ void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* 
 void HAL_Sprite_Clear(void);
 
 void HAL_Sleep_Enter_Prepare();
-/** 配置旋钮主按键和侧键为低电平 Light Sleep 唤醒源，并阻塞到任一按键唤醒。 */
-void HAL_Sleep_Start();
+/**
+ * 配置两个实体按键和可选定时器为 Light Sleep 唤醒源，并阻塞到唤醒。
+ * timer_wakeup_us=0 表示只允许按键唤醒；返回值供 Standby 决定静默续睡还是恢复外设。
+ */
+HALSleepWakeReason HAL_Sleep_Start(uint64_t timer_wakeup_us = 0);
 /** 恢复休眠外设，并让两个按键事件引擎非阻塞地吞掉本次唤醒按压。 */
 void HAL_Sleep_Wakeup_Post();
 

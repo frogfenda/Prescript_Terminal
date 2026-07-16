@@ -1,306 +1,46 @@
-﻿/*
+/*
 【模块职责】系统时间实现。
 
-这里把“显示时间”“RTC 持续计时”和“网络对时记录”分开处理：
-- 显示时间直接读 time()/localtime_r()，保证 UI 不阻塞；
-- 开机优先从 PCF8563 恢复本地时间，RTC 不可信时才使用配置中的旧 NTP 时间兜底；
-- NTP 成功或用户手动设时后，把校准结果写回 RTC；
-- 网络对时记录保存最近一次 NTP 成功时的 millis，用于周期校时判断；
-- 最近一次 NTP 成功得到的 UTC epoch 会写入配置文件，下次开机作为默认时间；
-- 手动设置时间使用 settimeofday() 写入 ESP32 系统时间。
+所有 RTC 读写和时间来源状态都在 Arduino 主任务中完成。网络任务只调用
+SysTime_SubmitNetworkTime() 投递真实 SNTP epoch，避免跨核心访问 Wire1、配置文件和 UI。
+PCF8563 是正常运行和断电重启后的常态时间源；网络与手动设置只负责校准系统并写回 RTC。
 */
 #include "sys/sys_time.h"
-#include "sys/sys_config.h"
 #include "bsp/bsp_pcf8563.h"
+#include "sys/sys_sleep_scheduler.h"
 #include <sys/time.h>
 #include <limits.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
-/* 最近一次 NTP 成功对时发生在本次开机后的 millis。 */
-static uint32_t s_last_network_sync_millis = 0;
-
-/* 本次开机是否已经完成过至少一次 NTP 对时。 */
-static bool s_has_network_sync = false;
-
-/*
- * RTC/时间来源状态只在主任务内更新，HUD 等调用者通过 SysTime_GetStatus() 读取快照。
- * 初始状态明确标记为未校准，避免把 ESP32 上电后的 1970 时间误认为有效来源。
- */
-static SysTimeStatus s_time_status = {
-    SysTimeSource::Uncalibrated,
-    false,
-    false,
-    false,
-    false,
-};
-
-
-/*
- * 本设备固定使用东八区。
- *
- * 这里不再依赖 mktime() 把本地时间转 epoch，而是自己把“本地年月日时分秒”
- * 转换成 UTC epoch 后写入 settimeofday()。
- *
- * 这样做的原因：
- * - 用户在“设置当日时间”中输入 14:30，期望 HUD 立即显示 14:30；
- * - mktime() 会根据 C 库时区规则再次解释 tm 结构，在 ESP32 Arduino 环境里
- *   可能表现为额外偏移，看起来像“在当前时间上加了偏置”；
- * - 本项目当前只使用东八区，因此直接按 UTC+8 换算更稳定、可预期。
- */
-static constexpr int32_t LOCAL_UTC_OFFSET_SECONDS = 8 * 3600;
-
-/*
- * 手动设置时间时使用的安全日期范围。
- *
- * ESP32 刚开机且尚未 NTP 对时/日期设置时，系统时间通常仍在 1970 年附近。
- * 如果此时用户把当天时间设成 00:00，本地时间换算成 UTC 后会落到
- * 1969-12-31 16:00，也就是负 epoch。部分 ESP32/newlib 组合对负 epoch
- * 的 settimeofday()/localtime_r() 支持不稳定，会表现为：
- * - 00:00 设置失败；
- * - 一旦落入 1969/1970 异常日期，后续再设置其他时分也继续失效。
- *
- * 因此“只设置时分”的页面在发现当前日期不可信时，会先把日期钉到
- * 一个项目允许范围内的安全日期，再写入用户输入的时分。
- */
-static constexpr uint16_t MANUAL_TIME_MIN_YEAR = 2020;
-static constexpr uint16_t MANUAL_TIME_MAX_YEAR = 2035;
-static constexpr uint16_t MANUAL_TIME_FALLBACK_YEAR = 2026;
-static constexpr uint8_t  MANUAL_TIME_FALLBACK_MONTH = 1;
-static constexpr uint8_t  MANUAL_TIME_FALLBACK_DAY = 1;
-
-/*
- * 持久化网络时间的可信范围。
- * 只保存 NTP 成功后的 UTC epoch；下次开机用它避开 1970 默认时间，
- * 但不把它视为本次开机已经完成过网络对时。
- */
-static constexpr time_t SAVED_TIME_MIN_EPOCH = 1577836800;  // 2020-01-01 00:00:00 UTC
-static constexpr time_t SAVED_TIME_MAX_EPOCH = 2082758399;  // 2035-12-31 23:59:59 UTC
-
-/**
- * 计算公历日期距离 1970-01-01 的天数。
- *
- * 输入：正常年月日，例如 2026-05-10。
- * 输出：该日期 00:00 相对 Unix epoch 日期的天数。
- *
- * 该算法不依赖 mktime() 和系统时区，因此适合作为手动设时的底层转换。
- */
-static int64_t _DaysFromCivil(int year, unsigned month, unsigned day)
+namespace
 {
-    year -= month <= 2;
+    constexpr int32_t LOCAL_UTC_OFFSET_SECONDS = 8 * 3600;
+    constexpr uint32_t RTC_REFRESH_INTERVAL_MS = 60UL * 60UL * 1000UL;
+    constexpr uint16_t MANUAL_TIME_MIN_YEAR = 2020;
+    constexpr uint16_t MANUAL_TIME_MAX_YEAR = 2099;
+    constexpr uint16_t MANUAL_TIME_FALLBACK_YEAR = 2026;
+    constexpr uint8_t MANUAL_TIME_FALLBACK_MONTH = 1;
+    constexpr uint8_t MANUAL_TIME_FALLBACK_DAY = 1;
+    constexpr time_t NETWORK_TIME_MIN_EPOCH = 1577836800; // 2020-01-01 00:00:00 UTC
+    constexpr time_t NETWORK_TIME_MAX_EPOCH = 4102444799; // 2099-12-31 23:59:59 UTC
 
-    const int era = (year >= 0 ? year : year - 399) / 400;
-    const unsigned yoe = (unsigned)(year - era * 400);
-    const unsigned doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
-    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    uint32_t s_last_network_sync_millis = 0;
+    uint32_t s_last_rtc_refresh_millis = 0;
+    bool s_has_network_sync = false;
+    bool s_rtc_write_failed = false;
+    QueueHandle_t s_network_time_queue = nullptr;
 
-    return (int64_t)era * 146097 + (int64_t)doe - 719468;
-}
-
-/**
- * 把“东八区本地时间”转换成 settimeofday() 需要的 UTC epoch。
- *
- * 换算过程：
- * 1. 先计算本地日期对应的天数；
- * 2. 加上当天的时、分、秒；
- * 3. 减去东八区偏移 8 小时，得到 UTC 秒数。
- */
-static time_t _EpochFromLocalDateTime(
-    uint16_t year,
-    uint8_t month,
-    uint8_t day,
-    uint8_t hour,
-    uint8_t minute,
-    uint8_t second
-)
-{
-    int64_t days = _DaysFromCivil((int)year, (unsigned)month, (unsigned)day);
-
-    int64_t local_seconds =
-        days * 86400LL +
-        (int64_t)hour * 3600LL +
-        (int64_t)minute * 60LL +
-        (int64_t)second;
-
-    int64_t utc_seconds = local_seconds - LOCAL_UTC_OFFSET_SECONDS;
-    return (time_t)utc_seconds;
-}
-
-/**
- * 统一写入 ESP32 系统时间。
- *
- * settimeofday() 接收的是 UTC epoch，不是本地时间。
- * 所以调用本函数前必须已经完成本地时间到 UTC epoch 的换算。
- */
-static bool _SetSystemEpoch(time_t epoch)
-{
-    if (epoch < 0)
+    /** 每次 RTC 读写维护完成后重新登记下一次静默唤醒；失败同样推迟一小时，避免离线时频繁唤醒。 */
+    void ScheduleNextRtcMaintenance()
     {
-        Serial.printf("[时间-错误] 拒绝写入负 epoch：%lld。\n", (long long)epoch);
-        return false;
+        SysSleep_ScheduleAfterMs(
+            SysSleepSource::RtcMaintenance,
+            RTC_REFRESH_INTERVAL_MS,
+            SysSleepWakeAction::SilentMaintenance);
     }
 
-    timeval tv;
-    tv.tv_sec = epoch;
-    tv.tv_usec = 0;
-
-    int ret = settimeofday(&tv, nullptr);
-    if (ret != 0)
-    {
-        Serial.printf("[时间-错误] settimeofday 失败，epoch=%lld，ret=%d。\n", (long long)epoch, ret);
-        return false;
-    }
-
-    return true;
-}
-
-/**
- * 判断一个 UTC epoch 是否适合保存/恢复。
- * 这里不追求精确校验，只避免 1970、负数或异常未来时间进入系统默认时钟。
- */
-static bool _IsPersistedEpochTrusted(time_t epoch)
-{
-    return epoch >= SAVED_TIME_MIN_EPOCH && epoch <= SAVED_TIME_MAX_EPOCH;
-}
-
-
-/**
- * 判断闰年。
- * 公历规则：能被 4 整除且不能被 100 整除，或者能被 400 整除。
- */
-static bool _IsLeapYear(uint16_t year)
-{
-    return ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
-}
-
-uint8_t SysTime_DaysInMonth(uint16_t year, uint8_t month)
-{
-    if (month < 1) month = 1;
-    if (month > 12) month = 12;
-
-    static const uint8_t days_normal[] = {31,28,31,30,31,30,31,31,30,31,30,31};
-
-    if (month == 2 && _IsLeapYear(year))
-        return 29;
-
-    return days_normal[month - 1];
-}
-
-/**
- * 从当前系统时间中取出一个可用于“手动设置时分”的安全本地日期。
- *
- * 正常情况下直接使用当前年月日；如果系统还停留在 1970/1969 等
- * 未校准状态，则回退到固定安全日期，避免 00:00 被换算成负 epoch。
- */
-static void _GetSafeDateForManualClock(uint16_t &year, uint8_t &month, uint8_t &day)
-{
-    struct tm info;
-    SysTime_GetInfo(&info);
-
-    int current_year = info.tm_year + 1900;
-    int current_month = info.tm_mon + 1;
-    int current_day = info.tm_mday;
-
-    bool date_ok =
-        current_year >= MANUAL_TIME_MIN_YEAR &&
-        current_year <= MANUAL_TIME_MAX_YEAR &&
-        current_month >= 1 && current_month <= 12 &&
-        current_day >= 1 && current_day <= SysTime_DaysInMonth((uint16_t)current_year, (uint8_t)current_month);
-
-    if (!date_ok)
-    {
-        year = MANUAL_TIME_FALLBACK_YEAR;
-        month = MANUAL_TIME_FALLBACK_MONTH;
-        day = MANUAL_TIME_FALLBACK_DAY;
-
-        Serial.printf(
-            "[时间-警告] 当前系统日期不可信：%04d-%02d-%02d，手动设时改用安全日期 %04u-%02u-%02u。\n",
-            current_year,
-            current_month,
-            current_day,
-            year,
-            month,
-            day
-        );
-        return;
-    }
-
-    year = (uint16_t)current_year;
-    month = (uint8_t)current_month;
-    day = (uint8_t)current_day;
-}
-
-/**
- * 尝试用 PCF8563 的本地年月日时分秒建立 ESP32 UTC epoch。
- * 返回 true 表示 RTC 数据通过 VL、BCD、日期范围和 settimeofday 全部校验；
- * 返回 false 时调用方继续使用配置中的旧 NTP epoch 作为兜底。
- */
-static bool _RestoreSystemTimeFromRtc()
-{
-    struct tm rtc_info = {};
-    BSP::Pcf8563::TimeReadResult result = BSP::Pcf8563::ReadTime(&rtc_info);
-
-    if (result == BSP::Pcf8563::TimeReadResult::Ok)
-    {
-        s_time_status.rtc_time_valid = true;
-
-        time_t rtc_epoch = _EpochFromLocalDateTime(
-            (uint16_t)(rtc_info.tm_year + 1900),
-            (uint8_t)(rtc_info.tm_mon + 1),
-            (uint8_t)rtc_info.tm_mday,
-            (uint8_t)rtc_info.tm_hour,
-            (uint8_t)rtc_info.tm_min,
-            (uint8_t)rtc_info.tm_sec
-        );
-
-        if (!_SetSystemEpoch(rtc_epoch))
-            return false;
-
-        s_time_status.source = SysTimeSource::Rtc;
-        Serial.printf(
-            "[时间] 已从 RTC 恢复系统时间：%04d-%02d-%02d %02d:%02d:%02d。\n",
-            rtc_info.tm_year + 1900,
-            rtc_info.tm_mon + 1,
-            rtc_info.tm_mday,
-            rtc_info.tm_hour,
-            rtc_info.tm_min,
-            rtc_info.tm_sec
-        );
-        return true;
-    }
-
-    s_time_status.rtc_time_valid = false;
-    if (result == BSP::Pcf8563::TimeReadResult::VoltageLow)
-    {
-        Serial.println("[时间-警告] RTC 的 VL 低压标志已置位，备用电池或晶振曾异常，本次不采用 RTC 时间。");
-    }
-    else if (result == BSP::Pcf8563::TimeReadResult::InvalidData)
-    {
-        Serial.println("[时间-警告] RTC 寄存器中的 BCD 日期时间非法，本次不采用 RTC 时间。");
-    }
-    else if (result == BSP::Pcf8563::TimeReadResult::BusError)
-    {
-        s_time_status.rtc_available = false;
-        Serial.println("[时间-错误] 读取 RTC 时 I2C 通信失败，本次改用保存时间兜底。");
-    }
-    else
-    {
-        Serial.println("[时间-错误] RTC 驱动未完成初始化，无法恢复系统时间。");
-    }
-    return false;
-}
-
-void SysTime_Init()
-{
-    /*
-     * POSIX TZ 写法中 CST-8 表示 UTC+8。
-     * 这里设置的是“epoch 转本地时间”的规则；
-     * 不代表已经完成 NTP 对时。
-     */
-    setenv("TZ", "CST-8", 1);
-    tzset();
-
-    s_last_network_sync_millis = 0;
-    s_has_network_sync = false;
-    s_time_status = {
+    SysTimeStatus s_time_status = {
         SysTimeSource::Uncalibrated,
         false,
         false,
@@ -308,56 +48,260 @@ void SysTime_Init()
         false,
     };
 
-    // RTC 由备用电池持续供电，是断电重启后的首选时间源；初始化只访问本地 I2C，不联网。
-    s_time_status.rtc_available = BSP::Pcf8563::Begin();
-    bool restored_from_rtc = s_time_status.rtc_available && _RestoreSystemTimeFromRtc();
-
-    /*
-     * RTC 不可用或时间不可信时，使用最近一次网络对时保存下来的 UTC epoch 作为开机兜底。
-     * 这一步只解决开机显示不再停在 1970/异常日期；保存值在设备断电期间不会自行前进，
-     * 这里不会设置 s_has_network_sync，Network_Update 仍会按策略尽快发起真正的 NTP 校时。
-     */
-    if (!restored_from_rtc &&
-        sysConfig.time_saved_epoch_valid &&
-        _IsPersistedEpochTrusted((time_t)sysConfig.time_saved_epoch_utc))
+    /** 计算公历日期距离 1970-01-01 的天数，不依赖 C 库时区或 mktime()。 */
+    int64_t DaysFromCivil(int year, unsigned month, unsigned day)
     {
-        time_t saved_epoch = (time_t)sysConfig.time_saved_epoch_utc;
-        if (_SetSystemEpoch(saved_epoch))
-        {
-            s_time_status.source = SysTimeSource::SavedNetwork;
-            struct tm info;
-            localtime_r(&saved_epoch, &info);
-            Serial.printf(
-                "[时间] 已使用上次网络对时作为开机默认时间：%04d-%02d-%02d %02d:%02d:%02d。\n",
-                info.tm_year + 1900,
-                info.tm_mon + 1,
-                info.tm_mday,
-                info.tm_hour,
-                info.tm_min,
-                info.tm_sec
-            );
-        }
+        year -= month <= 2;
+        const int era = (year >= 0 ? year : year - 399) / 400;
+        const unsigned yoe = (unsigned)(year - era * 400);
+        const unsigned doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+        const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return (int64_t)era * 146097 + (int64_t)doe - 719468;
     }
-    else if (!restored_from_rtc && sysConfig.time_saved_epoch_valid)
+
+    bool IsLeapYear(uint16_t year)
     {
-        Serial.printf(
-            "[时间-警告] 配置中的保存时间不可信，已忽略：epoch=%lu。\n",
-            (unsigned long)sysConfig.time_saved_epoch_utc
-        );
+        return ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
+    }
+
+    /** settimeofday() 只接收 UTC epoch，所有本地字段必须在调用前完成东八区换算。 */
+    bool SetSystemEpoch(time_t epoch)
+    {
+        if (epoch < 0)
+        {
+            Serial.printf("[时间-错误] 拒绝写入负 epoch：%lld。\n", (long long)epoch);
+            return false;
+        }
+
+        timeval tv = {};
+        tv.tv_sec = epoch;
+        int result = settimeofday(&tv, nullptr);
+        if (result != 0)
+        {
+            Serial.printf("[时间-错误] 设置 ESP32 系统时间失败：epoch=%lld，错误码=%d。\n",
+                          (long long)epoch,
+                          result);
+            return false;
+        }
+        return true;
+    }
+
+    /** 当前日期未校准时，为“只设置时分”提供不会产生负 epoch 的安全日期。 */
+    void GetSafeDateForManualClock(uint16_t &year, uint8_t &month, uint8_t &day)
+    {
+        struct tm info = {};
+        SysTime_GetInfo(&info);
+
+        int current_year = info.tm_year + 1900;
+        int current_month = info.tm_mon + 1;
+        int current_day = info.tm_mday;
+        bool valid =
+            current_year >= MANUAL_TIME_MIN_YEAR && current_year <= MANUAL_TIME_MAX_YEAR &&
+            current_month >= 1 && current_month <= 12 &&
+            current_day >= 1 &&
+            current_day <= SysTime_DaysInMonth((uint16_t)current_year, (uint8_t)current_month);
+
+        if (valid)
+        {
+            year = (uint16_t)current_year;
+            month = (uint8_t)current_month;
+            day = (uint8_t)current_day;
+            return;
+        }
+
+        year = MANUAL_TIME_FALLBACK_YEAR;
+        month = MANUAL_TIME_FALLBACK_MONTH;
+        day = MANUAL_TIME_FALLBACK_DAY;
+        Serial.printf("[时间-警告] 当前日期不可信：%04d-%02d-%02d，手动设时使用安全日期 %04u-%02u-%02u。\n",
+                      current_year,
+                      current_month,
+                      current_day,
+                      year,
+                      month,
+                      day);
+    }
+
+    const char *RefreshReasonName(SysTimeRefreshReason reason)
+    {
+        switch (reason)
+        {
+        case SysTimeRefreshReason::Startup: return "开机";
+        case SysTimeRefreshReason::Wakeup: return "休眠唤醒";
+        case SysTimeRefreshReason::Hourly: return "每小时维护";
+        default: return "未知";
+        }
     }
 }
 
-bool SysTime_GetStatus(SysTimeStatus *out_status)
+uint8_t SysTime_DaysInMonth(uint16_t year, uint8_t month)
 {
-    if (!out_status)
-        return false;
+    if (month < 1) month = 1;
+    if (month > 12) month = 12;
+    static const uint8_t DAYS_NORMAL[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (month == 2 && IsLeapYear(year))
+        return 29;
+    return DAYS_NORMAL[month - 1];
+}
 
-    *out_status = s_time_status;
+bool SysTime_LocalDateTimeToEpoch(
+    uint16_t year,
+    uint8_t month,
+    uint8_t day,
+    uint8_t hour,
+    uint8_t minute,
+    uint8_t second,
+    time_t *out_epoch)
+{
+    if (!out_epoch || year < 2000 || year > 2099 || month < 1 || month > 12 ||
+        day < 1 || day > SysTime_DaysInMonth(year, month) ||
+        hour > 23 || minute > 59 || second > 59)
+    {
+        return false;
+    }
+
+    int64_t local_seconds =
+        DaysFromCivil((int)year, (unsigned)month, (unsigned)day) * 86400LL +
+        (int64_t)hour * 3600LL +
+        (int64_t)minute * 60LL +
+        (int64_t)second;
+
+    *out_epoch = (time_t)(local_seconds - LOCAL_UTC_OFFSET_SECONDS);
+    return *out_epoch >= 0;
+}
+
+void SysTime_Init()
+{
+    setenv("TZ", "CST-8", 1);
+    tzset();
+
+    s_last_network_sync_millis = 0;
+    s_last_rtc_refresh_millis = millis();
+    s_has_network_sync = false;
+    s_rtc_write_failed = false;
+    s_time_status = {SysTimeSource::Uncalibrated, false, false, false, false};
+
+    if (!s_network_time_queue)
+    {
+        s_network_time_queue = xQueueCreate(1, sizeof(time_t));
+        if (!s_network_time_queue)
+            Serial.println("[时间-错误] 创建网络时间队列失败，NTP 结果将无法回送主循环。");
+    }
+
+    s_time_status.rtc_available = BSP::Pcf8563::Begin();
+    if (s_time_status.rtc_available)
+        SysTime_RefreshFromRtc(SysTimeRefreshReason::Startup);
+    else
+    {
+        Serial.println("[时间-警告] RTC 初始化失败，等待网络或手动校时建立当前时间。");
+        ScheduleNextRtcMaintenance();
+    }
+}
+
+bool SysTime_RefreshFromRtc(SysTimeRefreshReason reason)
+{
+    /*
+     * 网络/手动校时写 RTC 失败后，芯片里的旧时间已知不可信。
+     * Light Sleep 内 ESP32 系统时钟仍会推进，因此先用当前正确系统时间修复 RTC，
+     * 不能反向读取旧值覆盖刚得到的网络/手动时间。
+     */
+    if (s_rtc_write_failed)
+        return SysTime_SyncRtcFromSystem();
+
+    /* RTC 曾离线时先重新初始化；所有调用均在主任务，避免与网络线程交叉访问 Wire1。 */
+    if (!BSP::Pcf8563::IsReady())
+        s_time_status.rtc_available = BSP::Pcf8563::Begin();
+
+    struct tm rtc_info = {};
+    BSP::Pcf8563::TimeReadResult result = BSP::Pcf8563::ReadTime(&rtc_info);
+    if (result != BSP::Pcf8563::TimeReadResult::Ok)
+    {
+        /* 失败也算一次维护尝试，避免 RTC 离线时静默休眠每 100ms 反复唤醒探测。 */
+        s_last_rtc_refresh_millis = millis();
+        s_time_status.rtc_time_valid = false;
+        if (result == BSP::Pcf8563::TimeReadResult::BusError ||
+            result == BSP::Pcf8563::TimeReadResult::NotInitialized)
+            s_time_status.rtc_available = false;
+
+        if (result == BSP::Pcf8563::TimeReadResult::VoltageLow)
+            Serial.println("[时间-警告] RTC 的 VL 低压标志已置位，本次不采用 RTC 时间。");
+        else if (result == BSP::Pcf8563::TimeReadResult::InvalidData)
+            Serial.println("[时间-警告] RTC 日期时间非法，本次不采用 RTC 时间。");
+        else
+            Serial.println("[时间-错误] 读取 RTC 失败，保留 ESP32 当前系统时间。");
+        ScheduleNextRtcMaintenance();
+        return false;
+    }
+
+    time_t rtc_epoch = 0;
+    if (!SysTime_LocalDateTimeToEpoch(
+            (uint16_t)(rtc_info.tm_year + 1900),
+            (uint8_t)(rtc_info.tm_mon + 1),
+            (uint8_t)rtc_info.tm_mday,
+            (uint8_t)rtc_info.tm_hour,
+            (uint8_t)rtc_info.tm_min,
+            (uint8_t)rtc_info.tm_sec,
+            &rtc_epoch) ||
+        !SetSystemEpoch(rtc_epoch))
+    {
+        s_last_rtc_refresh_millis = millis();
+        s_time_status.rtc_time_valid = false;
+        ScheduleNextRtcMaintenance();
+        return false;
+    }
+
+    s_time_status.source = SysTimeSource::Rtc;
+    s_time_status.rtc_available = true;
+    s_time_status.rtc_time_valid = true;
+    s_last_rtc_refresh_millis = millis();
+    ScheduleNextRtcMaintenance();
+
+    /* 每小时维护属于正常低频动作，不输出成功日志；开机和唤醒保留一条可追踪记录。 */
+    if (reason != SysTimeRefreshReason::Hourly)
+    {
+        Serial.printf("[时间] %s已从 RTC 同步：%04d-%02d-%02d %02d:%02d:%02d。\n",
+                      RefreshReasonName(reason),
+                      rtc_info.tm_year + 1900,
+                      rtc_info.tm_mon + 1,
+                      rtc_info.tm_mday,
+                      rtc_info.tm_hour,
+                      rtc_info.tm_min,
+                      rtc_info.tm_sec);
+    }
     return true;
+}
+
+bool SysTime_SubmitNetworkTime(time_t epoch)
+{
+    if (!s_network_time_queue || epoch < NETWORK_TIME_MIN_EPOCH || epoch > NETWORK_TIME_MAX_EPOCH)
+        return false;
+    return xQueueOverwrite(s_network_time_queue, &epoch) == pdPASS;
+}
+
+void SysTime_Update()
+{
+    time_t network_epoch = 0;
+    if (s_network_time_queue && xQueueReceive(s_network_time_queue, &network_epoch, 0) == pdTRUE)
+    {
+        if (SetSystemEpoch(network_epoch))
+        {
+            s_has_network_sync = true;
+            s_last_network_sync_millis = millis();
+            s_time_status.source = SysTimeSource::Network;
+            SysTime_SyncRtcFromSystem();
+            s_last_rtc_refresh_millis = millis();
+            Serial.println("[时间] 已应用真实 NTP 时间并写入 RTC。");
+        }
+    }
+
+    if ((uint32_t)(millis() - s_last_rtc_refresh_millis) >= RTC_REFRESH_INTERVAL_MS)
+        SysTime_RefreshFromRtc(SysTimeRefreshReason::Hourly);
 }
 
 bool SysTime_SyncRtcFromSystem()
 {
+    if (!BSP::Pcf8563::IsReady())
+        s_time_status.rtc_available = BSP::Pcf8563::Begin();
+
     time_t now = time(nullptr);
     struct tm local_info = {};
     localtime_r(&now, &local_info);
@@ -366,222 +310,104 @@ bool SysTime_SyncRtcFromSystem()
     s_time_status.rtc_last_write_ok = BSP::Pcf8563::WriteTime(local_info);
     if (!s_time_status.rtc_last_write_ok)
     {
+        s_last_rtc_refresh_millis = millis();
+        s_rtc_write_failed = true;
         s_time_status.rtc_available = BSP::Pcf8563::IsPresent();
-        Serial.println("[时间-警告] 当前系统时间写入 RTC 失败，ESP32 本次运行时间仍然有效。");
+        s_time_status.rtc_time_valid = false;
+        Serial.println("[时间-警告] 当前时间写入 RTC 失败，ESP32 本次运行时间仍然有效。");
+        ScheduleNextRtcMaintenance();
         return false;
     }
 
     s_time_status.rtc_available = true;
     s_time_status.rtc_time_valid = true;
+    s_rtc_write_failed = false;
+    s_last_rtc_refresh_millis = millis();
+    ScheduleNextRtcMaintenance();
     return true;
 }
 
-void SysTime_GetTimeString(char* out_str)
+bool SysTime_SetLocalDateTime(
+    uint16_t year,
+    uint8_t month,
+    uint8_t day,
+    uint8_t hour,
+    uint8_t minute,
+    uint8_t second)
+{
+    time_t epoch = 0;
+    if (!SysTime_LocalDateTimeToEpoch(year, month, day, hour, minute, second, &epoch))
+    {
+        Serial.printf("[时间-错误] 拒绝非法手动时间：%04u-%02u-%02u %02u:%02u:%02u。\n",
+                      year, month, day, hour, minute, second);
+        return false;
+    }
+
+    if (!SetSystemEpoch(epoch))
+        return false;
+
+    s_time_status.source = SysTimeSource::Manual;
+    bool rtc_ok = SysTime_SyncRtcFromSystem();
+    Serial.printf("[时间] 已手动设置完整时间：%04u-%02u-%02u %02u:%02u:%02u，RTC=%s。\n",
+                  year, month, day, hour, minute, second, rtc_ok ? "成功" : "失败");
+    return true;
+}
+
+bool SysTime_SetTodayClock(uint8_t hour, uint8_t minute)
+{
+    uint16_t year = 0;
+    uint8_t month = 0;
+    uint8_t day = 0;
+    GetSafeDateForManualClock(year, month, day);
+    return SysTime_SetLocalDateTime(year, month, day, hour, minute, 0);
+}
+
+bool SysTime_SetDate(uint16_t year, uint8_t month, uint8_t day)
+{
+    struct tm current = {};
+    SysTime_GetInfo(&current);
+    return SysTime_SetLocalDateTime(
+        year,
+        month,
+        day,
+        (uint8_t)current.tm_hour,
+        (uint8_t)current.tm_min,
+        (uint8_t)current.tm_sec);
+}
+
+bool SysTime_GetStatus(SysTimeStatus *out_status)
+{
+    if (!out_status)
+        return false;
+    *out_status = s_time_status;
+    return true;
+}
+
+void SysTime_GetTimeString(char *out_str)
 {
     if (!out_str)
         return;
-
-    /*
-     * 不能使用 getLocalTime(&tm, timeout)。
-     * 主菜单滚轮每帧都会间接绘制 HUD，若 NTP 未同步且这里等待 10ms，
-     * 16ms 一帧的菜单动画会被拖成明显卡顿。
-     */
     time_t now = time(nullptr);
-    struct tm timeinfo;
-    localtime_r(&now, &timeinfo);
-
-    snprintf(out_str, 10, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+    struct tm info = {};
+    localtime_r(&now, &info);
+    snprintf(out_str, 10, "%02d:%02d", info.tm_hour, info.tm_min);
 }
 
-bool SysTime_GetInfo(struct tm* out_info)
+bool SysTime_GetInfo(struct tm *out_info)
 {
     if (!out_info)
         return false;
-
     time_t now = time(nullptr);
     localtime_r(&now, out_info);
     return true;
 }
 
-void SysTime_MarkNetworkSynced()
-{
-    s_has_network_sync = true;
-    s_last_network_sync_millis = millis();
-    s_time_status.source = SysTimeSource::Network;
-
-    Serial.printf(
-        "[时间] NTP 对时完成，周期校时计时点重置为 %lu ms。\n",
-        (unsigned long)s_last_network_sync_millis
-    );
-
-    /*
-     * 记录本次 NTP 成功后的 UTC epoch，作为下次开机默认时间。
-     * 只在网络对时成功后保存，不保存用户手动设置的时间，避免错误手动时间长期污染开机默认值。
-     */
-    time_t now_epoch = time(nullptr);
-    if (_IsPersistedEpochTrusted(now_epoch))
-    {
-        uint32_t saved_epoch = (uint32_t)now_epoch;
-        if (!sysConfig.time_saved_epoch_valid || sysConfig.time_saved_epoch_utc != saved_epoch)
-        {
-            sysConfig.time_saved_epoch_valid = true;
-            sysConfig.time_saved_epoch_utc = saved_epoch;
-            sysConfig.save();
-        }
-
-        struct tm info;
-        localtime_r(&now_epoch, &info);
-        SysTime_SyncRtcFromSystem();
-        Serial.printf(
-            "[时间] 已保存本次网络对时时间：%04d-%02d-%02d %02d:%02d:%02d，epoch=%lu。\n",
-            info.tm_year + 1900,
-            info.tm_mon + 1,
-            info.tm_mday,
-            info.tm_hour,
-            info.tm_min,
-            info.tm_sec,
-            (unsigned long)saved_epoch
-        );
-    }
-    else
-    {
-        Serial.printf(
-            "[时间-警告] NTP 完成后得到的 epoch 不在可信范围，未保存：%lld。\n",
-            (long long)now_epoch
-        );
-    }
-}
-
 uint32_t SysTime_GetLastNetworkSyncAgeMs()
 {
-    if (!s_has_network_sync)
-        return UINT32_MAX;
-
-    return millis() - s_last_network_sync_millis;
+    return s_has_network_sync ? (uint32_t)(millis() - s_last_network_sync_millis) : UINT32_MAX;
 }
 
 bool SysTime_ShouldPeriodicResync(uint32_t interval_ms)
 {
-    if (!s_has_network_sync)
-        return true;
-
-    return (millis() - s_last_network_sync_millis) >= interval_ms;
-}
-
-void SysTime_SetTodayClock(uint8_t hour, uint8_t minute)
-{
-    if (hour > 23)
-        hour = 23;
-
-    if (minute > 59)
-        minute = 59;
-
-    uint16_t year = 0;
-    uint8_t month = 0;
-    uint8_t day = 0;
-    _GetSafeDateForManualClock(year, month, day);
-
-    /*
-     * 直接设置“当前本地日期 + 用户输入的时分”。
-     *
-     * 这里不是：
-     * - 在当前 epoch 上加减偏置；
-     * - 把 hour/minute 当成相对偏移；
-     * - 交给 mktime() 再次解释时区。
-     *
-     * 而是直接拼出目标本地时间，再按 UTC+8 换算成 UTC epoch 写入系统。
-     * 因此用户保存 14:30 后，HUD 应该立即显示 14:30。
-     */
-    time_t new_epoch = _EpochFromLocalDateTime(year, month, day, hour, minute, 0);
-    if (!_SetSystemEpoch(new_epoch))
-    {
-        Serial.printf(
-            "[时间-错误] 手动设置当日时间失败：%04u-%02u-%02u %02u:%02u:00。\n",
-            year,
-            month,
-            day,
-            hour,
-            minute
-        );
-        return;
-    }
-
-    time_t now = time(nullptr);
-    struct tm verify;
-    localtime_r(&now, &verify);
-    s_time_status.source = SysTimeSource::Manual;
-    SysTime_SyncRtcFromSystem();
-
-    Serial.printf(
-        "[时间] 已手动设置当日时间：%04u-%02u-%02u %02u:%02u:00，校验显示=%04d-%02d-%02d %02d:%02d。\n",
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        verify.tm_year + 1900,
-        verify.tm_mon + 1,
-        verify.tm_mday,
-        verify.tm_hour,
-        verify.tm_min
-    );
-}
-
-void SysTime_SetDate(uint16_t year, uint8_t month, uint8_t day)
-{
-    if (year < 2020) year = 2020;
-    if (year > 2035) year = 2035;
-    if (month < 1) month = 1;
-    if (month > 12) month = 12;
-
-    uint8_t max_day = SysTime_DaysInMonth(year, month);
-    if (day < 1) day = 1;
-    if (day > max_day) day = max_day;
-
-    struct tm info;
-    SysTime_GetInfo(&info);
-
-    uint8_t hour = (uint8_t)info.tm_hour;
-    uint8_t minute = (uint8_t)info.tm_min;
-    uint8_t second = (uint8_t)info.tm_sec;
-
-    /*
-     * 直接设置“用户输入的年月日 + 当前本地时分秒”。
-     *
-     * 日期设置页只负责修正年月日，因此这里保留当前时分秒。
-     * 同样不使用 mktime()，避免日期保存时被时区换算二次偏移。
-     */
-    time_t new_epoch = _EpochFromLocalDateTime(year, month, day, hour, minute, second);
-    if (!_SetSystemEpoch(new_epoch))
-    {
-        Serial.printf(
-            "[时间-错误] 手动设置日期失败：%04u-%02u-%02u。\n",
-            year,
-            month,
-            day
-        );
-        return;
-    }
-
-    time_t now = time(nullptr);
-    struct tm verify;
-    localtime_r(&now, &verify);
-    s_time_status.source = SysTimeSource::Manual;
-    SysTime_SyncRtcFromSystem();
-
-    Serial.printf(
-        "[时间] 已手动设置日期：%04u-%02u-%02u，保留时间=%02u:%02u:%02u，校验显示=%04d-%02d-%02d %02d:%02d:%02d。\n",
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-        verify.tm_year + 1900,
-        verify.tm_mon + 1,
-        verify.tm_mday,
-        verify.tm_hour,
-        verify.tm_min,
-        verify.tm_sec
-    );
+    return !s_has_network_sync || (uint32_t)(millis() - s_last_network_sync_millis) >= interval_ms;
 }

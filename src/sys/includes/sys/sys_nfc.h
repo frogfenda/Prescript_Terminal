@@ -15,7 +15,7 @@ public:
 
 extern SysNFC sysNfc;
 
-// 【接口说明】返回 PN532 是否处于手机靶卡伪装模式，并在超时后自动结束该状态。
+// 【接口说明】返回 PN532 是否处于手机靶卡伪装模式；活动期间会阻止 Light Sleep，超时后自动解除。
 bool SysNfc_IsEmulating();
 void SysNfc_StartEmulation();
 // 【接口说明】提前结束靶卡伪装，后台任务检测结束时间后复位 PN532 并恢复读卡。

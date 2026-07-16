@@ -56,8 +56,6 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
     cfg.auto_push_max_min = 120;
     cfg.time_auto_resync = true;
     cfg.time_resync_interval_min = 15;
-    cfg.time_saved_epoch_valid = false;
-    cfg.time_saved_epoch_utc = 0;
     cfg.coin_data.mode = 0;
     cfg.coin_data.sanity = 0;
     cfg.coin_data.coin_count = 1;
@@ -169,19 +167,11 @@ void SysConfig::load()
     // 旧配置文件没有这些字段时，默认开启周期校时，间隔 15 分钟。
     time_auto_resync = doc["time_auto_resync"] | true;
     time_resync_interval_min = doc["time_resync_interval_min"] | 15;
-    time_saved_epoch_valid = doc["time_saved_epoch_valid"] | false;
-    time_saved_epoch_utc = doc["time_saved_epoch_utc"] | 0;
 
     // 防止公共配置被手动改坏后出现过短或过长的校时间隔。
     if (time_resync_interval_min < 5) time_resync_interval_min = 5;
     if (time_resync_interval_min > 240) time_resync_interval_min = 240;
 
-    // 保存的网络时间只作为开机兜底；如果配置被手动改坏，直接失效。
-    if (time_saved_epoch_utc < 1577836800UL || time_saved_epoch_utc > 2082758399UL)
-    {
-        time_saved_epoch_valid = false;
-        time_saved_epoch_utc = 0;
-    }
     volume = doc["volume"] | 40;
     if (volume > 100)
         volume = 100;
@@ -375,12 +365,9 @@ void SysConfig::saveCommon()
     doc["auto_push_enable"] = auto_push_enable;
     doc["auto_push_min_min"] = auto_push_min_min;
     doc["auto_push_max_min"] = auto_push_max_min;
-    // 保存周期校时策略和最近一次网络对时的 UTC epoch。
-    // 保存的 epoch 只用于下次开机兜底显示，不代表断电期间真实时间流逝。
+    // 只保存周期网络校时策略；当前时间由 RTC 负责断电保持，不在 LittleFS 中保存副本。
     doc["time_auto_resync"] = time_auto_resync;
     doc["time_resync_interval_min"] = time_resync_interval_min;
-    doc["time_saved_epoch_valid"] = time_saved_epoch_valid;
-    doc["time_saved_epoch_utc"] = time_saved_epoch_utc;
     doc["volume"] = volume; // 【新增】：打包音量数据
 
     JsonObject coin_node = doc["coin_app"].to<JsonObject>();

@@ -7,7 +7,7 @@
 
 /*
  * 跨核心推送请求标记。
- * 例如自动推送在后台判断到触发条件后，不直接切 App，
+ * 当前用于 BLE Core 0 的即时推送捷径：后台任务不直接切 App，
  * 而是设置这个标记，由 AppManager 主循环安全消费。
  */
 static volatile bool s_push_notify_requested = false;

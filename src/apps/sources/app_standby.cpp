@@ -10,12 +10,40 @@
 #include "sys/sys_haptic.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_nfc.h"
+#include "sys/sys_time.h"
+#include "sys/sys_sleep_scheduler.h"
 
 class AppStandby : public AppBase
 {
 private:
     uint32_t enter_time;
     bool is_sleeping;
+
+    /**
+     * 计算本轮 Light Sleep 最长持续时间。
+     * 所有业务截止时间和每小时 RTC 维护都由 SysSleepScheduler 聚合，Standby 只消费最近计划。
+     */
+    uint64_t nextTimerWakeupUs()
+    {
+        SysSleepPlan plan = {};
+        if (!SysSleep_GetPlan(&plan))
+            return 0;
+        uint64_t delay_ms = plan.delay_ms;
+
+        /* ESP-IDF 定时唤醒使用微秒；至少留 100ms，避免临界点计算造成立即唤醒死循环。 */
+        if (delay_ms < 100)
+            delay_ms = 100;
+        return delay_ms * 1000ULL;
+    }
+
+    /** RTC 同步后重新计算计划；前台来源到期时必须完整恢复外设并交回主循环。 */
+    bool foregroundWakeIsDue()
+    {
+        SysSleepPlan plan = {};
+        if (!SysSleep_GetPlan(&plan))
+            return false;
+        return plan.delay_ms == 0 && plan.action == SysSleepWakeAction::Foreground;
+    }
 
 public:
     // 【函数说明】进入待机页时绘制 standby.bin，重置睡眠计时，等待用户按键或到达真休眠时间。
@@ -38,6 +66,10 @@ public:
         // 【核心休眠触发逻辑】：精准使用你原本的变量
         if (!is_sleeping && (millis() - enter_time > sysConfig.true_sleep_time_ms))
         {
+            /* 网络事务、NFC 靶卡等模块统一登记 blocker；Standby 不直接了解各模块状态。 */
+            if (!SysSleep_CanEnter())
+                return;
+
             is_sleeping = true;
 
             // --- 1. UI 准备：休眠前清空屏幕，防止醒来闪烁旧画面 ---
@@ -51,11 +83,32 @@ public:
 
             // --- 3. 硬件级休眠：调用最新拆分的 HAL 底层 ---
             HAL_Sleep_Enter_Prepare(); // 引脚锁定，驱动 IC 挂起
-            HAL_Sleep_Start();         // 触发真实的 esp_light_sleep_start
 
-            // ==========================================
-            // CPU 停转，直到用户按下旋钮主按键或侧键唤醒
-            // ==========================================
+            HALSleepWakeReason wake_reason = HALSleepWakeReason::Error;
+            while (true)
+            {
+                wake_reason = HAL_Sleep_Start(nextTimerWakeupUs());
+
+                if (wake_reason == HALSleepWakeReason::Button)
+                {
+                    SysTime_RefreshFromRtc(SysTimeRefreshReason::Wakeup);
+                    break;
+                }
+
+                if (wake_reason == HALSleepWakeReason::Timer)
+                {
+                    /* 定时器可能服务每小时维护，也可能服务最近提醒；两种情况都先以 RTC 校准系统。 */
+                    SysTime_RefreshFromRtc(SysTimeRefreshReason::Hourly);
+                    if (foregroundWakeIsDue())
+                        break;
+
+                    // 纯每小时维护唤醒：屏幕、音频、震动、NFC 保持休眠，直接开始下一轮。
+                    continue;
+                }
+
+                // HAL 拒绝休眠或返回未知原因时必须恢复外设，不能让设备停在黑屏状态。
+                break;
+            }
 
             // --- 4. 唤醒：恢复屏幕与外设，并把本次唤醒按压交给 ButtonEngine 非阻塞吞掉 ---
             HAL_Sleep_Wakeup_Post();

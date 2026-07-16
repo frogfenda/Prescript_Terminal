@@ -70,6 +70,9 @@ void Network_StartTimeSyncOnly();
  */
 NetworkState Network_GetState();
 
+/** 返回网络任务或保持在线阶段是否仍占用 WiFi；状态变化会同步登记统一休眠 blocker。 */
+bool Network_IsBusy();
+
 /**
  * 请求一次延迟开机自动同步。
  *

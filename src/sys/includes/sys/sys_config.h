@@ -75,15 +75,10 @@ public:
      * 时间系统配置。
      * time_auto_resync：是否允许 Network_Update() 在设备运行中周期性启动轻量 NTP 校时。
      * time_resync_interval_min：周期校时间隔，单位分钟；当前时间设置 UI 只允许 5/15/30/60。
-     * time_saved_epoch_valid / time_saved_epoch_utc：最近一次网络对时成功后保存的 UTC epoch。
-     *
-     * 注意：保存的 epoch 只在板载 RTC 不可用或时间不可信时作为开机兜底，
-     * 它本身不能代表断电期间真实经过了多久，也不会被当成本次网络对时成功。
+     * 当前时间由板载 RTC 持续保存；网络和手动校时会直接写回 RTC，配置文件不再保存时间副本。
      */
     bool time_auto_resync;
     uint16_t time_resync_interval_min;
-    bool time_saved_epoch_valid;
-    uint32_t time_saved_epoch_utc;
     CoinSaveData coin_data;
     uint8_t pomodoro_current_idx;
     PomodoroPreset pomodoro_presets[PrescriptConst::MAX_POMODORO_PRESETS];

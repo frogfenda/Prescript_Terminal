@@ -10,8 +10,6 @@
   "auto_push_max_min": 120,
   "time_auto_resync": true,
   "time_resync_interval_min": 15,
-  "time_saved_epoch_valid": false,
-  "time_saved_epoch_utc": 0,
   "volume": 40,
   "coin_app": {
     "mode": 0,

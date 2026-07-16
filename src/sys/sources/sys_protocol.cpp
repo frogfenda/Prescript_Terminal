@@ -6,6 +6,7 @@
 #include "sys/sys_protocol.h"
 #include "lang/terminal_lang.h"
 #include "sys/sys_constants.h"
+#include "sys/sys_time.h"
 #include <time.h>
 
 // 【函数说明】构造 Invalid 解析结果，保留原始命令和错误代码，Router 会把 error 转成 ACK:ERR。
@@ -30,48 +31,38 @@ static bool HasAllSeparators(int count, const int *positions)
 }
 
 
-// 【函数说明】校验日期时间真实存在；先做范围检查，再用 mktime 归一化并反查年月日时分，避免 2 月 31 日这类伪日期。
+// 【函数说明】复用 SysTime 的东八区日期转换校验，直接拒绝 2 月 31 日等不存在的本地时间。
 static bool IsValidDateTime(int year, int month, int day, int hour, int minute)
 {
-    if (year < 2020 || year > 2099)
+    if (year < 2020 || year > 2099 ||
+        month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour < 0 || hour > 23 || minute < 0 || minute > 59)
         return false;
-    if (month < 1 || month > 12 || day < 1 || day > 31)
-        return false;
-    if (hour < 0 || hour > 23 || minute < 0 || minute > 59)
-        return false;
-
-    struct tm t = {};
-    t.tm_year = year - 1900;
-    t.tm_mon = month - 1;
-    t.tm_mday = day;
-    t.tm_hour = hour;
-    t.tm_min = minute;
-    t.tm_sec = 0;
-    time_t normalized = mktime(&t);
-    if (normalized == (time_t)-1)
-        return false;
-
-    return t.tm_year == year - 1900 &&
-           t.tm_mon == month - 1 &&
-           t.tm_mday == day &&
-           t.tm_hour == hour &&
-           t.tm_min == minute;
+    time_t ignored = 0;
+    return SysTime_LocalDateTimeToEpoch(
+        (uint16_t)year,
+        (uint8_t)month,
+        (uint8_t)day,
+        (uint8_t)hour,
+        (uint8_t)minute,
+        0,
+        &ignored);
 }
 
 // 【函数说明】把 SCH 命令中的年月日时分转换成本地时区 timestamp，秒固定为 0。
 static uint32_t MakeTimestamp(int year, int month, int day, int hour, int minute)
 {
-    time_t now;
-    time(&now);
-    struct tm t_info;
-    localtime_r(&now, &t_info);
-    t_info.tm_year = year - 1900;
-    t_info.tm_mon = month - 1;
-    t_info.tm_mday = day;
-    t_info.tm_hour = hour;
-    t_info.tm_min = minute;
-    t_info.tm_sec = 0;
-    return (uint32_t)mktime(&t_info);
+    time_t epoch = 0;
+    if (!SysTime_LocalDateTimeToEpoch(
+            (uint16_t)year,
+            (uint8_t)month,
+            (uint8_t)day,
+            (uint8_t)hour,
+            (uint8_t)minute,
+            0,
+            &epoch))
+        return 0;
+    return (uint32_t)epoch;
 }
 
 // 【函数说明】解析 SCH/SCH_HID 命令：拆出年月日时分、标题和文本，校验时间并写入 hidden 标志。

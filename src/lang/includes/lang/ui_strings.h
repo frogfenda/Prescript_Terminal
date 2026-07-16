@@ -265,22 +265,30 @@ namespace UIStrings
         return IsZh(lang) ? "时间设置" : "TIME CONFIG";
     }
 
+    /** 时间设置一级菜单的动态日期时间前缀；具体 YYYY-MM-DD HH:MM 由 SysTime 提供。 */
+    inline const char *CurrentTimeLabel(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "当前时间: " : "CURRENT TIME: ";
+    }
+
     inline const char *TimeSettingItem(SystemLang_t lang, int index)
     {
         static const char *zh_items[] = {
+            "",
             "设置当日时间",
             "日期设置",
             "网络校时",
             "",
             ""};
         static const char *en_items[] = {
+            "",
             "SET TODAY TIME",
             "SET DATE",
             "NETWORK SYNC",
             "",
             ""};
 
-        if (index < 0 || index >= 5)
+        if (index < 0 || index >= 6)
             return "";
         return IsZh(lang) ? zh_items[index] : en_items[index];
     }

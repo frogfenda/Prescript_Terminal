@@ -8,7 +8,7 @@
 本文件的关键设计：
 1. 开机不立刻启动 WiFi，而是通过 Network_RequestBootSync() 延迟触发，避免首屏卡顿；
 2. 普通同步执行 NTP + API，周期校时只执行 NTP；
-3. 每次 NTP 成功后通知 SysTime_MarkNetworkSynced()，作为周期校时的时间基准；
+3. 只在 SNTP 明确报告完成后，把网络 epoch 排队交给主循环统一写入 RTC；
 4. 失败后设置退避窗口，避免无网环境下反复打开 WiFi。
 */
 #include "sys/sys_network.h"
@@ -18,13 +18,35 @@
 #include <time.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <esp_sntp.h>
 #include "sys/sys_router.h"
 #include "sys/sys_event.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_command_result.h"
+#include "sys/sys_sleep_scheduler.h"
+#include <queue>
+#include <mutex>
 
 volatile NetworkState g_state = NET_DISCONNECTED;
 TaskHandle_t g_netTaskHandle = NULL;
+
+namespace
+{
+    bool NetworkStateBlocksSleep(NetworkState state)
+    {
+        return state == NET_CONNECTING ||
+               state == NET_SYNCING_NTP ||
+               state == NET_FETCHING_API ||
+               state == NET_SYNC_SUCCESS;
+    }
+
+    /** 网络状态和休眠 blocker 必须同步更新，避免 Standby 复制一份状态判断规则。 */
+    void NetworkSetState(NetworkState state)
+    {
+        g_state = state;
+        SysSleep_SetBlocker(SysSleepBlocker::Network, NetworkStateBlocksSleep(state));
+    }
+}
 
 /* keep_alive=true 时，完整同步完成后保持 WiFi 在线；否则任务收尾时关闭 WiFi。 */
 static volatile bool g_keep_wifi_alive = false;
@@ -48,15 +70,50 @@ static constexpr uint32_t NETWORK_TOTAL_TIMEOUT_MS = 25000;
 static constexpr uint32_t TIME_RESYNC_RETRY_AFTER_FAIL_MS = 5UL * 60UL * 1000UL;
 static uint32_t g_next_time_resync_allowed_ms = 0;
 
+namespace
+{
+    /** Core 0 网络任务只复制 API 结果；主循环再发布日程事件并保存配置。 */
+    struct NetworkApiItem
+    {
+        uint32_t target_time = 0;
+        String title;
+        String text;
+    };
+
+    std::queue<NetworkApiItem> s_api_items;
+    std::mutex s_api_items_mutex;
+    constexpr size_t MAX_API_ITEMS = 5;
+
+    void QueueApiItem(uint32_t target_time, const String &title, const String &text)
+    {
+        std::lock_guard<std::mutex> lock(s_api_items_mutex);
+        while (s_api_items.size() >= MAX_API_ITEMS)
+            s_api_items.pop();
+        NetworkApiItem item;
+        item.target_time = target_time;
+        item.title = title;
+        item.text = text;
+        s_api_items.push(item);
+    }
+
+    bool PopApiItem(NetworkApiItem &out)
+    {
+        std::lock_guard<std::mutex> lock(s_api_items_mutex);
+        if (s_api_items.empty())
+            return false;
+        out = s_api_items.front();
+        s_api_items.pop();
+        return true;
+    }
+}
+
 /**
  * 判断网络任务是否正在占用 WiFi/NTP/API 流程。
  * 这些状态下不允许重复启动新的网络任务。
  */
-static bool _Network_IsBusy()
+bool Network_IsBusy()
 {
-    return g_state == NET_CONNECTING ||
-           g_state == NET_SYNCING_NTP ||
-           g_state == NET_FETCHING_API;
+    return NetworkStateBlocksSleep(g_state);
 }
 
 /**
@@ -98,7 +155,7 @@ static void _Cb_WifiSet(void* payload)
  */
 static bool _Network_ConnectWifi()
 {
-    g_state = NET_CONNECTING;
+    NetworkSetState(NET_CONNECTING);
     Serial.println("[网络] 网络守护任务已唤醒，开始连接 WiFi...");
 
     WiFi.persistent(false);
@@ -123,32 +180,37 @@ static bool _Network_ConnectWifi()
  * 执行 NTP 对时。
  *
  * 关键步骤：
- * - 调用 configTime 配置 NTP 服务器；
- * - 使用 getLocalTime(&tm, 0) 非阻塞轮询；
- * - 每 500ms 检查一次，最多约 10 秒；
- * - 成功后调用 SysTime_MarkNetworkSynced() 记录本次对时时刻。
+ * - 使用 configTzTime 统一东八区 TZ 与 NTP 服务器；
+ * - 轮询 SNTP 自身的同步状态，而不是把 RTC 已建立的年份误判成网络成功；
+ * - 成功后只把 UTC epoch 投递给 SysTime，RTC 写入和状态更新都留在主循环。
  */
 static bool _Network_SyncNtp()
 {
-    g_state = NET_SYNCING_NTP;
+    NetworkSetState(NET_SYNCING_NTP);
     Serial.println("[网络] WiFi 已连接，开始 NTP 对时...");
 
-    configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov", "ntp1.aliyun.com");
+    /* 清掉上一轮状态后重新启动 SNTP，确保 COMPLETED 一定属于本轮网络响应。 */
+    sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
+    configTzTime("CST-8", "pool.ntp.org", "time.nist.gov", "ntp1.aliyun.com");
 
-    int timeout_ticks = 0;
-    struct tm timeinfo;
-
-    while (!getLocalTime(&timeinfo, 0) && timeout_ticks < 20)
+    for (int timeout_ticks = 0; timeout_ticks < 100; ++timeout_ticks)
     {
-        vTaskDelay(pdMS_TO_TICKS(500));
-        timeout_ticks++;
+        if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)
+        {
+            time_t network_epoch = time(nullptr);
+            if (!SysTime_SubmitNetworkTime(network_epoch))
+            {
+                Serial.println("[网络] NTP 已完成，但网络时间无法提交给主循环。");
+                return false;
+            }
+
+            Serial.println("[网络] 已收到真实 NTP 响应，时间结果已交给主循环。");
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    if (timeout_ticks >= 20)
-        return false;
-
-    SysTime_MarkNetworkSynced();
-    return true;
+    return false;
 }
 
 /**
@@ -157,11 +219,11 @@ static bool _Network_SyncNtp()
  * 该步骤只在完整同步中执行。
  * 周期轻量校时不会调用它，避免周期性重复请求服务器。
  *
- * API 返回数组后，每条有效记录转给 SysRouter_ProcessAPI()，复用原有隐藏日程写入链路。
+ * API 返回数组后只复制到跨核心队列；Network_Update() 在主循环复用隐藏日程写入链路。
  */
 static void _Network_FetchHiddenPrescripts()
 {
-    g_state = NET_FETCHING_API;
+    NetworkSetState(NET_FETCHING_API);
     Serial.println("[网络] NTP 对时完成，开始请求隐秘指令 API...");
 
     WiFiClient client;
@@ -197,7 +259,7 @@ static void _Network_FetchHiddenPrescripts()
 
                 if (tt > 0)
                 {
-                    SysRouter_ProcessAPI(tt, tl, ps);
+                    QueueApiItem(tt, tl, ps);
                     vTaskDelay(pdMS_TO_TICKS(50));
                 }
 
@@ -227,7 +289,7 @@ static void _Network_FetchHiddenPrescripts()
  */
 static void _Network_FailAndShutdown(NetworkState state)
 {
-    g_state = state;
+    NetworkSetState(state);
     g_sync_started_ms = 0;
     g_next_time_resync_allowed_ms = millis() + TIME_RESYNC_RETRY_AFTER_FAIL_MS;
 
@@ -284,7 +346,7 @@ static void network_daemon_task(void *pvParameters)
             Serial.println("[网络] 轻量 NTP 校时完成，本轮跳过 API。");
         }
 
-        g_state = NET_SYNC_SUCCESS;
+        NetworkSetState(NET_SYNC_SUCCESS);
         g_sync_started_ms = 0;
 
         /*
@@ -301,7 +363,7 @@ static void network_daemon_task(void *pvParameters)
             Serial.println("[网络] 自动同步结束，正在关闭 WiFi。");
             WiFi.disconnect(true, false);
             WiFi.mode(WIFI_OFF);
-            g_state = NET_DISCONNECTED;
+            NetworkSetState(NET_DISCONNECTED);
         }
         else
         {
@@ -312,6 +374,7 @@ static void network_daemon_task(void *pvParameters)
 
 void Network_Init()
 {
+    NetworkSetState(NET_DISCONNECTED);
     WiFi.persistent(false);
     WiFi.setAutoReconnect(false);
     WiFi.disconnect(true, false);
@@ -353,18 +416,18 @@ void Network_StartSync(bool keep_alive)
     if (sysConfig.wifi_ssid.isEmpty())
     {
         Serial.println("[网络] 同步请求被忽略：SSID 为空。");
-        g_state = NET_CONNECT_FAILED;
+        NetworkSetState(NET_CONNECT_FAILED);
         return;
     }
 
-    if (_Network_IsBusy())
+    if (Network_IsBusy())
     {
         Serial.println("[网络] 同步请求被忽略：网络任务正在运行。");
         return;
     }
 
     g_sync_started_ms = millis();
-    g_state = NET_CONNECTING;
+    NetworkSetState(NET_CONNECTING);
     xTaskNotifyGive(g_netTaskHandle);
 }
 
@@ -385,14 +448,14 @@ void Network_StartTimeSyncOnly()
         return;
     }
 
-    if (_Network_IsBusy())
+    if (Network_IsBusy())
     {
         Serial.println("[网络] 轻量校时被忽略：网络任务正在运行。");
         return;
     }
 
     g_sync_started_ms = millis();
-    g_state = NET_CONNECTING;
+    NetworkSetState(NET_CONNECTING);
 
     Serial.println("[网络] 开始轻量 NTP 校时。");
     xTaskNotifyGive(g_netTaskHandle);
@@ -421,6 +484,11 @@ void Network_Update()
 {
     uint32_t now = millis();
 
+    /* 网络 API 结果在主循环发布，确保日程数组、LittleFS 和业务 ACK 不在 Core 0 修改。 */
+    NetworkApiItem api_item;
+    while (PopApiItem(api_item))
+        SysRouter_ProcessAPI(api_item.target_time, api_item.title, api_item.text);
+
     /* 1. 到点触发开机完整同步：NTP + API。 */
     if (g_boot_sync_pending && (int32_t)(now - g_boot_sync_due_ms) >= 0)
     {
@@ -430,7 +498,7 @@ void Network_Update()
     }
 
     /* 2. 网络总超时兜底，防止状态长时间停在连接/NTP/API 阶段。 */
-    if (_Network_IsBusy() &&
+    if (Network_IsBusy() &&
         g_sync_started_ms > 0 &&
         now - g_sync_started_ms > NETWORK_TOTAL_TIMEOUT_MS)
     {
@@ -452,7 +520,7 @@ void Network_Update()
     if (sysConfig.time_auto_resync &&
         !sysConfig.wifi_ssid.isEmpty() &&
         !g_boot_sync_pending &&
-        !_Network_IsBusy())
+        !Network_IsBusy())
     {
         uint32_t interval_ms = (uint32_t)sysConfig.time_resync_interval_min * 60UL * 1000UL;
         bool window_due = (int32_t)(now - g_next_time_resync_allowed_ms) >= 0;
@@ -483,6 +551,6 @@ void Network_Abort()
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
 
-    g_state = NET_SYNC_FAILED;
+    NetworkSetState(NET_SYNC_FAILED);
     Serial.println("[网络] 已强制关闭 WiFi，状态置为 NET_SYNC_FAILED。");
 }

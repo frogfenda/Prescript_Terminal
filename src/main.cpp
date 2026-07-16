@@ -54,7 +54,7 @@ void setup()
     sysSpecials.begin();
 
     /*
-     * SysTime_Init 设置时区并优先从板载 RTC 恢复时间；RTC 不可信时再使用保存的 NTP 时间兜底。
+     * SysTime_Init 设置时区并从板载 RTC 恢复时间；RTC 不可信时等待网络或手动校时。
      * 该过程只访问本地 I2C，不联网。
      * 网络对时由 Network_Init + Network_RequestBootSync 延迟完成。
      */
@@ -101,6 +101,12 @@ void loop()
      * 这里不执行 WiFi.begin 或 HTTP，只做状态判断和任务通知。
      */
     Network_Update();
+
+    /*
+     * 时间服务只在主循环消费网络结果和访问 RTC。
+     * 这样 Core 0 网络任务不会直接碰 Wire1、配置文件或 UI 状态。
+     */
+    SysTime_Update();
 
     SysAutoPush_Update();
     appManager.run();

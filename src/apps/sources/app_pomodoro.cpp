@@ -12,7 +12,10 @@
 #include "sys/sys_ble.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_constants.h"
+#include "sys/sys_reminder.h"
+#include "sys/sys_sleep_scheduler.h"
 #include "lang/ui_strings.h"
+#include <limits.h>
 
 // 【函数说明】处理 POM 命令：校验槽位和时长后更新对应番茄钟预设名称、工作分钟和休息分钟，并保存配置。
 void Pomodoro_UpdatePreset(int index, const char* name, int work_m, int rest_m) {
@@ -44,15 +47,154 @@ void _Cb_PomUpd(void* payload);
 // 【函数说明】WebBLE 同步回调：把番茄预设逐条打包成 SYNC:POM JSON 文本回传上位机。
 void _Cb_PomSync(void* payload);
 
+namespace
+{
+    enum class PomodoroPhase : uint8_t
+    {
+        Work = 0,
+        Rest,
+    };
+
+    /**
+     * 番茄钟运行状态属于功能本身，不属于运行页面。
+     * AppManager 进入 Standby 时会销毁当前页面，但本结构继续由已安装的 Pomodoro 后台 tick 维护。
+     */
+    struct PomodoroRuntime
+    {
+        bool active = false;
+        bool paused = false;
+        PomodoroPhase phase = PomodoroPhase::Work;
+        uint32_t deadline_ms = 0;
+        uint32_t paused_remaining_ms = 0;
+        PomodoroPreset preset;
+    };
+
+    PomodoroRuntime s_runtime;
+    uint32_t s_last_background_check_ms = 0;
+
+    uint32_t PomodoroDurationMs(uint32_t minutes)
+    {
+        uint64_t duration_ms = (uint64_t)minutes * 60ULL * 1000ULL;
+        return duration_ms > (uint64_t)INT32_MAX ? (uint32_t)INT32_MAX : (uint32_t)duration_ms;
+    }
+
+    bool PomodoroDeadlineReached(uint32_t now)
+    {
+        return (int32_t)(now - s_runtime.deadline_ms) >= 0;
+    }
+
+    uint32_t PomodoroRemainingMs(uint32_t now = millis())
+    {
+        if (!s_runtime.active)
+            return 0;
+        if (s_runtime.paused)
+            return s_runtime.paused_remaining_ms;
+        return PomodoroDeadlineReached(now) ? 0 : (uint32_t)(s_runtime.deadline_ms - now);
+    }
+
+    void PomodoroScheduleRemaining(uint32_t remaining_ms)
+    {
+        s_runtime.deadline_ms = millis() + remaining_ms;
+        SysSleep_ScheduleAfterMs(
+            SysSleepSource::Pomodoro,
+            remaining_ms,
+            SysSleepWakeAction::Foreground);
+    }
+
+    /** 从当前预设启动工作阶段；所有入口共用这一处建立运行状态和休眠截止时间。 */
+    void PomodoroStart()
+    {
+        s_runtime.preset = sysConfig.pomodoro_presets[sysConfig.pomodoro_current_idx];
+        s_runtime.active = true;
+        s_runtime.paused = false;
+        s_runtime.phase = PomodoroPhase::Work;
+        s_runtime.paused_remaining_ms = 0;
+        PomodoroScheduleRemaining(PomodoroDurationMs(s_runtime.preset.work_min));
+    }
+
+    void PomodoroPause()
+    {
+        if (!s_runtime.active || s_runtime.paused)
+            return;
+        s_runtime.paused_remaining_ms = PomodoroRemainingMs();
+        s_runtime.paused = true;
+        SysSleep_Cancel(SysSleepSource::Pomodoro);
+    }
+
+    void PomodoroResume()
+    {
+        if (!s_runtime.active || !s_runtime.paused)
+            return;
+        s_runtime.paused = false;
+        PomodoroScheduleRemaining(s_runtime.paused_remaining_ms);
+        s_runtime.paused_remaining_ms = 0;
+    }
+
+    /** 长按工作阶段时立即切入运行中的休息阶段，并把提示放入统一提醒队列。 */
+    void PomodoroForceRest()
+    {
+        if (!s_runtime.active)
+            return;
+        s_runtime.phase = PomodoroPhase::Rest;
+        s_runtime.paused = false;
+        s_runtime.paused_remaining_ms = 0;
+        PomodoroScheduleRemaining(PomodoroDurationMs(s_runtime.preset.rest_min));
+        SysReminder_Submit(
+            SysReminderKind::Custom,
+            UIStrings::PomodoroForceRestPrescript(appManager.getLanguage()),
+            true);
+    }
+
+    void PomodoroStop()
+    {
+        s_runtime.active = false;
+        s_runtime.paused = false;
+        s_runtime.paused_remaining_ms = 0;
+        SysSleep_Cancel(SysSleepSource::Pomodoro);
+    }
+
+    /**
+     * 主循环后台检查阶段截止时间。
+     * 只有提醒成功入队后才推进状态；队列满时保留已经到期的截止时间，下一秒继续重试，避免静默丢失阶段通知。
+     */
+    void PomodoroUpdate()
+    {
+        uint32_t now = millis();
+        if ((uint32_t)(now - s_last_background_check_ms) < 1000)
+            return;
+        s_last_background_check_ms = now;
+
+        if (!s_runtime.active || s_runtime.paused || !PomodoroDeadlineReached(now))
+            return;
+
+        if (s_runtime.phase == PomodoroPhase::Work)
+        {
+            if (!SysReminder_Submit(
+                    SysReminderKind::Custom,
+                    UIStrings::PomodoroWorkDonePrescript(appManager.getLanguage()),
+                    true))
+                return;
+
+            /* 工作结束后沿用原交互：先提醒，再把休息阶段停在暂停态等待用户确认开始。 */
+            s_runtime.phase = PomodoroPhase::Rest;
+            s_runtime.paused = true;
+            s_runtime.paused_remaining_ms = PomodoroDurationMs(s_runtime.preset.rest_min);
+            SysSleep_Cancel(SysSleepSource::Pomodoro);
+            return;
+        }
+
+        if (!SysReminder_Submit(
+                SysReminderKind::Custom,
+                UIStrings::PomodoroRestDonePrescript(appManager.getLanguage()),
+                false))
+            return;
+        PomodoroStop();
+    }
+}
+
 class AppPomodoroRun : public AppBase {
 private:
-    int phase; 
-    uint32_t timer_start;
-    uint32_t current_duration;
     uint32_t last_sec_draw;
-    bool is_paused;
-    uint32_t pause_start_time;
-    PomodoroPreset current_preset;
 
     // 【函数说明】绘制番茄钟运行页：显示当前工作/休息阶段、剩余时间和暂停状态。
     void drawUI() {
@@ -60,10 +202,9 @@ private:
         int sw = HAL_Get_Screen_Width();
         int center_y = 30;
         
-        HAL_Screen_ShowChineseLine(10, center_y, current_preset.name.c_str());
+        HAL_Screen_ShowChineseLine(10, center_y, s_runtime.preset.name.c_str());
         
-        uint32_t elapsed = is_paused ? (pause_start_time - timer_start) : (millis() - timer_start);
-        uint32_t remain = (current_duration > elapsed) ? (current_duration - elapsed) : 0;
+        uint32_t remain = PomodoroRemainingMs();
         
         char time_buf[16];
         sprintf(time_buf, "%02d:%02d", remain / 60000, (remain / 1000) % 60);
@@ -71,7 +212,9 @@ private:
         HAL_Screen_ShowTextLine(sw - tw - 10, center_y, time_buf);
         
         SystemLang_t lang = appManager.getLanguage();
-        const char* state_str = is_paused ? UIStrings::PomodoroPausedStatus(lang) : UIStrings::PomodoroPhaseStatus(lang, phase);
+        const char* state_str = s_runtime.paused
+            ? UIStrings::PomodoroPausedStatus(lang)
+            : UIStrings::PomodoroPhaseStatus(lang, (int)s_runtime.phase);
         HAL_Screen_ShowChineseLine_Faded((sw - HAL_Get_Text_Width(state_str))/2, 56, state_str, 0.4f);
         
         HAL_Screen_Update();
@@ -80,11 +223,8 @@ private:
 public:
     // 【函数说明】进入运行页时读取当前预设，启动工作阶段计时并绘制第一帧。
     void onCreate() override {
-        current_preset = sysConfig.pomodoro_presets[sysConfig.pomodoro_current_idx];
-        phase = 0; 
-        is_paused = false;
-        current_duration = current_preset.work_min * 60000; 
-        timer_start = millis();
+        if (!s_runtime.active)
+            PomodoroStart();
         last_sec_draw = 0xFFFFFFFF;
         drawUI();
     }
@@ -93,25 +233,8 @@ public:
 
     // 【函数说明】每秒更新剩余时间，工作到点后切休息，休息到点后提示完成并返回待启动状态。
     void onLoop() override {
-        if (!is_paused) {
-            uint32_t elapsed = millis() - timer_start;
-            if (elapsed >= current_duration) {
-                if (phase == 0) {
-                    phase = 1;
-                    current_duration = current_preset.rest_min * 60000;
-                    timer_start = millis();
-                    is_paused = true; 
-                    pause_start_time = millis();
-                    
-                    PushNotify_Trigger_Custom(UIStrings::PomodoroWorkDonePrescript(appManager.getLanguage()), true);
-                } else {
-                    appManager.popApp(); 
-                    PushNotify_Trigger_Custom(UIStrings::PomodoroRestDonePrescript(appManager.getLanguage()), false);
-                }
-                return; 
-            }
-            
-            uint32_t current_sec = (current_duration - elapsed) / 1000;
+        if (s_runtime.active && !s_runtime.paused) {
+            uint32_t current_sec = PomodoroRemainingMs() / 1000;
             if (current_sec != last_sec_draw) {
                 last_sec_draw = current_sec;
                 drawUI(); 
@@ -125,28 +248,21 @@ public:
     // 【函数说明】短按暂停或继续番茄钟计时。
     void onKeyShort() override {
         SYS_SOUND_CONFIRM();
-        if (is_paused) {
-            is_paused = false;
-            timer_start += (millis() - pause_start_time); 
-        } else {
-            is_paused = true;
-            pause_start_time = millis();
-        }
+        if (s_runtime.paused)
+            PomodoroResume();
+        else
+            PomodoroPause();
         drawUI();
     }
 
     // 【函数说明】长按结束本次番茄钟并返回预设菜单。
     void onKeyLong() override {
         SYS_SOUND_NAV();
-        if (phase == 0) {
-            phase = 1;
-            current_duration = current_preset.rest_min * 60000;
-            timer_start = millis();
-            is_paused = false;
+        if (s_runtime.phase == PomodoroPhase::Work) {
             last_sec_draw = 0xFFFFFFFF;
-
-            PushNotify_Trigger_Custom(UIStrings::PomodoroForceRestPrescript(appManager.getLanguage()), true);
+            PomodoroForceRest();
         } else {
+            PomodoroStop();
             appManager.popApp();
         }
     }
@@ -300,6 +416,8 @@ public:
     SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_PomSync);
     appManager.registerBackgroundApp(this);
 }
+    /** 番茄运行页即使被 Standby 销毁，功能级状态仍在这里按秒推进并提交统一提醒。 */
+    void onBackgroundTick() override { PomodoroUpdate(); }
 };
 // === 番茄钟专属拆包回调 ===
 // 【函数说明】事件总线回调：把 Router 解析出的番茄预设参数交给 Pomodoro_UpdatePreset。

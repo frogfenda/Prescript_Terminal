@@ -10,6 +10,9 @@
 #include "ui/ui_frame.h"
 #include "apps/app_countdown.h"
 #include "lang/ui_strings.h"
+#include "sys/sys_reminder.h"
+#include "sys/sys_sleep_scheduler.h"
+#include <limits.h>
 
 // ==========================================
 // 暴露给 HUD 的全局变量与通信信道
@@ -22,6 +25,28 @@ String g_countdown_cmd = "";
 int g_countdown_set_min = 0;
 int g_countdown_set_sec = 0;
 
+namespace
+{
+    /** 所有倒计时都限制在 INT32_MAX 毫秒内，使有符号差值判断能安全跨过 millis() 回绕。 */
+    uint32_t CountdownDurationMs(int min, int sec)
+    {
+        if (min < 0) min = 0;
+        if (sec < 0) sec = 0;
+        uint64_t duration = ((uint64_t)min * 60ULL + (uint64_t)sec) * 1000ULL;
+        return duration > (uint64_t)INT32_MAX ? (uint32_t)INT32_MAX : (uint32_t)duration;
+    }
+
+    bool CountdownDeadlineReached(uint32_t now)
+    {
+        return (int32_t)(now - g_countdown_end_time) >= 0;
+    }
+
+    uint32_t CountdownRemainingMs(uint32_t now)
+    {
+        return CountdownDeadlineReached(now) ? 0 : (uint32_t)(g_countdown_end_time - now);
+    }
+}
+
 // ==========================================
 // 【核心接口】：供外界其他应用“一键拉起”TT2协议！
 // 调用方法：Countdown_Start(5, 0, "面条已经泡好了");
@@ -29,9 +54,10 @@ int g_countdown_set_sec = 0;
 // ==========================================
 // 【函数说明】启动全局 TT2 倒计时：计算结束时间，保存完成指令文本，并让 HUD 能显示 TMR 剩余时间。
 void Countdown_Start(int min, int sec, const char* custom_cmd) {
+    uint32_t duration_ms = CountdownDurationMs(min, sec);
     g_countdown_set_min = min;
     g_countdown_set_sec = sec;
-    g_countdown_end_time = millis() + (min * 60 + sec) * 1000;
+    g_countdown_end_time = millis() + duration_ms;
     
     if (custom_cmd && strlen(custom_cmd) > 0) {
         g_countdown_cmd = custom_cmd;
@@ -39,6 +65,8 @@ void Countdown_Start(int min, int sec, const char* custom_cmd) {
         g_countdown_cmd = "";
     }
     g_countdown_active = true;
+    /* 倒计时属于持续时长，不转换为 RTC epoch，避免网络/手动校时改变剩余时间。 */
+    SysSleep_ScheduleAfterMs(SysSleepSource::Countdown, duration_ms, SysSleepWakeAction::Foreground);
 }
 
 // 【函数说明】判断当前 millis 是否还没有超过结束时间，超过后自动认为倒计时结束。
@@ -50,8 +78,7 @@ bool Countdown_IsActive() {
 int Countdown_GetRemainingSeconds() {
     if (!g_countdown_active) return 0;
     uint32_t now = millis();
-    if (g_countdown_end_time <= now) return 0;
-    return (int)((g_countdown_end_time - now) / 1000);
+    return (int)(CountdownRemainingMs(now) / 1000);
 }
 
 class AppCountdown : public AppBase {
@@ -90,8 +117,8 @@ private:
                 dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), s, 0, 59, "");
             } else if (phase == 2) {
                 int remain = 0;
-                if (g_countdown_active && g_countdown_end_time > millis()) {
-                    remain = (g_countdown_end_time - millis()) / 1000;
+                if (g_countdown_active) {
+                    remain = CountdownRemainingMs(millis()) / 1000;
                 }
                 char t_buf[16];
                 sprintf(t_buf, "%02d : %02d", remain / 60, remain % 60);
@@ -135,8 +162,9 @@ public:
     // 【函数说明】进入倒计时页面：读取上次设置的分钟/秒数，初始化阶段为设置分钟并绘制界面。
     void onCreate() override {
         if (g_countdown_active) {
-            if (millis() > g_countdown_end_time) {
+            if (CountdownDeadlineReached(millis())) {
                 g_countdown_active = false; 
+                SysSleep_Cancel(SysSleepSource::Countdown);
                 phase = 0; m = 5; s = 0;
             } else {
                 phase = 2; // 后台正在跑，直接切到倒计时画面
@@ -172,7 +200,7 @@ public:
                 appManager.popApp();
                 return;
             } else {
-                int current_sec = (g_countdown_end_time - millis()) / 1000;
+                int current_sec = CountdownRemainingMs(millis()) / 1000;
                 if (current_sec != last_sec) {
                     last_sec = current_sec;
                     time_tick = true;
@@ -190,11 +218,7 @@ public:
         // ==========================================
         // 【核心守护】：到达未来！
         // ==========================================
-        if (g_countdown_active && millis() >= g_countdown_end_time) {
-            g_countdown_active = false;
-            
-            extern void PushNotify_Trigger_Custom(const char *custom_text, bool keep_stack);
-            
+        if (g_countdown_active && CountdownDeadlineReached(millis())) {
             String notify_cmd = g_countdown_cmd;
             
             // 如果外界没有传入特定的指令，则生成 TT2 协议专属报幕！
@@ -205,7 +229,11 @@ public:
             }
             
             // 去掉 TXT，直接推纯文本
-            PushNotify_Trigger_Custom(notify_cmd.c_str(), false);
+            if (!SysReminder_Submit(SysReminderKind::Custom, notify_cmd.c_str(), false))
+                return;
+
+            g_countdown_active = false;
+            SysSleep_Cancel(SysSleepSource::Countdown);
             Feedback_PlayTimerDone();
         }
     }
@@ -245,7 +273,9 @@ public:
             g_countdown_set_min = m;
             g_countdown_set_sec = s;
             g_countdown_active = true;
-            g_countdown_end_time = millis() + (m * 60 + s) * 1000;
+            uint32_t duration_ms = CountdownDurationMs(m, s);
+            g_countdown_end_time = millis() + duration_ms;
+            SysSleep_ScheduleAfterMs(SysSleepSource::Countdown, duration_ms, SysSleepWakeAction::Foreground);
             drawUI();
         } 
         else if (phase == 2) {
@@ -254,6 +284,7 @@ public:
         } 
         else if (phase == 3) {
             g_countdown_active = false;
+            SysSleep_Cancel(SysSleepSource::Countdown);
             phase = 0; // 确认撤收，回到重设状态
             linkAnim.jumpTo(0);
             drawUI();

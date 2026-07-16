@@ -582,13 +582,13 @@ void HAL_Sleep_Enter_Prepare()
 }
 
 /*
- * 【函数说明】把旋钮主按键和侧键同时配置为 Light Sleep 唤醒源，然后进入浅睡眠。
+ * 【函数说明】把两个实体按键和可选定时器配置为 Light Sleep 唤醒源，然后进入浅睡眠。
  * 【实现约束】两个按键都是 INPUT_PULLUP、低电平按下，因此统一使用 GPIO_INTR_LOW_LEVEL。
  * 这里使用 ESP-IDF 的 Light Sleep GPIO 唤醒接口，不再使用只能绑定单个 RTC IO 的 EXT0：
  * - 主按键 GPIO21 和侧键 GPIO15 都可以唤醒；
  * - 唤醒后按键仍由普通数字 GPIO 管理，避免主按键留在 RTC IO 状态而无法继续轮询。
  */
-void HAL_Sleep_Start()
+HALSleepWakeReason HAL_Sleep_Start(uint64_t timer_wakeup_us)
 {
     const gpio_num_t main_button = (gpio_num_t)BSP::Pins::BTN_MAIN;
     const gpio_num_t side_button = (gpio_num_t)BSP::Pins::BTN_SIDE;
@@ -599,34 +599,41 @@ void HAL_Sleep_Start()
     {
         Serial.printf("[休眠] 休眠前按键 GPIO 配置失败：错误码=%d，本次不进入休眠。\n",
                       (int)input_config_err);
-        return;
+        return HALSleepWakeReason::Error;
     }
 
     // 2. Light Sleep 的 GPIO 唤醒接口支持多个 RTC/普通数字 GPIO，正好覆盖两个实体按键。
     esp_err_t main_wakeup_err = gpio_wakeup_enable(main_button, GPIO_INTR_LOW_LEVEL);
     esp_err_t side_wakeup_err = gpio_wakeup_enable(side_button, GPIO_INTR_LOW_LEVEL);
     esp_err_t source_err = esp_sleep_enable_gpio_wakeup();
+    esp_err_t timer_err = ESP_OK;
+    if (timer_wakeup_us > 0)
+        timer_err = esp_sleep_enable_timer_wakeup(timer_wakeup_us);
 
-    if (main_wakeup_err != ESP_OK || side_wakeup_err != ESP_OK || source_err != ESP_OK)
+    if (main_wakeup_err != ESP_OK || side_wakeup_err != ESP_OK ||
+        source_err != ESP_OK || timer_err != ESP_OK)
     {
-        Serial.printf("[休眠] 按键唤醒源配置失败：主键=%d，侧键=%d，GPIO源=%d。\n",
+        Serial.printf("[休眠-错误] 唤醒源配置失败：主键=%d，侧键=%d，GPIO=%d，定时器=%d。\n",
                       (int)main_wakeup_err,
                       (int)side_wakeup_err,
-                      (int)source_err);
+                      (int)source_err,
+                      (int)timer_err);
 
         // 唤醒源不完整时不能冒险进入无可靠出口的睡眠；清理本轮配置并恢复普通输入。
         gpio_wakeup_disable(main_button);
         gpio_wakeup_disable(side_button);
         if (source_err == ESP_OK)
             esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+        if (timer_wakeup_us > 0 && timer_err == ESP_OK)
+            esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 
         esp_err_t cleanup_err = HAL_RestoreButtonInputs();
         if (cleanup_err != ESP_OK)
         {
-            Serial.printf("[休眠] 唤醒源配置失败后的按键 GPIO 恢复也失败：错误码=%d。\n",
+            Serial.printf("[休眠-错误] 唤醒源清理后 GPIO 恢复失败：错误码=%d。\n",
                           (int)cleanup_err);
         }
-        return;
+        return HALSleepWakeReason::Error;
     }
 
     // 3. CPU 在这里暂停，直到任一按键被按下或休眠请求被底层拒绝。
@@ -641,6 +648,8 @@ void HAL_Sleep_Start()
     gpio_wakeup_disable(main_button);
     gpio_wakeup_disable(side_button);
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+    if (timer_wakeup_us > 0)
+        esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 
     esp_err_t restore_err = HAL_RestoreButtonInputs();
     if (restore_err != ESP_OK)
@@ -650,12 +659,17 @@ void HAL_Sleep_Start()
 
     if (sleep_err != ESP_OK)
     {
-        Serial.printf("[休眠] Light Sleep 未正常执行，错误码=%d。\n", (int)sleep_err);
+        Serial.printf("[休眠-错误] Light Sleep 未正常执行，错误码=%d。\n", (int)sleep_err);
+        return HALSleepWakeReason::Error;
     }
-    else if (wakeup_cause != ESP_SLEEP_WAKEUP_GPIO)
-    {
-        Serial.println("[休眠] 设备已唤醒，但未取得按键唤醒标记。");
-    }
+
+    if (wakeup_cause == ESP_SLEEP_WAKEUP_TIMER)
+        return HALSleepWakeReason::Timer;
+    if (wakeup_cause == ESP_SLEEP_WAKEUP_GPIO)
+        return HALSleepWakeReason::Button;
+
+    Serial.printf("[休眠-警告] Light Sleep 返回了未处理的唤醒原因：%d。\n", (int)wakeup_cause);
+    return HALSleepWakeReason::Error;
 }
 
 // 【函数说明】唤醒后恢复屏幕、背光、功放、音频、震动和 NFC，并让按键引擎非阻塞地吞掉唤醒按压。

@@ -7,6 +7,7 @@
 3. AppTimeDateSet：设置“当前日期”，同样使用链路式编辑。
 
 本轮调整点：
+- 时间设置一级菜单首项显示当前 YYYY-MM-DD HH:MM，复用非阻塞 SysTime 接口并随菜单分钟刷新更新；
 - “设置当日时间”后面新增“日期设置”；
 - 当日时间设置改为直接 settimeofday 到指定时分，不做偏置叠加；
 - “周期校时”和“校时间隔”改为复用指令推送配置那套三段式菜单值编辑动画；
@@ -370,11 +371,12 @@ AppBase *appTimeDateSet = &instanceTimeDateSet;
  * 时间设置一级菜单。
  *
  * 菜单项：
- * 0 设置当日时间：进入 AppTimeManualSet；
- * 1 日期设置：进入 AppTimeDateSet；
- * 2 网络校时：复用 AppNetworkSync，执行完整同步 NTP + API；
- * 3 周期校时：使用三段式菜单值编辑动画，在本页直接开关；
- * 4 校时间隔：使用三段式菜单值编辑动画，在本页选择 5/15/30/60 分钟。
+ * 0 当前时间：只读显示 YYYY-MM-DD HH:MM，不执行设置动作；
+ * 1 设置当日时间：进入 AppTimeManualSet；
+ * 2 日期设置：进入 AppTimeDateSet；
+ * 3 网络校时：复用 AppNetworkSync，执行完整同步 NTP + API；
+ * 4 周期校时：使用三段式菜单值编辑动画，在本页直接开关；
+ * 5 校时间隔：使用三段式菜单值编辑动画，在本页选择 5/15/30/60 分钟。
  */
 class AppTimeSetting : public AppMenuBase
 {
@@ -392,7 +394,7 @@ private:
     }
 
 protected:
-    int getMenuCount() override { return 5; }
+    int getMenuCount() override { return 6; }
 
     const char *getTitle() override
     {
@@ -407,7 +409,18 @@ protected:
         const char *edit_mark = (is_editing && index == current_selection) ? " <" : "";
 
         if (index == 0)
-            return UIStrings::TimeSettingItem(lang, index);
+        {
+            struct tm current = {};
+            SysTime_GetInfo(&current);
+            snprintf(buf, sizeof(buf), "%s%04d-%02d-%02d %02d:%02d",
+                     UIStrings::CurrentTimeLabel(lang),
+                     current.tm_year + 1900,
+                     current.tm_mon + 1,
+                     current.tm_mday,
+                     current.tm_hour,
+                     current.tm_min);
+            return buf;
+        }
 
         if (index == 1)
             return UIStrings::TimeSettingItem(lang, index);
@@ -416,6 +429,9 @@ protected:
             return UIStrings::TimeSettingItem(lang, index);
 
         if (index == 3)
+            return UIStrings::TimeSettingItem(lang, index);
+
+        if (index == 4)
         {
             snprintf(buf, sizeof(buf), "%s%s%s", UIStrings::AutoResyncLabel(lang), UIStrings::OnOff(lang, temp_auto_resync), edit_mark);
             return buf;
@@ -445,13 +461,13 @@ protected:
         static char suff[24];
         SystemLang_t lang = appManager.getLanguage();
 
-        if (index == 3)
+        if (index == 4)
         {
             strcpy(pref, UIStrings::AutoResyncLabel(lang));
             strcpy(val, UIStrings::OnOff(lang, temp_auto_resync));
             strcpy(suff, " <");
         }
-        else if (index == 4)
+        else if (index == 5)
         {
             strcpy(pref, UIStrings::SyncPeriodLabel(lang));
             snprintf(val, sizeof(val), "%u", (unsigned)kResyncIntervalsMin[temp_interval_idx]);
@@ -487,17 +503,22 @@ protected:
 
         if (index == 0)
         {
-            appManager.push(AppId::TimeManualSet);
+            /* 当前时间条目只负责展示；短按不进入页面，也不改动任何时间源。 */
+            drawMenuUI(visual_selection);
         }
         else if (index == 1)
         {
-            appManager.push(AppId::TimeDateSet);
+            appManager.push(AppId::TimeManualSet);
         }
         else if (index == 2)
         {
+            appManager.push(AppId::TimeDateSet);
+        }
+        else if (index == 3)
+        {
             appManager.push(AppId::NetworkSync);
         }
-        else if (index == 3 || index == 4)
+        else if (index == 4 || index == 5)
         {
             is_editing = true;
             drawMenuUI(visual_selection);
@@ -535,11 +556,11 @@ public:
     {
         if (is_editing)
         {
-            if (current_selection == 3)
+            if (current_selection == 4)
             {
                 temp_auto_resync = !temp_auto_resync;
             }
-            else if (current_selection == 4)
+            else if (current_selection == 5)
             {
                 temp_interval_idx = _WrapIndex(temp_interval_idx + delta, kResyncIntervalCount);
             }

@@ -18,11 +18,13 @@
 #include "sys/sys_ble_queue.h"
 #include "sys/sys_runtime_status.h"
 #include "sys/sys_specials.h"
+#include "sys/sys_reminder.h"
 
 void _Cb_SysNotify(void *payload)
 {
     Evt_Notify_t *p = (Evt_Notify_t *)payload;
-    PushNotify_Trigger_Custom(p->text, p->keep_stack);
+    if (p)
+        SysReminder_Submit(SysReminderKind::Custom, p->text, p->keep_stack);
 }
 
 AppManager appManager;
@@ -193,8 +195,11 @@ void AppManager::run()
 
     if (SysRuntime_ConsumePushNotifyRequest())
     {
-        PushNotify_Trigger_Random(true);
+        SysReminder_Submit(SysReminderKind::Random, nullptr, true);
     }
+
+    /* 所有后台/事件提醒先完成入队，再在本轮统一展示一条，避免互相覆盖。 */
+    SysReminder_Update();
 
     // ==========================================
     // 【核心修复】：在绝对安全的主线程 (Core 1) 拆快递！
