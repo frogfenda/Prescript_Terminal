@@ -16,6 +16,8 @@
 #include "sys/sys_power.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_prescript_target.h"
+#include "sys/sys_motion.h"
+#include "sys/sys_gesture.h"
 
 void setup()
 {
@@ -28,7 +30,7 @@ void setup()
     setCpuFrequencyMhz(PrescriptConst::CPU_RUNTIME_MHZ);
 
     Serial.begin(115200);
-    Serial.println("[Main] System Booting...");
+    Serial.println("[系统] 正在启动。");
 
     /*
      * 开机先显式关闭 WiFi。
@@ -59,6 +61,8 @@ void setup()
      * 网络对时由 Network_Init + Network_RequestBootSync 延迟完成。
      */
     SysTime_Init();
+    SysMotion_Init();
+    SysGesture_Init();
 
     sysAudio.begin();
     sysPower.begin();
@@ -107,6 +111,8 @@ void loop()
      * 这样 Core 0 网络任务不会直接碰 Wire1、配置文件或 UI 状态。
      */
     SysTime_Update();
+    SysMotion_Update();
+    SysGesture_Update();
 
     SysAutoPush_Update();
     appManager.run();

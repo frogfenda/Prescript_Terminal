@@ -1,5 +1,5 @@
 ﻿/*
-【模块职责】待机页。显示 standby.bin，处理空闲后 Light Sleep，按键唤醒后恢复屏幕、音频、震动和 NFC。
+【模块职责】待机页。显示 standby.bin，处理空闲后 Light Sleep，按键唤醒后恢复屏幕、音频、震动、NFC 和运动采样。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/apps/app_standby.cpp
@@ -12,6 +12,7 @@
 #include "sys/sys_nfc.h"
 #include "sys/sys_time.h"
 #include "sys/sys_sleep_scheduler.h"
+#include "sys/sys_motion.h"
 
 class AppStandby : public AppBase
 {
@@ -80,6 +81,7 @@ public:
             SysHaptic_Sleep();
             SysAudio_Sleep();
             SysNfc_Sleep();
+            SysMotion_Sleep();
 
             // --- 3. 硬件级休眠：调用最新拆分的 HAL 底层 ---
             HAL_Sleep_Enter_Prepare(); // 引脚锁定，驱动 IC 挂起
@@ -112,6 +114,7 @@ public:
 
             // --- 4. 唤醒：恢复屏幕与外设，并把本次唤醒按压交给 ButtonEngine 非阻塞吞掉 ---
             HAL_Sleep_Wakeup_Post();
+            SysMotion_Wakeup();
 
             // --- 5. 业务逻辑恢复 ---
             // 唤醒后仍停留在待机页面，避免重复调用各模块 wakeup。

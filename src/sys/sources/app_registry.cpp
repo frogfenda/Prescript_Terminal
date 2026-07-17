@@ -38,6 +38,7 @@ extern AppBase *appAnimSetting;
 extern AppBase *appPrescriptList;
 extern AppBase *appVolumeSetting;
 extern AppBase *appGachaStats;
+extern AppBase *appSea;
 
 // 时间设置相关 App 在 app_time_setting.cpp 中定义。
 extern AppBase *appTimeSetting;
@@ -82,6 +83,7 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::TimeSetting: return appTimeSetting;
         case AppId::TimeManualSet: return appTimeManualSet;
         case AppId::TimeDateSet: return appTimeDateSet;
+        case AppId::Sea: return appSea;
         default: return nullptr;
     }
 }
@@ -124,6 +126,7 @@ const char* AppRegistry_Name(AppId id)
         case AppId::TimeSetting: return "TimeSetting";
         case AppId::TimeManualSet: return "TimeManualSet";
         case AppId::TimeDateSet: return "TimeDateSet";
+        case AppId::Sea: return "Sea";
         default: return "Unknown";
     }
 }

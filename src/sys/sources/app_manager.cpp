@@ -19,6 +19,7 @@
 #include "sys/sys_runtime_status.h"
 #include "sys/sys_specials.h"
 #include "sys/sys_reminder.h"
+#include "sys/sys_gesture.h"
 
 void _Cb_SysNotify(void *payload)
 {
@@ -222,6 +223,23 @@ void AppManager::run()
     {
         resetIdleTimer();
         currentApp->onKnob(knob_delta);
+    }
+
+    /*
+     * 运动手势与实体旋钮在这里汇合：上下滚动复用所有页面已有的 onKnob()，
+     * 其他语义事件再交给当前 App 的 onGesture()。每帧只分发一条，避免未来某个手势触发
+     * 页面跳转后，同一帧剩余事件错误地落到新页面。
+     */
+    SysGestureEvent gesture = {};
+    if (SysGesture_PopEvent(&gesture))
+    {
+        resetIdleTimer();
+        if (gesture.type == SysGestureType::ScrollUp)
+            currentApp->onKnob(1);
+        else if (gesture.type == SysGestureType::ScrollDown)
+            currentApp->onKnob(-1);
+        else
+            currentApp->onGesture(gesture);
     }
 
   // ==========================================

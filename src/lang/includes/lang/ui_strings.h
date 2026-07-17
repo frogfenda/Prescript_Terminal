@@ -43,6 +43,7 @@ namespace UIStrings
             "指令档案",
             "指令推送配置",
             "使用者",
+            "海",
             "系统高级设置",
             "进入待机模式"};
         static const char *en_items[] = {
@@ -57,10 +58,11 @@ namespace UIStrings
             "PRESCRIPT DB",
             "PUSH SETTINGS",
             "USER",
+            "SEA",
             "SYSTEM SETTINGS",
             "STANDBY MODE"};
 
-        if (index < 0 || index >= 13)
+        if (index < 0 || index >= 14)
             return "";
         return IsZh(lang) ? zh_items[index] : en_items[index];
     }

@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include "hal/hal.h"
 #include "sys/sys_time.h"
+#include "sys/sys_gesture.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_value_animator.h"
 
@@ -26,6 +27,12 @@ public:
     virtual void onDestroy() = 0;
 
     virtual void onKnob(int delta) = 0;
+    /**
+     * 【接口说明】接收不等价于旋钮的离散运动手势；默认忽略。
+     * AppManager 已把 ScrollUp/ScrollDown 统一转换为 onKnob()，因此具体页面通常只需处理
+     * WeaponChange 等业务手势，不能在这里再次处理滚动造成一次动作执行两遍。
+     */
+    virtual void onGesture(const SysGestureEvent &event) { (void)event; }
 // 主旋钮按键
     // 【函数说明】旋钮主按键短按入口；默认空实现。
     virtual void onKeyShort() {}

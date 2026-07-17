@@ -46,7 +46,10 @@ enum class AppId : uint8_t
     // 时间设置相关页面：一级时间菜单、当日时分编辑、日期编辑。
     TimeSetting,
     TimeManualSet,
-    TimeDateSet
+    TimeDateSet,
+
+    // 沉浸式海面流体模拟；追加在枚举末尾，避免改变现有 AppId 的数值。
+    Sea
 };
 
 /** 根据 AppId 返回对应 App 单例指针，AppManager 的 push/launch/replace 会调用它完成页面跳转。 */
