@@ -1,0 +1,71 @@
+#pragma once
+
+#include <Arduino.h>
+#include <USBCDC.h>
+
+/*
+【模块职责】ESP32-S3 TinyUSB 启动决策与 CDC/MSC 复合设备初始化。
+
+- BTN2 未按住：注册并启动 CDC。
+- BTN2 按住：注册并启动 CDC + MSC；MSC 块存储由 HAL::FatStorage 提供。
+- 所有接口都在唯一一次 USB.begin() 前注册，确保 USB 描述符稳定。
+
+本模块采用惰性对象创建；只要上层不调用 Begin()/BeginFromBtn2()，就不会注册
+TinyUSB 接口、读取按键、挂载 FAT 后端或启动 USB。
+*/
+namespace SysUsbMode
+{
+    enum class Mode : uint8_t
+    {
+        CdcOnly,
+        CdcWithMsc,
+    };
+
+    enum class Error : uint8_t
+    {
+        None,
+        HardwareUsbModeEnabled,
+        AutomaticUsbStartupEnabled,
+        AlreadyStartedWithDifferentMode,
+        FatBackendUnavailable,
+        AllocationFailed,
+        MscConfigurationFailed,
+        UsbStartFailed,
+    };
+
+    struct Config
+    {
+        uint32_t cdcBaud = 115200;
+        const char *manufacturer = "Fogfenda";
+        const char *productName = "Prescript Terminal";
+        const char *serialNumber = nullptr;
+        const char *mscVendorId = "FOGFENDA";
+        const char *mscProductId = "ESP32S3 FAT";
+        const char *mscRevision = "1.0";
+        const char *fatPartitionLabel = "fatfs";
+    };
+
+    // 读取 BTN2（BSP::Pins::BTN_SIDE，低电平按下）并锁定本次启动模式。
+    Mode DecideFromBtn2(uint32_t settleMs = 25, uint8_t samples = 5, uint32_t sampleGapMs = 2);
+
+    // 初始化 CDC 或 CDC+MSC，并在全部接口注册后调用一次 USB.begin()。
+    bool Begin(Mode mode, const Config &config = Config{});
+
+    // DecideFromBtn2() + Begin() 的便捷入口；当前未接入 main.cpp。
+    bool BeginFromBtn2(const Config &config = Config{});
+
+    // MSC 安全下线并释放 FAT 原始块后端；CDC 和全局 TinyUSB 保持运行。
+    void StopMsc();
+
+    bool IsStarted();
+    bool IsMscActive();
+    Mode CurrentMode();
+    Error LastError();
+    const char *LastErrorText();
+
+    // 手动创建的 USB CDC 对象。Begin() 成功前返回 nullptr。
+    USBCDC *Cdc();
+
+    // Windows 安全弹出后置位；读取后自动清零，由上层决定是否退出或重启。
+    bool ConsumeEjectRequest();
+}

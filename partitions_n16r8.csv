@@ -1,9 +1,10 @@
-# ESP32-S3 N16R8 partition table: 16MB Flash, dual OTA and LittleFS.
+# ESP32-S3 N16R8 partition table: 16MB Flash, dual 2MB OTA, 8MB FATFS and 3.875MB LittleFS.
 # Name,   Type, SubType, Offset,   Size,     Flags
 nvs,      data, nvs,     0x9000,   0x5000,
 otadata,  data, ota,     0xe000,   0x2000,
-app0,     app,  ota_0,   0x10000,  0x640000,
-app1,     app,  ota_1,   0x650000, 0x640000,
+app0,     app,  ota_0,   0x10000,  0x200000,
+app1,     app,  ota_1,   0x210000, 0x200000,
 # Arduino LittleFS.begin() uses the default partition label "spiffs".
-spiffs,   data, spiffs,  0xc90000, 0x360000,
+fatfs,    data, fat,     0x410000, 0x800000,
+spiffs,   data, spiffs,  0xC10000, 0x3E0000,
 coredump, data, coredump,0xff0000, 0x10000,

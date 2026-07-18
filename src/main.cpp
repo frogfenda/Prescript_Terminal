@@ -29,6 +29,14 @@ void setup()
 
     setCpuFrequencyMhz(PrescriptConst::CPU_RUNTIME_MHZ);
 
+    /*
+        预计加入TinyUSB后会在这里进行USBCDC 和USBMSC的选择
+        通过BTN2
+        该改动会取消Arduino的自动USBCDC注册
+        另外Serial也需要改动
+            -Lin
+    */
+
     Serial.begin(115200);
     Serial.println("[系统] 正在启动。");
 
@@ -46,6 +54,15 @@ void setup()
      */
     SysFS_Init();
     sysConfig.load();
+
+
+    /*
+        我估计会在这里挂上FATFS
+        FATFS在之后的自定义资源和拖拽更新都能用到
+        更新判定点会在挂载之后
+            -Lin
+    */
+
 
     /*
      * 先把配置中的语言写入 AppManager。
