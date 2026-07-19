@@ -36,6 +36,8 @@ namespace SysUsbMode
     struct Config
     {
         uint32_t cdcBaud = 115200;
+        size_t cdcRxBufferSize = 1024;
+        uint32_t cdcTxTimeoutMs = 20;
         const char *manufacturer = "Fogfenda";
         const char *productName = "Prescript Terminal";
         const char *serialNumber = nullptr;
@@ -56,6 +58,9 @@ namespace SysUsbMode
 
     // MSC 安全下线并释放 FAT 原始块后端；CDC 和全局 TinyUSB 保持运行。
     void StopMsc();
+
+    // 补发主机连接前缓存的 CDC 日志；应由主循环持续调用。
+    void Service();
 
     bool IsStarted();
     bool IsMscActive();

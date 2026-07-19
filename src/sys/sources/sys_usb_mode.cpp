@@ -6,6 +6,7 @@
 
 #include "bsp/bsp_pins.h"
 #include "hal/hal_fat_storage.h"
+#include "sys/sys_usb_cdc_serial.h"
 
 #include <USB.h>
 #include <USBMSC.h>
@@ -13,7 +14,7 @@
 
 namespace
 {
-    USBCDC *s_cdc = nullptr;
+    USBCDC *s_cdc = &CDCSerial;
     USBMSC *s_msc = nullptr;
     SysUsbMode::Mode s_mode = SysUsbMode::Mode::CdcOnly;
     SysUsbMode::Error s_error = SysUsbMode::Error::None;
@@ -103,9 +104,7 @@ namespace SysUsbMode
             return false;
         }
 
-        if (!s_cdc)
-            s_cdc = new (std::nothrow) USBCDC(0);
-        if (!s_cdc)
+        if (!CDCSerial.Configure(config.cdcRxBufferSize, config.cdcTxTimeoutMs))
         {
             HAL::FatStorage::CloseForUsb();
             s_error = Error::AllocationFailed;
@@ -177,6 +176,11 @@ namespace SysUsbMode
         rollbackMsc();
         if (s_mode == Mode::CdcWithMsc)
             s_mode = Mode::CdcOnly;
+    }
+
+    void Service()
+    {
+        CDCSerial.Service();
     }
 
     bool IsStarted()
