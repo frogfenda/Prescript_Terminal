@@ -6,6 +6,7 @@
 
 #include "bsp/bsp_pins.h"
 #include "hal/hal_fat_storage.h"
+#include "sys/sys_sleep_scheduler.h"
 #include "sys/sys_usb_cdc_serial.h"
 
 #include <USB.h>
@@ -121,9 +122,12 @@ namespace
         switch (eventId)
         {
         case ARDUINO_USB_STARTED_EVENT:
+            // 当前 USB PHY/协议栈不能跨应用 Light Sleep 保持枚举状态。
+            SysSleep_SetBlocker(SysSleepBlocker::UsbDevice, true);
             queueEvent(EVENT_USB_STARTED);
             break;
         case ARDUINO_USB_STOPPED_EVENT:
+            SysSleep_SetBlocker(SysSleepBlocker::UsbDevice, false);
             queueEvent(EVENT_USB_STOPPED);
             break;
         case ARDUINO_USB_SUSPEND_EVENT:
@@ -166,11 +170,9 @@ namespace
 }
 
 /*
- * Arduino-ESP32 2.0.14 默认先装载 USB_INTERFACE_MSC、再装载 CDC，导致复合模式中的
- * CDC 从 MI_00 变成 MI_01，Windows 因而分配另一个 COM 号。这里把 MSC 描述符注册为
- * CUSTOM（装载顺序晚于 CDC），但仍使用标准 TinyUSB MSC 类描述符和回调：
- * CDC-only 与 CDC+MSC 的 CDC 都固定为接口 0/1；仅复合模式追加接口 2 的 MSC。
- * 这样 CDC-only 不会加载 Windows 磁盘驱动，复合模式中的 CDC 也仍保持 MI_00。
+ * CDC-only 与 CDC+MSC 已使用不同 PID，因此不再为复用 COM 号改变接口顺序。
+ * 复合模式按 Arduino/TinyUSB 的标准优先级装载 MSC，再装载 CDC：Windows 先看到
+ * 接口 0 的磁盘功能，CDC 使用后续接口并由复合模式自己的 PID 建立独立 COM。
  */
 extern "C" uint16_t fogfendaMscLoadDescriptor(uint8_t *destination, uint8_t *interfaceNumber)
 {
@@ -344,7 +346,7 @@ namespace SysUsbMode
             copyMscIdentity(s_mscRevision, config.mscRevision, "1.0");
 
             if (s_mscGeometry.blockCount == 0 || s_mscGeometry.blockSize == 0 ||
-                tinyusb_enable_interface(USB_INTERFACE_CUSTOM, TUD_MSC_DESC_LEN,
+                tinyusb_enable_interface(USB_INTERFACE_MSC, TUD_MSC_DESC_LEN,
                                          fogfendaMscLoadDescriptor) != ESP_OK)
             {
                 rollbackMsc();
@@ -364,8 +366,12 @@ namespace SysUsbMode
             s_mscActive = false;
         }
 
+        const uint16_t selectedPid = mode == Mode::CdcWithMsc
+                                         ? config.cdcWithMscPid
+                                         : config.cdcOnlyPid;
         USB.VID(config.usbVid);
-        USB.PID(config.usbPid);
+        USB.PID(selectedPid);
+        USB.firmwareVersion(config.usbFirmwareVersion);
         if (config.manufacturer)
             USB.manufacturerName(config.manufacturer);
         if (config.productName)
@@ -489,7 +495,12 @@ namespace SysUsbMode
         s_mscMediaPresent = false;
         tud_disconnect();
 
-        // Windows 需要观察到一个稳定的物理断开窗口，才能清除旧复合设备和端点状态。
+        // 先等待 TinyUSB 确认主机已撤销配置，再给 Windows 的复合设备、磁盘和串口
+        // 子节点留下完整的 PnP 清理窗口。随后才允许 ESP.restart() 重新枚举。
+        const uint32_t unmountStartedAt = millis();
+        while (tud_mounted() && millis() - unmountStartedAt < 1000)
+            delay(10);
+
         const uint32_t startedAt = millis();
         while (millis() - startedAt < settleMs)
             delay(10);
