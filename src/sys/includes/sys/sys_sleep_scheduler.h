@@ -25,6 +25,8 @@ enum class SysSleepBlocker : uint8_t
 {
     Network = 0,
     NfcEmulation,
+    // ESP32-S3 Light Sleep 不保留当前 TinyUSB 设备会话；电脑仍配置着设备时禁止进入。
+    UsbDevice,
     Count,
 };
 

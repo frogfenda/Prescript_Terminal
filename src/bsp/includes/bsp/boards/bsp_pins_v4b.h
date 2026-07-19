@@ -16,7 +16,7 @@ namespace BSP::Pins
     constexpr int KNOB_A = 48;
     constexpr int KNOB_B = 47;
     constexpr int BTN_MAIN = 21;
-    constexpr int BTN_SIDE = 2;
+    constexpr int BTN_SIDE = 15;
 
     constexpr int I2S_BCLK = 5;
     constexpr int I2S_LRC = 4;

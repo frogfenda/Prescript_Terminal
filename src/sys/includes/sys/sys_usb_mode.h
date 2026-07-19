@@ -9,7 +9,7 @@
 - BTN2 未按住：只启动 CDC，不注册 MSC 接口。
 - BTN2 按住：启动 CDC + 可用 MSC；MSC 块存储由 HAL::FatStorage 提供。
 - 所有接口都在唯一一次 USB.begin() 前注册，确保 USB 描述符稳定。
-- CDC 固定为 MI_00；复合模式将标准 MSC 描述符后置为接口 2。
+- 复合模式使用标准顺序：MSC 为接口 0，CDC 为接口 1/2，优先枚举磁盘功能。
 
 本模块采用惰性对象创建；只要上层不调用 Begin()/BeginFromBtn2()，就不会注册
 TinyUSB 接口、读取按键、挂载 FAT 后端或启动 USB。
@@ -37,13 +37,18 @@ namespace SysUsbMode
     struct Config
     {
         uint16_t usbVid = 0x303A;
-        uint16_t usbPid = 0x0002;
+        // 两种接口布局必须使用不同 PID，避免 Windows 在同一设备实例上复用错误的接口树。
+        // 代价是 Windows 会为两种模式各分配一个 COM 号。
+        uint16_t cdcOnlyPid = 0x0002;
+        uint16_t cdcWithMscPid = 0x0003;
+        // 本版调整过复合接口布局；非零 bcdDevice 让 Windows 放弃旧版 0x0000 描述符缓存。
+        uint16_t usbFirmwareVersion = 0x0101;
         uint32_t cdcBaud = 115200;
         size_t cdcRxBufferSize = 1024;
         uint32_t cdcTxTimeoutMs = 20;
         const char *manufacturer = "Fogfenda";
         const char *productName = "Prescript Terminal";
-        // 两种模式都使用同一个芯片 MAC 序列号，配合固定 VID/PID 与 CDC MI_00 保持 COM 号。
+        // 两种模式使用同一个芯片 MAC 序列号；不同 PID 负责隔离 Windows 设备实例。
         const char *serialNumber = "__MAC__";
         const char *mscVendorId = "FOGFENDA";
         const char *mscProductId = "ESP32S3 FAT";
@@ -75,7 +80,7 @@ namespace SysUsbMode
 
     // 软件重启前主动撤销 USB 上拉并保留稳定断开窗口，避免 Windows 留下失效复合设备实例。
     // 调用后只允许执行 ESP.restart()，不可继续正常业务。
-    void DisconnectBeforeRestart(uint32_t settleMs = 800);
+    void DisconnectBeforeRestart(uint32_t settleMs = 2000);
 
     bool IsStarted();
     bool IsMscActive();

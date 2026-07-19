@@ -114,16 +114,8 @@ namespace SysUsbSession
                                           ? SysUsbMode::Mode::CdcOnly
                                           : SysUsbMode::DecideFromBtn2();
 
-        bool fatPrepared = false;
-        bool updateDirReady = false;
-        if (mode == SysUsbMode::Mode::CdcWithMsc && HAL::FatStorage::MountForEsp())
-        {
-            fatPrepared = true;
-            updateDirReady = SysFatUpdate::EnsureUpdateDirectory();
-            HAL::FatStorage::UnmountFromEsp();
-        }
-
-        // ESP 侧预处理完全卸载后才创建 USB 原始块后端，所有权绝不重叠。
+        // MSC 必须走最短枚举路径。/Update 已在普通启动和上一次安全弹出后的扫描中
+        // 自动创建；这里不允许为了检查目录而先执行耗时的 FFat 挂载。
         const bool usbStarted = SysUsbMode::Begin(mode);
         if (bootTestEnabled)
             return;
@@ -138,13 +130,6 @@ namespace SysUsbSession
 
         if (mode != SysUsbMode::Mode::CdcWithMsc)
             return;
-
-        if (fatPrepared)
-            Serial.println(updateDirReady
-                               ? "[FATFS] 进入 MSC 前已确认 /Update 目录可用。"
-                               : "[FATFS][警告] /Update 无法创建或存在同名文件，请在电脑中检查。");
-        else
-            Serial.println("[FATFS][警告] 进入 MSC 前无法挂载 FATFS，电脑可能需要先格式化磁盘。");
 
         if (!usbStarted || !SysUsbMode::IsMscActive())
         {
