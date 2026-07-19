@@ -19,25 +19,22 @@
 #include "sys/sys_motion.h"
 #include "sys/sys_gesture.h"
 #include "sys/sys_usb_mode.h"
-#include "hal/hal_fat_storage.h"
+#include "sys/sys_usb_session.h"
+#include "sys/sys_fat_update.h"
 
 void setup()
 {
     setCpuFrequencyMhz(PrescriptConst::CPU_RUNTIME_MHZ);
 
-    // BTN2 未按下：CDC；BTN2 按下：CDC + MSC。Arduino 不再自动注册 USB。
-    const bool usbStarted = SysUsbMode::BeginFromBtn2();
+    const bool bootTestEnabled = SysBootTest::Enabled();
+    SysUsbSession::BeginAndHandleBootMode(bootTestEnabled);
 
-    if (SysBootTest::Enabled())
+    if (bootTestEnabled)
     {
         SysBootTest::Setup();
         return;
     }
 
-    if (usbStarted)
-        Serial.println("[系统] TinyUSB CDC 已启动。");
-    else
-        Serial.printf("[系统] TinyUSB 启动失败：%s。\n", SysUsbMode::LastErrorText());
     Serial.println("[系统] 正在启动。");
 
     /*
@@ -48,27 +45,8 @@ void setup()
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
 
-    /*
-     * 文件系统和配置必须先初始化。
-     * 后面的语言、指令库、特殊指令、网络配置都依赖 sysConfig 和 LittleFS。
-     */
-    SysFS_Init();
+    SysFatUpdate::PrepareApplicationFilesystemsAtBoot();
     sysConfig.load();
-
-
-    // MSC 模式下 FAT 分区只交给 PC；普通 CDC 模式下才挂载到 ESP 的 /fat。
-    if (SysUsbMode::IsMscActive())
-    {
-        Serial.println("[FATFS] BTN2 磁盘模式：FAT 分区已交给 USB MSC。");
-    }
-    else if (HAL::FatStorage::MountForEsp())
-    {
-        Serial.println("[FATFS] 已挂载到 ESP：/fat。");
-    }
-    else
-    {
-        Serial.println("[FATFS] 挂载失败；请按住 BTN2 启动，并由 Windows 格式化磁盘。");
-    }
 
     /*
      * 先把配置中的语言写入 AppManager。
@@ -119,16 +97,6 @@ void loop()
     {
         SysBootTest::Loop();
         return;
-    }
-
-    // Windows 安全弹出后释放 MSC 原始块访问权，并把 FAT 卷切回 ESP。
-    if (SysUsbMode::ConsumeEjectRequest())
-    {
-        SysUsbMode::StopMsc();
-        if (HAL::FatStorage::MountForEsp())
-            Serial.println("[FATFS] USB 磁盘已安全弹出，FAT 分区已切回 ESP：/fat。");
-        else
-            Serial.println("[FATFS] USB 磁盘已弹出，但 FAT 卷无法挂载到 ESP。");
     }
 
     /*

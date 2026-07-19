@@ -62,6 +62,13 @@ IRAM_ATTR void ISR_Knob_Turn()
 // 【函数说明】配置显示、旋钮、按键等 HAL 资源，并调用 BSP 初始化电源轨；创建 428×142 全屏 Sprite 并设置中文字体。
 void HAL_Init()
 {
+    // MSC 连接页与更新进度页可能在同一启动周期连续使用 HAL。
+    // 初始化必须幂等，避免重复创建 Sprite 或重复注册旋钮中断。
+    static bool initialized = false;
+    if (initialized)
+        return;
+    initialized = true;
+
     /*
      * TFT_eSPI/TFT_eSprite 这里只作为内存画布和颜色工具使用。
      * 物理屏幕总线由 BSP::DisplayNv3007 的 QSPI 驱动接管，避免旧 SPI 面板驱动和 NV3007 时序冲突。
