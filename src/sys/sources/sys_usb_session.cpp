@@ -5,8 +5,6 @@
 #include "sys/sys_usb_session.h"
 
 #include "hal/hal.h"
-#include "hal/hal_fat_storage.h"
-#include "sys/sys_fat_update.h"
 #include "sys/sys_usb_mode.h"
 
 #include <Arduino.h>
@@ -48,25 +46,9 @@ namespace
         }
     }
 
-    [[noreturn]] void restartAfterMscExit()
-    {
-        SysUsbMode::RequestCdcOnlyOnNextBoot();
-        Serial.println("[FATFS][MSC] 会话结束，重启以重新加载全部资源。");
-        SysUsbMode::Service();
-        SysUsbMode::DisconnectBeforeRestart();
-        ESP.restart();
-        while (true)
-            delay(1000);
-    }
-
-    [[noreturn]] void runExclusiveMscSession()
+    void runExclusiveMscSession()
     {
         showConnectionPage();
-        const HAL::FatStorage::Geometry geometry = HAL::FatStorage::GetGeometry();
-        Serial.printf("[FATFS][MSC] PC 已取得 FAT 独占访问权：%lu blocks x %u bytes。\n",
-                      static_cast<unsigned long>(geometry.blockCount),
-                      static_cast<unsigned>(geometry.blockSize));
-        Serial.println("[FATFS][MSC] 普通文件系统、配置、网络和主程序初始化均已暂停。");
 
         while (!SysUsbMode::ConsumeEjectRequest())
         {
@@ -74,34 +56,12 @@ namespace
             delay(10);
         }
 
-        Serial.println("[FATFS][MSC] 收到可信安全弹出请求，停止 MSC 块访问。");
+        Serial.println("[FATFS][MSC] 已安全弹出，正在切换为设备端文件访问。");
         showStatusPage("U 盘已安全弹出", "正在检查 /Update", TFT_CYAN);
         SysUsbMode::StopMsc();
-        delay(100);
-
-        if (!HAL::FatStorage::MountForEsp())
-        {
-            Serial.println("[FATFS][错误] 弹出后无法挂载 FATFS；本次不执行文件读取。");
-            showStatusPage("FATFS 挂载失败", "设备即将重启", TFT_RED);
-            delay(1000);
-            restartAfterMscExit();
-        }
-
-        Serial.println("[FATFS] 安全弹出完成，ESP 已取得 FAT 独占访问权：/fat。");
-        // 更新成功会在检查函数内部直接重启，因此扫描前预置一次性正常启动标记。
-        SysUsbMode::RequestCdcOnlyOnNextBoot();
-        const SysFatUpdate::BootResult updateResult = SysFatUpdate::CheckAndApplyAtBoot();
-        if (updateResult == SysFatUpdate::BootResult::Failed)
-        {
-            SysUsbMode::CancelCdcOnlyOnNextBoot();
-            Serial.println("[FATFS][UPDATE] 更新失败，保留更新文件并停止启动；请复位后进入 MSC 修正文件。");
-            haltWithUsbService();
-        }
-
-        // 更新成功时检查函数已重启；没有更新包时也统一执行干净重启。
-        showStatusPage("MSC 模式已结束", "正在重启并加载资源", TFT_GREEN);
-        HAL::FatStorage::UnmountFromEsp();
-        restartAfterMscExit();
+        // 不在这里重新挂载或重启：普通启动流程会统一挂载 FAT、扫描 /Update，
+        // 无更新包时直接继续加载应用，避免 CDC 端口因模式切换被 Windows 换号。
+        showStatusPage("MSC 模式已结束", "正在加载系统资源", TFT_GREEN);
     }
 }
 
@@ -109,10 +69,8 @@ namespace SysUsbSession
 {
     void BeginAndHandleBootMode(bool bootTestEnabled)
     {
-        const bool forceCdcOnly = SysUsbMode::ConsumeCdcOnlyOnNextBootRequest();
-        const SysUsbMode::Mode mode = (bootTestEnabled || forceCdcOnly)
-                                          ? SysUsbMode::Mode::CdcOnly
-                                          : SysUsbMode::DecideFromBtn2();
+        const SysUsbMode::Mode mode = bootTestEnabled ? SysUsbMode::Mode::CdcOnly
+                                                       : SysUsbMode::DecideFromBtn2();
 
         // MSC 必须走最短枚举路径。/Update 已在普通启动和上一次安全弹出后的扫描中
         // 自动创建；这里不允许为了检查目录而先执行耗时的 FFat 挂载。
@@ -124,9 +82,6 @@ namespace SysUsbSession
             Serial.println("[系统] TinyUSB CDC 已启动。");
         else
             Serial.printf("[系统] TinyUSB 启动失败：%s。\n", SysUsbMode::LastErrorText());
-
-        if (forceCdcOnly)
-            Serial.println("[FATFS][MSC] 已消费退出标记，本次强制正常启动并重新加载资源。");
 
         if (mode != SysUsbMode::Mode::CdcWithMsc)
             return;

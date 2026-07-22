@@ -37,18 +37,16 @@ namespace SysUsbMode
     struct Config
     {
         uint16_t usbVid = 0x303A;
-        // 两种接口布局必须使用不同 PID，避免 Windows 在同一设备实例上复用错误的接口树。
-        // 代价是 Windows 会为两种模式各分配一个 COM 号。
-        uint16_t cdcOnlyPid = 0x0002;
-        uint16_t cdcWithMscPid = 0x0003;
-        // 本版调整过复合接口布局；非零 bcdDevice 让 Windows 放弃旧版 0x0000 描述符缓存。
-        uint16_t usbFirmwareVersion = 0x0101;
+        // CDC-only 与 CDC+MSC 使用同一设备实例；CDC 永远位于接口 0/1，避免 COM 号随模式切换。
+        uint16_t usbPid = 0x0002;
+        // 复合描述符布局改变后递增版本，帮助 Windows 重新读取接口树。
+        uint16_t usbFirmwareVersion = 0x0102;
         uint32_t cdcBaud = 115200;
         size_t cdcRxBufferSize = 1024;
         uint32_t cdcTxTimeoutMs = 20;
         const char *manufacturer = "Fogfenda";
         const char *productName = "Prescript Terminal";
-        // 两种模式使用同一个芯片 MAC 序列号；不同 PID 负责隔离 Windows 设备实例。
+        // 两种模式使用同一个芯片 MAC 序列号，确保 Windows 复用同一个设备实例。
         const char *serialNumber = "__MAC__";
         const char *mscVendorId = "FOGFENDA";
         const char *mscProductId = "ESP32S3 FAT";
@@ -64,12 +62,6 @@ namespace SysUsbMode
 
     // DecideFromBtn2() + Begin() 的便捷入口；当前未接入 main.cpp。
     bool BeginFromBtn2(const Config &config = Config{});
-
-    // MSC 退出重启使用的一次性 RTC 标记。即使 BTN2 尚未释放，下一次也强制 CDC-only，
-    // 确保资源在全新的普通启动周期中加载；更新失败时可取消标记以便再次进入 MSC 修复。
-    void RequestCdcOnlyOnNextBoot();
-    void CancelCdcOnlyOnNextBoot();
-    bool ConsumeCdcOnlyOnNextBootRequest();
 
     // MSC 安全下线并释放 FAT 原始块后端；CDC 和全局 TinyUSB 保持运行。
     // 仅应在 ConsumeEjectRequest() 返回 true 后调用，避免丢弃电脑尚未刷新的 FAT 缓存。

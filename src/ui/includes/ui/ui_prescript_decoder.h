@@ -37,6 +37,71 @@ struct TextLayout
     uint16_t color = 1;
 };
 
+/**
+ * 【接口说明】可叠加在任意 App 背景之上的分页非阻塞解码动画，每页最多显示两行。
+ *
+ * 调用方先用 PrepareLayoutFromRule() 完成 UTF-8 换行，再把当前页的 firstLine/lineCount 交给 begin()。
+ * 第一行固定使用原单行的屏幕中线位置，第二行只向下增加一行，不按块高度向上重新居中。
+ * update() 只推进状态，drawOverlay() 只绘制到当前 HAL Sprite；两者都不会清屏、推屏或 delay，
+ * 因而海面、传感器采样和系统主循环可以在文字动画期间继续运行。
+ *
+ * 对象会复制当前页文本，不保留 TextLayout 指针；调用方随后重用或销毁原布局不会造成悬空引用。
+ */
+class DecodeOverlayAnimator
+{
+public:
+    static constexpr int MaxPageLines = 2;
+
+    /**
+     * 启动一页排版内容；lineCount 会钳制为 1~2，并受 layout 剩余行数限制。
+     * 非法 firstLine 会安全结束并保持空文本；decodeStyle 与系统现有 0~3 设置一致。
+     */
+    void begin(const TextLayout &layout, int firstLine, int lineCount,
+               int decodeStyle, uint32_t nowMs = millis());
+
+    /** 按 millis 时间推进至当前应有帧；返回 true 表示本次调用改变了动画画面。 */
+    bool update(uint32_t nowMs);
+
+    /** 绘制当前动画帧到已经存在的 Sprite 顶层；不清屏、不推屏。 */
+    void drawOverlay() const;
+
+    /** 立即显示完整目标行；用于用户在动画期间按键时先完成本句而不是误跳内容。 */
+    void finishImmediately();
+
+    bool isRunning() const { return running_; }
+    bool isFinished() const { return active_ && !running_; }
+    bool isActive() const { return active_; }
+
+private:
+    static constexpr int TEXT_BYTES = 256;
+    static constexpr int FRAME_BYTES = 512;
+    static constexpr int MAX_CHARACTERS_PER_LINE = 192;
+    static constexpr int MAX_TOTAL_CHARACTERS = MAX_CHARACTERS_PER_LINE * MaxPageLines;
+
+    char target_[MaxPageLines][TEXT_BYTES] = {};
+    char frame_text_[MaxPageLines][FRAME_BYTES] = {};
+    uint8_t matrix_lucky_[MAX_TOTAL_CHARACTERS] = {};
+    SystemLang_t lang_ = LANG_ZH;
+    uint16_t color_ = 1;
+    int decode_style_ = 0;
+    int line_count_ = 0;
+    int total_chars_ = 0;
+    int frame_index_ = 0;
+    int line_x_[MaxPageLines] = {};
+    int line_y_[MaxPageLines] = {};
+    int cursor_line_ = 0;
+    int cursor_x_ = 0;
+    int cursor_width_ = 0;
+    uint32_t next_frame_ms_ = 0;
+    bool active_ = false;
+    bool running_ = false;
+    bool cursor_visible_ = false;
+
+    uint32_t frameIntervalMs() const;
+    int finalFrameIndex() const;
+    void rebuildFrame();
+};
+
 /** 初始化中文乱码池，为 CHAOS 和解码动画生成“系统故障”字符。 */
 void InitGlitchPool();
 

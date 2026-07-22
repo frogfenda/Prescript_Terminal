@@ -29,16 +29,11 @@ namespace
     uint32_t s_writeBytes = 0;
     uint32_t s_ioErrors = 0;
     uint32_t s_hostAccessObserved = 0;
-    uint32_t s_lastStatsLogMs = 0;
-    uint32_t s_lastLoggedReadOps = 0;
-    uint32_t s_lastLoggedWriteOps = 0;
     bool s_mscMediaPresent = false;
     HAL::FatStorage::Geometry s_mscGeometry;
     char s_mscVendorId[9] = "FOGFENDA";
     char s_mscProductId[17] = "ESP32S3 FAT";
     char s_mscRevision[5] = "1.0";
-    constexpr uint32_t FORCE_CDC_BOOT_MAGIC = 0x46415443U; // "FATC"
-    RTC_NOINIT_ATTR uint32_t s_forceCdcBootTag;
 
     enum EventBits : uint32_t
     {
@@ -170,9 +165,8 @@ namespace
 }
 
 /*
- * CDC-only 与 CDC+MSC 已使用不同 PID，因此不再为复用 COM 号改变接口顺序。
- * 复合模式按 Arduino/TinyUSB 的标准优先级装载 MSC，再装载 CDC：Windows 先看到
- * 接口 0 的磁盘功能，CDC 使用后续接口并由复合模式自己的 PID 建立独立 COM。
+ * CDC 始终由 Arduino core 注册为接口 0/1；MSC 使用 CUSTOM 槽位追加到接口 2。
+ * 两种启动模式拥有完全相同的 CDC 接口和 PID，Windows 不会再为 MSC 模式创建第二个 COM。
  */
 extern "C" uint16_t fogfendaMscLoadDescriptor(uint8_t *destination, uint8_t *interfaceNumber)
 {
@@ -323,8 +317,9 @@ namespace SysUsbMode
         }
 
         s_cdc->begin(config.cdcBaud);
-        // VOFA+ 会在打开串口时切换 DTR/RTS；禁止 Arduino 将该序列解释为进入下载模式。
-        s_cdc->enableReboot(false);
+        // 正常 CDC-only 启动使用 Arduino-ESP32 原生 1200bps/DTR 下载流程；
+        // MSC 模式禁止串口触发下载，避免电脑打开 CDC 时中断 FAT 会话。
+        s_cdc->enableReboot(mode == Mode::CdcOnly);
         s_cdc->onEvent(ARDUINO_USB_CDC_LINE_STATE_EVENT, onCdcEvent);
 
         __atomic_store_n(&s_pendingEvents, 0U, __ATOMIC_RELAXED);
@@ -334,9 +329,6 @@ namespace SysUsbMode
         __atomic_store_n(&s_writeBytes, 0U, __ATOMIC_RELAXED);
         __atomic_store_n(&s_ioErrors, 0U, __ATOMIC_RELAXED);
         __atomic_store_n(&s_hostAccessObserved, 0U, __ATOMIC_RELAXED);
-        s_lastStatsLogMs = millis();
-        s_lastLoggedReadOps = 0;
-        s_lastLoggedWriteOps = 0;
 
         if (mode == Mode::CdcWithMsc)
         {
@@ -346,7 +338,7 @@ namespace SysUsbMode
             copyMscIdentity(s_mscRevision, config.mscRevision, "1.0");
 
             if (s_mscGeometry.blockCount == 0 || s_mscGeometry.blockSize == 0 ||
-                tinyusb_enable_interface(USB_INTERFACE_MSC, TUD_MSC_DESC_LEN,
+                tinyusb_enable_interface(USB_INTERFACE_CUSTOM, TUD_MSC_DESC_LEN,
                                          fogfendaMscLoadDescriptor) != ESP_OK)
             {
                 rollbackMsc();
@@ -354,8 +346,7 @@ namespace SysUsbMode
                 return false;
             }
 
-            // 介质必须在 USB 枚举前就绪。先报告 NOT READY 再动态上线会让 Windows
-            // 进入约 10 秒的磁盘重试退避，并可能触发一次伪弹出命令。
+            // 介质在 USB 枚举前就绪；不在枚举后动态挂载，避免 Windows 进入约 10 秒的磁盘重试退避。
             s_mscMediaPresent = true;
             s_mscActive = true;
         }
@@ -366,11 +357,8 @@ namespace SysUsbMode
             s_mscActive = false;
         }
 
-        const uint16_t selectedPid = mode == Mode::CdcWithMsc
-                                         ? config.cdcWithMscPid
-                                         : config.cdcOnlyPid;
         USB.VID(config.usbVid);
-        USB.PID(selectedPid);
+        USB.PID(config.usbPid);
         USB.firmwareVersion(config.usbFirmwareVersion);
         if (config.manufacturer)
             USB.manufacturerName(config.manufacturer);
@@ -380,15 +368,17 @@ namespace SysUsbMode
             USB.serialNumber(config.serialNumber);
 
         USB.onEvent(onUsbEvent);
+        // 在 USB.begin() 之前就锁定模式，避免主机极快发送 1200bps 时误走 CDC-only 分支。
+        s_mode = mode;
         if (!USB.begin())
         {
             rollbackMsc();
             s_cdc->end();
+            s_mode = Mode::CdcOnly;
             s_error = Error::UsbStartFailed;
             return false;
         }
 
-        s_mode = mode;
         s_started = true;
         s_ejectRequested = false;
         return true;
@@ -400,35 +390,9 @@ namespace SysUsbMode
         return Begin(DecideFromBtn2(), config);
     }
 
-    void RequestCdcOnlyOnNextBoot()
-    {
-        s_forceCdcBootTag = FORCE_CDC_BOOT_MAGIC;
-    }
-
-    void CancelCdcOnlyOnNextBoot()
-    {
-        s_forceCdcBootTag = 0;
-    }
-
-    bool ConsumeCdcOnlyOnNextBootRequest()
-    {
-        const bool requested = s_forceCdcBootTag == FORCE_CDC_BOOT_MAGIC;
-        s_forceCdcBootTag = 0;
-        return requested;
-    }
-
     void StopMsc()
     {
         Service();
-        const uint32_t readOps = __atomic_load_n(&s_readOps, __ATOMIC_RELAXED);
-        const uint32_t writeOps = __atomic_load_n(&s_writeOps, __ATOMIC_RELAXED);
-        const uint32_t readBytes = __atomic_load_n(&s_readBytes, __ATOMIC_RELAXED);
-        const uint32_t writeBytes = __atomic_load_n(&s_writeBytes, __ATOMIC_RELAXED);
-        const uint32_t errors = __atomic_load_n(&s_ioErrors, __ATOMIC_RELAXED);
-        Serial.printf("[FATFS][MSC] 块访问汇总：read=%lu/%luB write=%lu/%luB errors=%lu。\n",
-                      static_cast<unsigned long>(readOps), static_cast<unsigned long>(readBytes),
-                      static_cast<unsigned long>(writeOps), static_cast<unsigned long>(writeBytes),
-                      static_cast<unsigned long>(errors));
         rollbackMsc();
         if (s_mode == Mode::CdcWithMsc)
             s_mode = Mode::CdcOnly;
@@ -439,48 +403,7 @@ namespace SysUsbMode
     {
         CDCSerial.Service();
 
-        const uint32_t events = __atomic_exchange_n(&s_pendingEvents, 0U, __ATOMIC_ACQ_REL);
-        if (events & EVENT_USB_STARTED)
-            Serial.println("[USB] TinyUSB 设备已启动。");
-        if (events & EVENT_USB_RESUMED)
-            Serial.println("[USB] 电脑已接入并恢复 USB 会话。");
-        if (events & EVENT_USB_SUSPENDED)
-            Serial.println("[USB] 电脑已挂起 USB 会话。");
-        if (events & EVENT_USB_STOPPED)
-            Serial.println("[USB] USB 连接已断开；未收到安全弹出时不会读取 FATFS。");
-        if (events & EVENT_MEDIA_STARTED)
-            Serial.println("[FATFS][MSC] 电脑已开始访问 FAT 磁盘。");
-        if (events & EVENT_MEDIA_STOPPED)
-            Serial.println("[FATFS][MSC] 电脑已停止 FAT 磁盘访问。");
-        if (events & EVENT_MEDIA_EJECTED)
-            Serial.println("[FATFS][MSC] 已识别安全弹出命令，准备切换 FAT 所有权。");
-        if (events & EVENT_CDC_OPENED)
-            Serial.println("[USB][CDC] 串口已由电脑打开，开始补发缓冲日志。");
-        if (events & EVENT_CDC_CLOSED)
-            Serial.println("[USB][CDC] 串口已关闭，后续日志继续进入缓冲区。");
-        if (events & EVENT_EJECT_IGNORED)
-            Serial.println("[FATFS][MSC] 忽略枚举阶段的卸载命令：主机尚未成功访问 FAT。");
-
-        if (s_mscActive && millis() - s_lastStatsLogMs >= 1500)
-        {
-            s_lastStatsLogMs = millis();
-            const uint32_t readOps = __atomic_load_n(&s_readOps, __ATOMIC_RELAXED);
-            const uint32_t writeOps = __atomic_load_n(&s_writeOps, __ATOMIC_RELAXED);
-            if (readOps != s_lastLoggedReadOps || writeOps != s_lastLoggedWriteOps)
-            {
-                const uint32_t readBytes = __atomic_load_n(&s_readBytes, __ATOMIC_RELAXED);
-                const uint32_t writeBytes = __atomic_load_n(&s_writeBytes, __ATOMIC_RELAXED);
-                const uint32_t errors = __atomic_load_n(&s_ioErrors, __ATOMIC_RELAXED);
-                Serial.printf("[FATFS][MSC] 块活动：read=%lu/%luB write=%lu/%luB errors=%lu。\n",
-                              static_cast<unsigned long>(readOps), static_cast<unsigned long>(readBytes),
-                              static_cast<unsigned long>(writeOps), static_cast<unsigned long>(writeBytes),
-                              static_cast<unsigned long>(errors));
-                s_lastLoggedReadOps = readOps;
-                s_lastLoggedWriteOps = writeOps;
-            }
-        }
-
-        CDCSerial.Service();
+        (void)__atomic_exchange_n(&s_pendingEvents, 0U, __ATOMIC_ACQ_REL);
     }
 
     void DisconnectBeforeRestart(uint32_t settleMs)
@@ -495,8 +418,7 @@ namespace SysUsbMode
         s_mscMediaPresent = false;
         tud_disconnect();
 
-        // 先等待 TinyUSB 确认主机已撤销配置，再给 Windows 的复合设备、磁盘和串口
-        // 子节点留下完整的 PnP 清理窗口。随后才允许 ESP.restart() 重新枚举。
+        // 先等待 TinyUSB 确认主机已撤销配置，再给 Windows 的复合设备子节点留下完整清理窗口。
         const uint32_t unmountStartedAt = millis();
         while (tud_mounted() && millis() - unmountStartedAt < 1000)
             delay(10);

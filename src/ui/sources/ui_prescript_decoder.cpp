@@ -1040,6 +1040,246 @@ void InitGlitchPool()
     }
 }
 
+uint32_t DecodeOverlayAnimator::frameIntervalMs() const
+{
+    if (decode_style_ == 1)
+        return ANIM2_SPEED_DELAY;
+    if (decode_style_ == 2)
+        return ANIM3_GLITCH_DELAY;
+    if (decode_style_ == 3)
+        return ANIM4_DELAY;
+    return ANIM1_DELAY;
+}
+
+int DecodeOverlayAnimator::finalFrameIndex() const
+{
+    if (decode_style_ == 1)
+        return total_chars_;
+    if (decode_style_ == 2)
+        return total_chars_ * ANIM3_GLITCH_COUNT;
+    if (decode_style_ == 3)
+        return total_chars_ + ANIM4_BASE_FRAMES;
+    return ANIM1_FRAMES - 1;
+}
+
+void DecodeOverlayAnimator::begin(const TextLayout &layout, int firstLine, int lineCount,
+                                  int decodeStyle, uint32_t nowMs)
+{
+    for (int row = 0; row < MaxPageLines; ++row)
+    {
+        target_[row][0] = '\0';
+        frame_text_[row][0] = '\0';
+        line_x_[row] = 0;
+        line_y_[row] = 0;
+    }
+    line_count_ = 0;
+    total_chars_ = 0;
+    frame_index_ = 0;
+    cursor_line_ = 0;
+    cursor_x_ = 0;
+    cursor_width_ = 0;
+    cursor_visible_ = false;
+    active_ = false;
+    running_ = false;
+
+    if (firstLine < 0 || firstLine >= layout.actualLines || firstLine >= TextLayout::MaxLines)
+        return;
+
+    /*
+     * 页面固定最多两行；不足两行时按实际剩余行数钳制。动画对象复制当前页文本，
+     * 避免 App 切换下一句话并重用 TextLayout 后留下悬空指针。
+     */
+    const int requestedLines = constrain(lineCount, 1, MaxPageLines);
+    line_count_ = min(requestedLines, min(layout.actualLines - firstLine,
+                                          TextLayout::MaxLines - firstLine));
+    lang_ = layout.lang;
+    color_ = layout.color;
+    decode_style_ = constrain(decodeStyle, 0, 3);
+
+    DecoderMetrics m = metrics(lang_);
+    const int firstLineY = contentStartYFor(m, 1);
+    for (int row = 0; row < line_count_; ++row)
+    {
+        const int sourceLine = firstLine + row;
+        strncpy(target_[row], layout.lines[sourceLine], TEXT_BYTES - 1);
+        target_[row][TEXT_BYTES - 1] = '\0';
+        line_x_[row] = centeredLineXFor(m, target_[row]);
+
+        /*
+         * 第一行永远使用原单行的中线坐标，第二行只向下移动一个 rowH。
+         * 不能使用 layout.contentStartY：它会按总行数垂直居中，从而把第一行向上推。
+         */
+        line_y_[row] = firstLineY + row * m.rowH;
+
+        int lineCharacters = 0;
+        for (int byteIndex = 0;
+             target_[row][byteIndex] != '\0' &&
+             lineCharacters < MAX_CHARACTERS_PER_LINE &&
+             total_chars_ < MAX_TOTAL_CHARACTERS;)
+        {
+            matrix_lucky_[total_chars_] = (uint8_t)random(2, max(3, ANIM1_FRAMES - 2));
+            ++lineCharacters;
+            ++total_chars_;
+            byteIndex += utf8Len(&target_[row][byteIndex]);
+        }
+    }
+
+    next_frame_ms_ = nowMs + frameIntervalMs();
+    active_ = line_count_ > 0;
+    running_ = total_chars_ > 0;
+    rebuildFrame();
+}
+
+bool DecodeOverlayAnimator::update(uint32_t nowMs)
+{
+    if (!active_ || !running_ || (int32_t)(nowMs - next_frame_ms_) < 0)
+        return false;
+
+    const uint32_t interval = frameIntervalMs();
+    const int finalFrame = finalFrameIndex();
+
+    /*
+     * 主循环偶尔会被文件系统或整屏 QSPI 刷新拖慢。这里允许一次追赶至多四帧，
+     * 既避免动画永久落后，也不让一次 update() 跳过整句而失去刷新过程。
+     */
+    int catchUp = 0;
+    do
+    {
+        if (frame_index_ < finalFrame)
+            ++frame_index_;
+        next_frame_ms_ += interval;
+        ++catchUp;
+    } while (frame_index_ < finalFrame &&
+             (int32_t)(nowMs - next_frame_ms_) >= 0 &&
+             catchUp < 4);
+
+    if (frame_index_ >= finalFrame)
+        running_ = false;
+
+    rebuildFrame();
+    return true;
+}
+
+void DecodeOverlayAnimator::rebuildFrame()
+{
+    for (int row = 0; row < MaxPageLines; ++row)
+        frame_text_[row][0] = '\0';
+    cursor_visible_ = false;
+    cursor_line_ = 0;
+    cursor_x_ = line_count_ > 0 ? line_x_[0] : 0;
+    cursor_width_ = 0;
+
+    if (!active_)
+        return;
+    if (!running_)
+    {
+        for (int row = 0; row < line_count_; ++row)
+        {
+            strncpy(frame_text_[row], target_[row], FRAME_BYTES - 1);
+            frame_text_[row][FRAME_BYTES - 1] = '\0';
+        }
+        return;
+    }
+
+    int globalCharIndex = 0;
+    const int glitchTarget = decode_style_ == 2 ? frame_index_ / ANIM3_GLITCH_COUNT : -1;
+    for (int row = 0; row < line_count_; ++row)
+    {
+        int outIndex = 0;
+        int byteIndex = 0;
+        int lineCharIndex = 0;
+        while (target_[row][byteIndex] != '\0' &&
+               lineCharIndex < MAX_CHARACTERS_PER_LINE &&
+               globalCharIndex < MAX_TOTAL_CHARACTERS &&
+               outIndex < FRAME_BYTES - 5)
+        {
+            const int charLen = utf8Len(&target_[row][byteIndex]);
+            bool copyTarget = false;
+            bool drawGlitch = false;
+
+            if (decode_style_ == 0)
+            {
+                copyTarget = frame_index_ >= matrix_lucky_[globalCharIndex];
+                drawGlitch = !copyTarget;
+            }
+            else if (decode_style_ == 1)
+            {
+                copyTarget = globalCharIndex < frame_index_;
+            }
+            else if (decode_style_ == 2)
+            {
+                copyTarget = globalCharIndex < glitchTarget;
+                drawGlitch = globalCharIndex == glitchTarget;
+            }
+            else
+            {
+                copyTarget = frame_index_ >= globalCharIndex + ANIM4_BASE_FRAMES;
+                drawGlitch = !copyTarget;
+            }
+
+            if (copyTarget)
+            {
+                for (int b = 0; b < charLen && outIndex < FRAME_BYTES - 1; ++b)
+                    frame_text_[row][outIndex++] = target_[row][byteIndex + b];
+            }
+            else if (drawGlitch)
+            {
+                if (target_[row][byteIndex] == ' ')
+                    frame_text_[row][outIndex++] = ' ';
+                else
+                    appendGlitchForChar(frame_text_[row], outIndex, charLen, lang_ == LANG_ZH);
+            }
+
+            if (decode_style_ == 1 && globalCharIndex == frame_index_)
+            {
+                cursor_visible_ = true;
+                cursor_line_ = row;
+                frame_text_[row][outIndex] = '\0';
+                cursor_x_ = line_x_[row] +
+                            HAL_Get_Text_Width_Font(frame_text_[row], HAL_FONT_BODY);
+                cursor_width_ = charLen > 1 ? 14 : 8;
+            }
+
+            ++lineCharIndex;
+            ++globalCharIndex;
+            byteIndex += charLen;
+        }
+        frame_text_[row][outIndex] = '\0';
+    }
+}
+
+void DecodeOverlayAnimator::drawOverlay() const
+{
+    if (!active_)
+        return;
+
+    /*
+     * HAL 字体已经使用透明模式，海应用只需要绘制一次彩色正文。
+     * 不再叠加黑色偏移阴影：小字号中文字形密度高，偏移副本会在实机上露出成块状黑边，
+     * 反而遮挡海面细节。可读性由段落颜色本身保证，不在通用动画器里绘制背景板。
+     */
+    for (int row = 0; row < line_count_; ++row)
+    {
+        if (frame_text_[row][0] != '\0')
+            HAL_Screen_ShowChineseLine_Color(line_x_[row], line_y_[row], frame_text_[row], color_);
+    }
+
+    if (cursor_visible_)
+    {
+        const int cursorHeight = max(12, HAL_Get_Font_Line_Height(HAL_FONT_BODY) - 4);
+        HAL_Fill_Rect(cursor_x_, line_y_[cursor_line_] + 2, cursor_width_, cursorHeight, color_);
+    }
+}
+
+void DecodeOverlayAnimator::finishImmediately()
+{
+    if (!active_)
+        return;
+    frame_index_ = finalFrameIndex();
+    running_ = false;
+    rebuildFrame();
+}
+
 void PrepareLayoutFromRule(const char* rule, SystemLang_t lang, uint16_t color, TextLayout& out)
 {
     static char raw[1024];

@@ -109,6 +109,12 @@ namespace TerminalLang
         return lang == LANG_ZH ? "/zh/oracle_zh.json" : "/en/oracle_en.json";
     }
 
+    /** 海应用叙事场景；正文与语言绑定，音频字段只保存可选的逻辑标识。 */
+    inline const char *SeaNarrativePath(SystemLang_t lang)
+    {
+        return lang == LANG_ZH ? "/zh/sea_dialogues.json" : "/en/sea_dialogues.json";
+    }
+
     inline const char *LegacyOraclePath(SystemLang_t lang)
     {
         return lang == LANG_ZH ? "/assets/oracle_zh.json" : "/assets/oracle_en.json";

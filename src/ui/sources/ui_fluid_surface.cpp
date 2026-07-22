@@ -1,7 +1,8 @@
 /*
 【模块职责】实现四层低内存一维高度场，并把海面绘制为低饱和、断裂高光、前后尺度不同的暗色海景。
 【输入语义】稳定倾角控制水准面；角速度制造涌浪；角加速度制造停止后的反向回摆；去重力后的
-横向/垂直加速度制造冲击、潮水抬升和碎浪。各输入只在本模块中统一滤波和钳制。
+横向/垂直加速度制造冲击、潮水抬升和碎浪；天气输入生成雨丝、落点涟漪、闪电和水面反光。
+各输入只在本模块中统一滤波和钳制，音频不属于本 UI 模块的职责。
 【数值稳定】物理步长、输入、节点速度和每层活动范围均受限；四层共用 next_surface_y_，按层顺序更新。
 */
 #include "ui/ui_fluid_surface.h"
@@ -17,8 +18,8 @@ namespace
     constexpr float MAX_ROLL_RATE_DPS = 520.0f;
     constexpr float MAX_ROLL_ACCEL_DPS2 = 4200.0f;
     constexpr float MAX_LINEAR_ACCEL_G = 1.35f;
-    constexpr float ROLL_FILTER_HZ = 7.0f;
-    constexpr float DYNAMIC_FILTER_HZ = 11.0f;
+    constexpr float ROLL_FILTER_HZ = 3.5f;
+    constexpr float DYNAMIC_FILTER_HZ = 7.5f;
     constexpr float TIDE_PERIOD_SECONDS = 16.0f;
     constexpr float TIDE_RANGE_PX = 7.0f;
     constexpr float MAX_SURFACE_SPEED_PX_S = 230.0f;
@@ -40,7 +41,19 @@ namespace
     constexpr float LINEAR_ACCEL_INERTIA[4] = {11.0f, 22.0f, 43.0f, 72.0f};
     constexpr float VERTICAL_ACCEL_INERTIA[4] = {7.0f, 14.0f, 27.0f, 48.0f};
     constexpr float VERTICAL_WAVE_INERTIA[4] = {12.0f, 28.0f, 68.0f, 138.0f};
+    // 水体姿态采用二阶惯性：远海响应较快，近景响应较慢且允许轻微过冲。
+    constexpr float LAYER_ROLL_RESPONSE[4] = {5.0f, 4.2f, 3.4f, 2.7f};
+    constexpr float LAYER_ROLL_DAMPING[4] = {1.0f, 0.84f, 0.70f, 0.58f};
+    constexpr float LAYER_ROLL_SPEED_LIMIT[4] = {2.5f, 2.2f, 1.9f, 1.6f};
+    constexpr float RAIN_RIPPLE_FORCE[4] = {8.0f, 16.0f, 30.0f, 52.0f};
+    constexpr int MAX_RAIN_IMPACTS = 12;
     constexpr float TIDE_RESPONSE[4] = {0.22f, 0.42f, 0.70f, 1.0f};
+
+    // 连续波脊的参数。它们与表面节点的物理波分开绘制，避免波峰只剩下零散泡沫短线。
+    constexpr float RESPONSE_WAVE_SPATIAL[3] = {0.080f, 0.112f, 0.155f};
+    constexpr float RESPONSE_WAVE_SPEED[3] = {0.72f, 0.96f, 1.28f};
+    constexpr float RESPONSE_WAVE_BASE_AMPLITUDE[3] = {0.75f, 1.15f, 1.65f};
+    constexpr float RESPONSE_WAVE_DRIVE_AMPLITUDE[3] = {1.2f, 2.0f, 3.0f};
 
     // RGB565 调色板：避免连续亮青轮廓，主要依靠灰蓝明度差、碎裂浪纹和近黑水体塑造细节。
     constexpr uint16_t COLOR_SKY_TOP = 0x0041;       // #05090D 附近
@@ -56,6 +69,9 @@ namespace
     constexpr uint16_t COLOR_FOAM = 0xADD8;
     constexpr uint16_t COLOR_GLINT = 0x2A8C;
     constexpr uint16_t COLOR_DEEP_GLINT = 0x19E8;
+    constexpr uint16_t COLOR_RAIN_FAR = 0x39CA;
+    constexpr uint16_t COLOR_RAIN_NEAR = 0x7BF1;
+    constexpr uint16_t COLOR_LIGHTNING = 0xDFFF;
 
     float ClampFloat(float value, float low, float high)
     {
@@ -104,6 +120,11 @@ void UIFluidSurface::reset(int width, int height)
     filtered_roll_accel_dps2_ = 0.0f;
     filtered_lateral_accel_g_ = 0.0f;
     filtered_vertical_accel_g_ = 0.0f;
+    for (int layer = 0; layer < LAYER_COUNT; ++layer)
+    {
+        layer_roll_state_[layer] = 0.0f;
+        layer_roll_velocity_[layer] = 0.0f;
+    }
     phase_seconds_ = 0.0f;
     tide_phase_seconds_ = 0.0f;
     motion_energy_ = 0.0f;
@@ -111,6 +132,15 @@ void UIFluidSurface::reset(int width, int height)
     edge_impact_energy_[1] = 0.0f;
     edge_impact_y_[0] = 0.0f;
     edge_impact_y_[1] = 0.0f;
+    for (int i = 0; i < MAX_RAIN_IMPACTS; ++i)
+        rain_impacts_[i] = RainImpact{};
+    rain_random_state_ = 0x6D2B79F5UL;
+    rain_impact_cursor_ = 0;
+    rain_spawn_accumulator_ = 0.0f;
+    filtered_rain_intensity_ = 0.0f;
+    lightning_flash_ = 0.0f;
+    lightning_seed_ = 0;
+    lightning_x_ = 0;
 
     for (int layer = 0; layer < LAYER_COUNT; ++layer)
     {
@@ -159,7 +189,7 @@ float UIFluidSurface::normalizedNodeX(int index) const
     return ((float)index / (float)(node_count_ - 1)) * 2.0f - 1.0f;
 }
 
-void UIFluidSurface::update(float dt_seconds, const UIFluidInput &input)
+void UIFluidSurface::update(float dt_seconds, const UIFluidFrameInput &input)
 {
     if (node_count_ < 2)
         return;
@@ -169,16 +199,17 @@ void UIFluidSurface::update(float dt_seconds, const UIFluidInput &input)
      * 防止显式积分一次跨过数百毫秒；下限避免连续同毫秒调用导致零步长。
      */
     const float dt = ClampFloat(dt_seconds, 0.005f, 0.040f);
-    const float target_roll = input.valid ? ClampFloat(input.roll_deg, -MAX_ROLL_DEG, MAX_ROLL_DEG) : 0.0f;
-    const float target_rate = input.valid ? ClampFloat(input.roll_rate_dps, -MAX_ROLL_RATE_DPS, MAX_ROLL_RATE_DPS) : 0.0f;
-    const float target_angular_accel = input.valid
-                                           ? ClampFloat(input.roll_accel_dps2, -MAX_ROLL_ACCEL_DPS2, MAX_ROLL_ACCEL_DPS2)
+    const UIFluidInput &motion = input.motion;
+    const float target_roll = motion.valid ? ClampFloat(motion.roll_deg, -MAX_ROLL_DEG, MAX_ROLL_DEG) : 0.0f;
+    const float target_rate = motion.valid ? ClampFloat(motion.roll_rate_dps, -MAX_ROLL_RATE_DPS, MAX_ROLL_RATE_DPS) : 0.0f;
+    const float target_angular_accel = motion.valid
+                                           ? ClampFloat(motion.roll_accel_dps2, -MAX_ROLL_ACCEL_DPS2, MAX_ROLL_ACCEL_DPS2)
                                            : 0.0f;
-    const float target_lateral = input.valid
-                                     ? ClampFloat(input.lateral_accel_g, -MAX_LINEAR_ACCEL_G, MAX_LINEAR_ACCEL_G)
+    const float target_lateral = motion.valid
+                                     ? ClampFloat(motion.lateral_accel_g, -MAX_LINEAR_ACCEL_G, MAX_LINEAR_ACCEL_G)
                                      : 0.0f;
-    const float target_vertical = input.valid
-                                      ? ClampFloat(input.vertical_accel_g, -MAX_LINEAR_ACCEL_G, MAX_LINEAR_ACCEL_G)
+    const float target_vertical = motion.valid
+                                      ? ClampFloat(motion.vertical_accel_g, -MAX_LINEAR_ACCEL_G, MAX_LINEAR_ACCEL_G)
                                       : 0.0f;
 
     filtered_roll_deg_ = FilterToward(filtered_roll_deg_, target_roll, dt, ROLL_FILTER_HZ);
@@ -186,6 +217,19 @@ void UIFluidSurface::update(float dt_seconds, const UIFluidInput &input)
     filtered_roll_accel_dps2_ = FilterToward(filtered_roll_accel_dps2_, target_angular_accel, dt, DYNAMIC_FILTER_HZ);
     filtered_lateral_accel_g_ = FilterToward(filtered_lateral_accel_g_, target_lateral, dt, DYNAMIC_FILTER_HZ);
     filtered_vertical_accel_g_ = FilterToward(filtered_vertical_accel_g_, target_vertical, dt, DYNAMIC_FILTER_HZ);
+
+    const float target_rain_intensity = input.weather.raining
+                                            ? ClampFloat(input.weather.rain_intensity, 0.0f, 1.0f)
+                                            : 0.0f;
+    filtered_rain_intensity_ = FilterToward(filtered_rain_intensity_, target_rain_intensity, dt,
+                                            input.weather.raining ? 1.8f : 3.0f);
+    lightning_flash_ = ClampFloat(input.weather.lightning_flash, 0.0f, 1.0f);
+    if (input.weather.lightning_seed != lightning_seed_)
+    {
+        lightning_seed_ = input.weather.lightning_seed;
+        lightning_x_ = width_ > 0 ? (int)(lightning_seed_ % (uint32_t)width_) : 0;
+    }
+    updateRainImpacts(dt, filtered_rain_intensity_);
 
     phase_seconds_ += dt;
     tide_phase_seconds_ += dt;
@@ -205,13 +249,23 @@ void UIFluidSurface::update(float dt_seconds, const UIFluidInput &input)
     motion_energy_ = FilterToward(motion_energy_, target_energy, dt, energy_response);
 
     const float roll_normalized = ClampFloat(filtered_roll_deg_ / MAX_ROLL_DEG, -1.0f, 1.0f);
-    // 0.72 次幂放大小角度：约 5° 已能产生 45% 的最大斜率，满幅仍被限制在 ±15°。
-    const float amplified_roll = SignedPow(roll_normalized, 0.72f);
+    // 0.84 次幂保留小角度灵敏度，但不再像 0.72 次幂那样一开始就快速接近满幅。
+    const float amplified_roll = SignedPow(roll_normalized, 0.84f);
     const float tide = sinf(tide_phase_seconds_ * (2.0f * PI_F / TIDE_PERIOD_SECONDS)) * TIDE_RANGE_PX;
 
     for (int layer = 0; layer < LAYER_COUNT; ++layer)
     {
         const float base_y = baseSurfaceY(layer);
+        const float roll_acceleration = (amplified_roll - layer_roll_state_[layer]) *
+                                            LAYER_ROLL_RESPONSE[layer] * LAYER_ROLL_RESPONSE[layer] -
+                                        layer_roll_velocity_[layer] * 2.0f * LAYER_ROLL_DAMPING[layer] *
+                                            LAYER_ROLL_RESPONSE[layer];
+        layer_roll_velocity_[layer] += roll_acceleration * dt;
+        layer_roll_velocity_[layer] = ClampFloat(layer_roll_velocity_[layer],
+                                                  -LAYER_ROLL_SPEED_LIMIT[layer],
+                                                  LAYER_ROLL_SPEED_LIMIT[layer]);
+        layer_roll_state_[layer] += layer_roll_velocity_[layer] * dt;
+        layer_roll_state_[layer] = ClampFloat(layer_roll_state_[layer], -1.16f, 1.16f);
         for (int i = 0; i < node_count_; ++i)
         {
             const int left = i > 0 ? i - 1 : i;
@@ -223,7 +277,7 @@ void UIFluidSurface::update(float dt_seconds, const UIFluidInput &input)
                                                (float)i * (AUTO_WAVE_SPATIAL[layer] * 0.47f) + layer * 1.91f);
             const float wind_wave = (primary_wave + secondary_wave * 0.46f) * AUTO_WAVE_AMPLITUDE_PX[layer];
             const float equilibrium_y = base_y + tide * TIDE_RESPONSE[layer] -
-                                        nx * amplified_roll * SLOPE_HALF_RANGE_PX[layer] + wind_wave;
+                                        nx * layer_roll_state_[layer] * SLOPE_HALF_RANGE_PX[layer] + wind_wave;
             const float laplacian = surface_y_[layer][left] + surface_y_[layer][right] -
                                     2.0f * surface_y_[layer][i];
 
@@ -247,6 +301,7 @@ void UIFluidSurface::update(float dt_seconds, const UIFluidInput &input)
                                                 phase_seconds_ * (1.25f + layer * 0.12f)) +
                                           sinf((float)i * 0.37f - phase_seconds_ * 0.83f + layer) * 0.46f;
             acceleration += filtered_vertical_accel_g_ * vertical_ripple * VERTICAL_WAVE_INERTIA[layer];
+            acceleration += rainRippleForce(layer, i) * RAIN_RIPPLE_FORCE[layer];
 
             velocity_y_[layer][i] += acceleration * dt;
             velocity_y_[layer][i] = ClampFloat(velocity_y_[layer][i],
@@ -270,6 +325,77 @@ void UIFluidSurface::update(float dt_seconds, const UIFluidInput &input)
     }
 
     applyEdgeCollisions(dt);
+}
+
+uint32_t UIFluidSurface::nextRainRandom()
+{
+    // xorshift 只用于雨滴位置，避免在渲染线程中调用全局 random() 改变其他 App 的随机序列。
+    uint32_t value = rain_random_state_;
+    value ^= value << 13;
+    value ^= value >> 17;
+    value ^= value << 5;
+    rain_random_state_ = value == 0 ? 0x6D2B79F5UL : value;
+    return rain_random_state_;
+}
+
+void UIFluidSurface::updateRainImpacts(float dt_seconds, float rain_intensity)
+{
+    for (int i = 0; i < MAX_RAIN_IMPACTS; ++i)
+    {
+        if (rain_impacts_[i].strength <= 0.0f)
+            continue;
+        rain_impacts_[i].phase += dt_seconds;
+        if (rain_impacts_[i].phase >= 0.82f)
+            rain_impacts_[i].strength = 0.0f;
+        else
+            rain_impacts_[i].strength *= ClampFloat(1.0f - dt_seconds * 3.4f, 0.0f, 1.0f);
+    }
+
+    if (rain_intensity <= 0.02f || width_ <= 0)
+    {
+        rain_spawn_accumulator_ = 0.0f;
+        return;
+    }
+
+    // 小雨约 3 次/秒，大雨约 18 次/秒；单次 update 最多补 3 个落点，防止后台恢复时爆发。
+    rain_spawn_accumulator_ += dt_seconds * (3.0f + rain_intensity * 15.0f);
+    int spawned = 0;
+    while (rain_spawn_accumulator_ >= 1.0f && spawned < 3)
+    {
+        rain_spawn_accumulator_ -= 1.0f;
+        RainImpact &impact = rain_impacts_[rain_impact_cursor_];
+        rain_impact_cursor_ = (uint8_t)((rain_impact_cursor_ + 1) % MAX_RAIN_IMPACTS);
+        impact.x = (float)(nextRainRandom() % (uint32_t)width_);
+        impact.phase = 0.0f;
+        impact.strength = 0.35f + (float)(nextRainRandom() & 0xFFU) / 255.0f * 0.65f;
+        ++spawned;
+    }
+}
+
+float UIFluidSurface::rainRippleForce(int layer, int node_index) const
+{
+    if (filtered_rain_intensity_ <= 0.02f)
+        return 0.0f;
+
+    const float node_x = (float)(node_index * NODE_SPACING_PX);
+    float force = 0.0f;
+    for (int i = 0; i < MAX_RAIN_IMPACTS; ++i)
+    {
+        const RainImpact &impact = rain_impacts_[i];
+        if (impact.strength <= 0.0f)
+            continue;
+
+        const float distance = fabsf(node_x - impact.x);
+        const float radius = 12.0f + layer * 4.0f;
+        if (distance >= radius)
+            continue;
+
+        const float envelope = 1.0f - distance / radius;
+        // 初始是向下压水，随后按距离和时间形成一小段扩散回波。
+        const float wave = cosf(impact.phase * (15.0f + layer * 2.0f) - distance * 0.42f);
+        force += wave * envelope * impact.strength * filtered_rain_intensity_;
+    }
+    return ClampFloat(force, -2.0f, 2.0f);
 }
 
 void UIFluidSurface::applyEdgeCollisions(float dt_seconds)
@@ -333,14 +459,17 @@ int UIFluidSurface::surfacePixelAtX(int layer, int x) const
 void UIFluidSurface::drawStormSky() const
 {
     const int horizon_y = constrain((int)lroundf(baseSurfaceY(0)), 8, height_ - 1);
+    const float flash = lightning_flash_;
 
     // 逐行渐变只覆盖约 1/4 屏高，成本有限；比两块纯色色带更接近参考图中的压低风暴天空。
     for (int y = 0; y <= horizon_y; ++y)
     {
         const float t = horizon_y > 0 ? (float)y / (float)horizon_y : 1.0f;
-        const uint16_t color = t < 0.68f
-                                   ? Blend565(COLOR_SKY_TOP, COLOR_SKY_MID, t / 0.68f)
-                                   : Blend565(COLOR_SKY_MID, COLOR_SKY_HORIZON, (t - 0.68f) / 0.32f);
+        uint16_t color = t < 0.68f
+                             ? Blend565(COLOR_SKY_TOP, COLOR_SKY_MID, t / 0.68f)
+                             : Blend565(COLOR_SKY_MID, COLOR_SKY_HORIZON, (t - 0.68f) / 0.32f);
+        if (flash > 0.0f)
+            color = Blend565(color, COLOR_LIGHTNING, flash * (0.16f + (1.0f - t) * 0.16f));
         HAL_Fill_Rect(0, y, width_, 1, color);
     }
 
@@ -357,10 +486,25 @@ void UIFluidSurface::drawStormSky() const
         const int y = 4 + band * 5 + (cloud % 3);
         const int w = 24 + (cloud * 17) % 58;
         const int h = 1 + ((cloud + band) % 3 == 0 ? 2 : 1);
-        const uint16_t color = band < 2 ? COLOR_CLOUD_DARK : COLOR_CLOUD_MID;
+        uint16_t color = band < 2 ? COLOR_CLOUD_DARK : COLOR_CLOUD_MID;
+        if (flash > 0.0f)
+            color = Blend565(color, COLOR_LIGHTNING, flash * 0.22f);
         HAL_Fill_Rect(x, y, w, h, color);
         if ((cloud % 3) == 0)
             HAL_Draw_Line(x + w / 4, y + h, x + w + 9, y + h + 1, COLOR_CLOUD_DARK);
+    }
+
+    // 强闪光时才显示很短的分叉，不把每次雷击都画成高饱和卡通闪电。
+    if (flash > 0.70f && width_ > 20)
+    {
+        const int x = constrain(lightning_x_, 10, width_ - 11);
+        const int y0 = 4 + (int)(lightning_seed_ % 7U);
+        const int y1 = min(horizon_y - 2, y0 + 11 + (int)(lightning_seed_ % 8U));
+        const int mid_x = x + ((lightning_seed_ & 1U) ? 4 : -4);
+        HAL_Draw_Line(x, y0, mid_x, y0 + (y1 - y0) / 2, COLOR_LIGHTNING);
+        HAL_Draw_Line(mid_x, y0 + (y1 - y0) / 2, x + 1, y1, COLOR_LIGHTNING);
+        HAL_Draw_Line(mid_x, y0 + (y1 - y0) / 2, mid_x + ((lightning_seed_ & 2U) ? 5 : -5),
+                      y0 + (y1 - y0) * 3 / 4, COLOR_LIGHTNING);
     }
 
     // 冷灰薄雾将天空与远海分开，不使用一整条高亮描边。
@@ -401,6 +545,85 @@ void UIFluidSurface::drawWaveLayer(int layer) const
         const int y0 = surfacePixelAtNode(layer, i - 1);
         const int y1 = surfacePixelAtNode(layer, i);
         HAL_Draw_Line(x0, y0, x1, y1, layer < 2 ? COLOR_CREST_DIM : COLOR_CREST_MID);
+    }
+}
+
+void UIFluidSurface::drawResponsiveWaves() const
+{
+    if (node_count_ < 2 || width_ <= 0 || height_ <= 0)
+        return;
+
+    /*
+     * 表面节点已经参与物理解算，但只描一条表面轮廓时，快速响应很容易被后续的碎浪和泡沫高光抢走。
+     * 这里在中景到前景水体内部补三条“有体积的波脊”：上沿是低饱和冷灰蓝高光，下沿是暗色回落线。
+     * 波脊仍然采样对应层的真实 surface_y_，因此会跟随倾斜水位和局部冲击，而不是贴在屏幕上的装饰动画。
+     */
+    const float response_drive = ClampFloat(motion_energy_ * 0.72f +
+                                                fabsf(filtered_lateral_accel_g_) * 0.34f +
+                                                fabsf(filtered_vertical_accel_g_) * 0.48f,
+                                            0.0f,
+                                            1.35f);
+    const float travel_bias = ClampFloat(filtered_roll_rate_dps_ / 430.0f +
+                                             filtered_lateral_accel_g_ * 0.28f,
+                                         -0.70f,
+                                         0.70f);
+
+    for (int band = 0; band < 3; ++band)
+    {
+        // 第一条位于中远景，后两条逐步靠近观察者；深度差让三条曲线不会挤成一条亮边。
+        const int layer = band + 1;
+        const int depth_px = 4 + band * 4;
+        const float amplitude = RESPONSE_WAVE_BASE_AMPLITUDE[band] +
+                                response_drive * RESPONSE_WAVE_DRIVE_AMPLITUDE[band];
+        const float temporal_phase = phase_seconds_ * RESPONSE_WAVE_SPEED[band] *
+                                         (1.0f + response_drive * 0.34f) +
+                                     travel_bias * phase_seconds_ * (0.65f + band * 0.22f) +
+                                     band * 1.73f;
+        const uint16_t crest_color = band == 0
+                                          ? COLOR_DEEP_GLINT
+                                          : Blend565(COLOR_CREST_DIM, COLOR_CREST_MID,
+                                                     0.18f + response_drive * 0.24f);
+        const uint16_t trough_color = band < 2 ? COLOR_DEEP_GLINT : COLOR_GLINT;
+        const int gap_period = 9 - band;
+        const int gap_phase = (int)lroundf(phase_seconds_ * (1.3f + band * 0.4f));
+
+        int previous_x = 0;
+        int previous_y = 0;
+        bool previous_valid = false;
+        for (int i = 0; i < node_count_; ++i)
+        {
+            const int x = min(width_ - 1, i * NODE_SPACING_PX);
+            const float primary = sinf((float)i * RESPONSE_WAVE_SPATIAL[band] - temporal_phase);
+            const float secondary = sinf((float)i * RESPONSE_WAVE_SPATIAL[band] * 1.82f +
+                                             temporal_phase * 0.47f + band) *
+                                    0.30f;
+            const int y = constrain(surfacePixelAtNode(layer, i) + depth_px +
+                                        (int)lroundf((primary + secondary) * amplitude),
+                                    1,
+                                    height_ - 3);
+
+            /*
+             * 中景波脊如果落进更近一层的水面以下，会破坏原本的遮挡关系；遇到这种位置就断开。
+             * 另外每隔若干节点留一个短缺口，保留写实海面不连续反光，而不是画成卡通的完整正弦线。
+             */
+            const bool hidden_by_front_layer =
+                layer < LAYER_COUNT - 1 && y >= surfacePixelAtNode(layer + 1, i) - 2;
+            const bool reflection_gap = ((i + gap_phase + band * 3) % gap_period) == 0;
+            if (hidden_by_front_layer || reflection_gap)
+            {
+                previous_valid = false;
+                continue;
+            }
+
+            if (previous_valid)
+            {
+                HAL_Draw_Line(previous_x, previous_y + 2, x, y + 2, trough_color);
+                HAL_Draw_Line(previous_x, previous_y, x, y, crest_color);
+            }
+            previous_x = x;
+            previous_y = y;
+            previous_valid = true;
+        }
     }
 }
 
@@ -467,6 +690,23 @@ void UIFluidSurface::drawWaterDetails() const
         }
     }
 
+    // 闪电的反光只落在雷击 x 附近的几段水面，不整屏刷白，保留暗海的纵深感。
+    if (lightning_flash_ > 0.05f)
+    {
+        const int reflection_x = constrain(lightning_x_, 4, width_ - 5);
+        const int reflection_y = surfacePixelAtX(0, reflection_x) + 8;
+        const int reflection_span = 10 + (int)lroundf(lightning_flash_ * 22.0f);
+        for (int segment = 0; segment < 7; ++segment)
+        {
+            const int y = reflection_y + segment * 5;
+            const int half = max(2, reflection_span - segment * 3);
+            const int offset = ((segment * 13 + (int)lightning_seed_) % 7) - 3;
+            HAL_Draw_Line(constrain(reflection_x - half + offset, 0, width_ - 1), y,
+                          constrain(reflection_x + half + offset, 0, width_ - 1), y + (segment & 1),
+                          segment < 2 ? COLOR_LIGHTNING : COLOR_CREST_MID);
+        }
+    }
+
     // 前景潮水底部保留少量横向泡沫带，强化“浪正在向观察者推进”的感觉。
     const int tide_shift = (int)lroundf(sinf(tide_phase_seconds_ * (2.0f * PI_F / TIDE_PERIOD_SECONDS)) * 9.0f);
     for (int band = 0; band < 7; ++band)
@@ -476,6 +716,54 @@ void UIFluidSurface::drawWaterDetails() const
         const int length = 14 + (band * 17) % 34;
         HAL_Draw_Line(x, y, min(width_ - 1, x + length), y - (band & 1),
                       band % 3 == 0 ? COLOR_CREST_MID : COLOR_CREST_DIM);
+    }
+}
+
+void UIFluidSurface::drawRain() const
+{
+    if (filtered_rain_intensity_ <= 0.02f || width_ <= 0 || height_ <= 0)
+        return;
+
+    /*
+     * 雨丝采用解析位置，不维护逐滴运动对象；不同速度、长度和亮度模拟远近层次。
+     * 当前只绘制视觉雨，不播放雨声，未来声音由 AppSeaAudioBinding 接管。
+     */
+    const int drop_count = 12 + (int)lroundf(filtered_rain_intensity_ * 48.0f);
+    const int drift = (int)lroundf(phase_seconds_ * (18.0f + filtered_rain_intensity_ * 24.0f));
+    for (int drop = 0; drop < drop_count; ++drop)
+    {
+        const int cycle_width = width_ + 28;
+        const int cycle_height = height_ + 24;
+        int x = (drop * 83 + drift * (1 + drop % 3)) % cycle_width - 14;
+        int y = (drop * 47 + drift * (2 + drop % 4)) % cycle_height - 12;
+        if (x < -2 || x >= width_ || y >= height_)
+            continue;
+
+        const bool near = (drop % 4) == 0;
+        const int length = near ? 5 + (drop % 3) : 3 + (drop % 3);
+        const int wind = 1 + (drop % 3);
+        const uint16_t color = near ? COLOR_RAIN_NEAR : COLOR_RAIN_FAR;
+        HAL_Draw_Line(x, y, min(width_ - 1, x + wind), min(height_ - 1, y + length), color);
+    }
+
+    // 雨滴落点的扩散环位于真实前景水面上方，和 update() 中的局部冲量共用同一落点池。
+    for (int i = 0; i < MAX_RAIN_IMPACTS; ++i)
+    {
+        const RainImpact &impact = rain_impacts_[i];
+        if (impact.strength <= 0.0f)
+            continue;
+        const int x = constrain((int)lroundf(impact.x), 1, width_ - 2);
+        const int y = surfacePixelAtX(LAYER_COUNT - 1, x);
+        const int radius = 1 + (int)lroundf(impact.phase * 8.0f);
+        const float fade = ClampFloat(1.0f - impact.phase / 0.82f, 0.0f, 1.0f);
+        if (radius <= 8 && fade > 0.05f)
+        {
+            const uint16_t color = fade > 0.45f ? COLOR_RAIN_NEAR : COLOR_CREST_DIM;
+            HAL_Draw_Line(max(0, x - radius), y, min(width_ - 1, x + radius), y, color);
+            if (radius > 3)
+                HAL_Draw_Line(max(0, x - radius / 2), y + 1,
+                              min(width_ - 1, x + radius / 2), y + 1, COLOR_CREST_DIM);
+        }
     }
 }
 
@@ -532,6 +820,8 @@ void UIFluidSurface::draw() const
     drawStormSky();
     for (int layer = 0; layer < LAYER_COUNT; ++layer)
         drawWaveLayer(layer);
+    drawResponsiveWaves();
     drawWaterDetails();
+    drawRain();
     drawEdgeCollisions();
 }

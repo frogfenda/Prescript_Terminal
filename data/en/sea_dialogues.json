@@ -1,0 +1,197 @@
+{
+  "scenes": [
+    {
+      "id": "distant_lights",
+      "weight": 30,
+      "paragraphs": [
+        {
+          "color": "0xBDF7",
+          "lines": [
+            {
+              "text": "The distant lights go out one by one.",
+              "audio": ""
+            },
+            {
+              "text": "The sea still remembers where they were.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x8CF3",
+          "lines": [
+            {
+              "text": "By dawn, only the mist remains.",
+              "audio": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sea_waves_talk",
+      "weight": 100,
+      "paragraphs": [
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "Dad, why do sea waves keep crying?",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "Because they're sad that they're knocking over the sand castles.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "Then they should just not knock them over.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "Waves move with the winds.",
+              "audio": ""
+            },
+            {
+              "text": "When the wind blows, the high and low tides can't help but knock down everything in their path.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "Then why not just... push back when the wind blows?",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "Think about it this way, darling.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "The waves... built those sand castles only because the wind pulled them in.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "And now, the wind is pushing them to bring the castles down.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "So the waves really have no reason to feel sad.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "Then, Dad...",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "... when will they be happy?",
+              "audio": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "under_current",
+      "weight": 25,
+      "paragraphs": [
+        {
+          "color": "0x9D96",
+          "lines": [
+            {
+              "text": "Stillness belongs only to the surface.",
+              "audio": ""
+            },
+            {
+              "text": "Far below, the currents continue chasing one another.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xC638",
+          "lines": [
+            {
+              "text": "Do not hurry to give them names.",
+              "audio": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shoreline",
+      "weight": 20,
+      "paragraphs": [
+        {
+          "color": "0xCE17",
+          "lines": [
+            {
+              "text": "Every wave reaches the same shore.",
+              "audio": ""
+            },
+            {
+              "text": "No two waves take the same path.",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xFF1B",
+          "lines": [
+            {
+              "text": "You are hearing only one of them.",
+              "audio": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

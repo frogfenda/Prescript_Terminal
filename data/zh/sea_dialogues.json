@@ -1,0 +1,197 @@
+{
+  "scenes": [
+    {
+      "id": "distant_lights",
+      "weight": 30,
+      "paragraphs": [
+        {
+          "color": "0xBDF7",
+          "lines": [
+            {
+              "text": "远处的灯一盏接一盏熄灭。",
+              "audio": ""
+            },
+            {
+              "text": "海仍然记得它们的位置。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x8CF3",
+          "lines": [
+            {
+              "text": "等到天亮，那里只剩下雾。",
+              "audio": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sea_waves_talk",
+      "weight": 25,
+      "paragraphs": [
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "爸爸，海浪为什么总在哭泣呀？",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "因为它们心疼自己冲垮了那些沙堡。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "那它们别冲不就好了嘛。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "海浪身不由己，只能随风起舞。",
+              "audio": ""
+            },
+            {
+              "text": "风一起，潮水涨落间，路上的一切都难免遭殃。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "那起风的时候，它们为什么不试着往回顶一下呢？",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "宝贝，换个角度想想。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "海浪之所以能堆起这些沙堡，本就是因为风将它们带了过来。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "如今，风又要推着它们把这些城堡抹去。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0x07FF",
+          "lines": [
+            {
+              "text": "所以说，海浪实在没必要为此伤怀。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "那，爸爸……",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xF800",
+          "lines": [
+            {
+              "text": "……它们到底什么时候才能开心起来呢？",
+              "audio": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "under_current",
+      "weight": 25,
+      "paragraphs": [
+        {
+          "color": "0x9D96",
+          "lines": [
+            {
+              "text": "平静只属于海面。",
+              "audio": ""
+            },
+            {
+              "text": "更深的地方仍有水流彼此追逐。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xC638",
+          "lines": [
+            {
+              "text": "不要急着替它们命名。",
+              "audio": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shoreline",
+      "weight": 20,
+      "paragraphs": [
+        {
+          "color": "0xCE17",
+          "lines": [
+            {
+              "text": "每一道浪都抵达同一条岸。",
+              "audio": ""
+            },
+            {
+              "text": "却没有一道浪走过相同的路。",
+              "audio": ""
+            }
+          ]
+        },
+        {
+          "color": "0xFF1B",
+          "lines": [
+            {
+              "text": "你听见的是其中一次。",
+              "audio": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

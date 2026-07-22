@@ -1,6 +1,6 @@
 /*
 【模块职责】沉浸式“海”应用。读取 SysMotion 的共享六轴缓存，通过现有 MahonySolver 解算左右倾角，
-再统一生成倾角、角速度、角加速度和去重力线性加速度，交给 UIFluidSurface 驱动多层海面。
+再统一生成运动和天气帧输入，交给 UIFluidSurface 驱动具有惯性、雨滴涟漪和闪电反光的多层海面。
 【分层边界】本 App 不访问 BSP/I2C，不复制手势识别逻辑；流体数值与底层绘制归 UIFluidSurface，
 页面只管理传感器到视觉输入、生命周期、空闲计时和未来字幕最高层。
 【交互约定】长按返回；旋钮和离散滚动手势在页面内不改变海面。明显的真实转动会刷新空闲计时，
@@ -10,14 +10,45 @@
 
 #include <math.h>
 
+#include "apps/app_sea.h"
 #include "hal/hal.h"
 #include "sys/app_manager.h"
+#include "sys/sys_config.h"
 #include "sys/sys_feedback.h"
 #include "sys/sys_motion.h"
+#include "sys/sys_narrative.h"
 #include "sys/sys_pose_solver.h"
 #include "ui/ui_clock.h"
 #include "ui/ui_fluid_surface.h"
+#include "ui/ui_prescript_decoder.h"
 #include "ui/ui_theme.h"
+#include "lang/terminal_lang.h"
+
+namespace
+{
+    AppSeaAudioBinding g_sea_audio_binding = {};
+    bool g_sea_rain_audio_active = false;
+    String g_sea_narrative_audio_bind;
+}
+
+void AppSea_SetAudioBinding(const AppSeaAudioBinding *binding)
+{
+    g_sea_audio_binding = binding ? *binding : AppSeaAudioBinding{};
+    if (g_sea_audio_binding.onRainStateChanged)
+        g_sea_audio_binding.onRainStateChanged(g_sea_rain_audio_active);
+    if (g_sea_audio_binding.onNarrativeLineChanged)
+        g_sea_audio_binding.onNarrativeLineChanged(g_sea_narrative_audio_bind.c_str());
+}
+
+void AppSea_ClearAudioBinding()
+{
+    // 清除拥有者前先显式发送停止状态，避免外部雨声或对白继续播放却再也收不到退出通知。
+    if (g_sea_audio_binding.onRainStateChanged)
+        g_sea_audio_binding.onRainStateChanged(false);
+    if (g_sea_audio_binding.onNarrativeLineChanged)
+        g_sea_audio_binding.onNarrativeLineChanged("");
+    g_sea_audio_binding = AppSeaAudioBinding{};
+}
 
 namespace
 {
@@ -30,6 +61,12 @@ namespace
     constexpr float LINEAR_ACCEL_DEAD_ZONE_G = 0.025f;
     constexpr float ANGULAR_ACCEL_FILTER_HZ = 18.0f;
     constexpr uint32_t IDLE_REFRESH_INTERVAL_MS = 350;
+    constexpr uint32_t RAIN_INTENSITY_CHANGE_MIN_MS = 4500;
+    constexpr uint32_t RAIN_INTENSITY_CHANGE_MAX_MS = 9000;
+    constexpr uint32_t LIGHTNING_FIRST_MIN_MS = 6000;
+    constexpr uint32_t LIGHTNING_FIRST_MAX_MS = 14000;
+    constexpr uint32_t LIGHTNING_NEXT_MIN_MS = 8000;
+    constexpr uint32_t LIGHTNING_NEXT_MAX_MS = 22000;
 
     float ClampFloat(float value, float low, float high)
     {
@@ -46,6 +83,11 @@ namespace
         if (fabsf(value) <= dead_zone)
             return 0.0f;
         return value > 0.0f ? value - dead_zone : value + dead_zone;
+    }
+
+    bool DeadlineReached(uint32_t now, uint32_t deadline)
+    {
+        return (int32_t)(now - deadline) >= 0;
     }
 }
 
@@ -65,6 +107,245 @@ private:
     float filtered_roll_accel_dps2_ = 0.0f;
     float previous_activity_roll_deg_ = 0.0f;
     bool pose_valid_ = false;
+    bool rain_enabled_ = false;
+    float rain_target_intensity_ = 0.0f;
+    uint32_t next_rain_intensity_change_ms_ = 0;
+    uint32_t next_lightning_ms_ = 0;
+    uint32_t lightning_stage_deadline_ms_ = 0;
+    uint32_t lightning_seed_ = 0;
+    uint8_t lightning_stage_ = 0;
+    float lightning_flash_ = 0.0f;
+    SysNarrativeCatalog narrative_catalog_;
+    UIPrescript::TextLayout narrative_layout_;
+    UIPrescript::DecodeOverlayAnimator narrative_animator_;
+    int narrative_scene_index_ = -1;
+    size_t narrative_paragraph_index_ = 0;
+    size_t narrative_line_index_ = 0;
+    int narrative_page_first_line_ = 0;
+    int narrative_page_line_count_ = 0;
+    uint32_t narrative_last_glitch_ms_ = 0;
+    bool narrative_available_ = false;
+
+    void notifyRainAudio(bool active)
+    {
+        g_sea_rain_audio_active = active;
+        if (g_sea_audio_binding.onRainStateChanged)
+            g_sea_audio_binding.onRainStateChanged(active);
+    }
+
+    /**
+     * 把当前句子的逻辑音频标识交给外部绑定层。全局 String 保证注册回调后能够立即获得当前状态，
+     * 回调接收的 c_str() 只在调用期间有效；空字符串统一表示停止上一句对白。
+     */
+    void notifyNarrativeAudio(const String &audioBind)
+    {
+        g_sea_narrative_audio_bind = audioBind;
+        if (g_sea_audio_binding.onNarrativeLineChanged)
+            g_sea_audio_binding.onNarrativeLineChanged(g_sea_narrative_audio_bind.c_str());
+    }
+
+    const SysNarrativeScene *currentNarrativeScene() const
+    {
+        return narrative_catalog_.scene(narrative_scene_index_);
+    }
+
+    const SysNarrativeParagraph *currentNarrativeParagraph() const
+    {
+        const SysNarrativeScene *scene = currentNarrativeScene();
+        if (!scene || narrative_paragraph_index_ >= scene->paragraphs.size())
+            return nullptr;
+        return &scene->paragraphs[narrative_paragraph_index_];
+    }
+
+    const SysNarrativeLine *currentNarrativeLine() const
+    {
+        const SysNarrativeParagraph *paragraph = currentNarrativeParagraph();
+        if (!paragraph || narrative_line_index_ >= paragraph->lines.size())
+            return nullptr;
+        return &paragraph->lines[narrative_line_index_];
+    }
+
+    /**
+     * 启动当前句子的指定分页。正常指令排版器已经完成 UTF-8 换行，这里只按每页最多两行切片；
+     * 第一行始终锚定屏幕中线，第二行向下排列，超过两行的内容由下一次按键翻页。
+     */
+    bool beginNarrativePage()
+    {
+        if (narrative_page_first_line_ < 0 ||
+            narrative_page_first_line_ >= narrative_layout_.actualLines)
+            return false;
+
+        narrative_page_line_count_ = min(UIPrescript::DecodeOverlayAnimator::MaxPageLines,
+                                         narrative_layout_.actualLines - narrative_page_first_line_);
+        narrative_animator_.begin(narrative_layout_, narrative_page_first_line_,
+                                  narrative_page_line_count_, sysConfig.decode_anim_style, millis());
+        narrative_last_glitch_ms_ = 0;
+        return narrative_animator_.isActive();
+    }
+
+    /**
+     * 使用指令页的 UTF-8 排版器准备当前句子。音频绑定只在一句话第一次进入时触发，
+     * 同一句因宽度产生的第二页不会重复通知或重新播放。
+     */
+    bool beginCurrentNarrativeSentence(bool notifyAudio)
+    {
+        const SysNarrativeParagraph *paragraph = currentNarrativeParagraph();
+        const SysNarrativeLine *line = currentNarrativeLine();
+        if (!paragraph || !line)
+            return false;
+
+        UIPrescript::PrepareLayoutFromRule(line->text.c_str(), appManager.getLanguage(),
+                                           paragraph->color, narrative_layout_);
+        if (narrative_layout_.actualLines <= 0)
+            return false;
+
+        narrative_page_first_line_ = 0;
+        if (!beginNarrativePage())
+            return false;
+        if (notifyAudio)
+            notifyNarrativeAudio(line->audioBind);
+        return true;
+    }
+
+    /** 选择一个不同于上一场景的带权随机场景，并从首段首句开始播放。 */
+    bool beginNextNarrativeScene()
+    {
+        const int nextScene = narrative_catalog_.chooseWeightedScene(narrative_scene_index_);
+        if (nextScene < 0)
+        {
+            narrative_available_ = false;
+            notifyNarrativeAudio("");
+            return false;
+        }
+
+        narrative_scene_index_ = nextScene;
+        narrative_paragraph_index_ = 0;
+        narrative_line_index_ = 0;
+        narrative_available_ = beginCurrentNarrativeSentence(true);
+        return narrative_available_;
+    }
+
+    /**
+     * 按“句子的下一页（每页最多两行）→段落下一句→场景下一段→新的随机场景”推进。
+     * 这里不重新实现按键消抖；主键和侧键短按都由 AppManager 汇合到 onKeyShort()。
+     */
+    void advanceNarrative()
+    {
+        if (!narrative_available_)
+        {
+            beginNextNarrativeScene();
+            return;
+        }
+
+        if (narrative_animator_.isRunning())
+        {
+            narrative_animator_.finishImmediately();
+            return;
+        }
+
+        const int nextPageFirstLine = narrative_page_first_line_ + narrative_page_line_count_;
+        if (nextPageFirstLine < narrative_layout_.actualLines)
+        {
+            narrative_page_first_line_ = nextPageFirstLine;
+            beginNarrativePage();
+            return;
+        }
+
+        const SysNarrativeParagraph *paragraph = currentNarrativeParagraph();
+        const SysNarrativeScene *scene = currentNarrativeScene();
+        if (!paragraph || !scene)
+        {
+            beginNextNarrativeScene();
+            return;
+        }
+
+        if (narrative_line_index_ + 1 < paragraph->lines.size())
+        {
+            ++narrative_line_index_;
+            beginCurrentNarrativeSentence(true);
+            return;
+        }
+
+        if (narrative_paragraph_index_ + 1 < scene->paragraphs.size())
+        {
+            ++narrative_paragraph_index_;
+            narrative_line_index_ = 0;
+            beginCurrentNarrativeSentence(true);
+            return;
+        }
+
+        beginNextNarrativeScene();
+    }
+
+    void triggerLightning(uint32_t now)
+    {
+        lightning_seed_ = (uint32_t)random(1, 0x7FFFFFFF);
+        lightning_stage_ = 1;
+        lightning_flash_ = 1.0f;
+        lightning_stage_deadline_ms_ = now + 55;
+        next_lightning_ms_ = now + (uint32_t)random(LIGHTNING_NEXT_MIN_MS, LIGHTNING_NEXT_MAX_MS + 1);
+
+        // 当前不播放声音；回调保留未来接入 thunder.wav 或程序化雷声的延迟信息。
+        if (g_sea_audio_binding.onThunder)
+        {
+            const uint8_t intensity = (uint8_t)constrain((int)lroundf(rain_target_intensity_ * 100.0f), 0, 100);
+            const uint16_t delay_ms = (uint16_t)random(260, 1000);
+            g_sea_audio_binding.onThunder(intensity, delay_ms);
+        }
+    }
+
+    void updateWeather()
+    {
+        if (!rain_enabled_)
+        {
+            rain_target_intensity_ = 0.0f;
+            lightning_flash_ = 0.0f;
+            lightning_stage_ = 0;
+            return;
+        }
+
+        const uint32_t now = millis();
+        if (DeadlineReached(now, next_rain_intensity_change_ms_))
+        {
+            rain_target_intensity_ = (float)random(45, 91) / 100.0f;
+            next_rain_intensity_change_ms_ = now +
+                                             (uint32_t)random(RAIN_INTENSITY_CHANGE_MIN_MS,
+                                                              RAIN_INTENSITY_CHANGE_MAX_MS + 1);
+        }
+
+        if (lightning_stage_ != 0 && DeadlineReached(now, lightning_stage_deadline_ms_))
+        {
+            if (lightning_stage_ == 1 && random(100) < 22)
+            {
+                // 少数雷击有第二次较弱闪光；第二闪光不重新触发声音回调。
+                lightning_stage_ = 2;
+                lightning_flash_ = 0.34f;
+                lightning_stage_deadline_ms_ = now + 65;
+            }
+            else
+            {
+                lightning_stage_ = 0;
+                lightning_flash_ = 0.0f;
+            }
+        }
+        else if (lightning_stage_ == 0 && DeadlineReached(now, next_lightning_ms_))
+        {
+            triggerLightning(now);
+        }
+    }
+
+    UIFluidFrameInput buildFluidFrameInput() const
+    {
+        UIFluidFrameInput frame = {};
+        frame.motion = fluid_input_;
+        frame.motion.valid = pose_valid_ &&
+                             millis() - last_motion_received_ms_ <= MOTION_STALE_MS;
+        frame.weather.raining = rain_enabled_;
+        frame.weather.rain_intensity = rain_target_intensity_;
+        frame.weather.lightning_flash = lightning_flash_;
+        frame.weather.lightning_seed = lightning_seed_;
+        return frame;
+    }
 
     /**
      * 消费 SysMotion 最新样本并更新姿态；sequence 保证一个样本只进入 Mahony 一次。
@@ -158,13 +439,13 @@ private:
     }
 
     /**
-     * 最高前景层预留点。
-     * 当前不猜测字幕来源、所有权和生命周期；后续确定字幕接口后，只在这里使用 UIText 绘制，
-     * 即可保证文字位于天空、远浪、主水体、泡沫和水下亮点之上且不参与流体变形。
+     * 最高前景层只绘制叙事解码器当前帧。DecodeOverlayAnimator 不拥有背景也不推屏，
+     * 因此海面、雨滴、闪电、泡沫先完成绘制后，文字可以稳定处于最上层且不参与流体形变。
      */
     void drawForegroundOverlay()
     {
-        // 字幕需求确认前保持空实现，避免提前引入不可靠的 String/指针生命周期接口。
+        if (narrative_available_)
+            narrative_animator_.drawOverlay();
     }
 
     /** 清空并按固定图层顺序绘制一帧，整帧最后只推屏一次。 */
@@ -181,6 +462,7 @@ public:
     {
         pose_solver_.Begin(IMU_SAMPLE_HZ);
         fluid_.reset(HAL_Get_Screen_Width(), HAL_Get_Screen_Height());
+        UIPrescript::InitGlitchPool();
         last_motion_sequence_ = 0;
         last_motion_timestamp_us_ = 0;
         last_motion_received_ms_ = 0;
@@ -192,6 +474,35 @@ public:
         filtered_roll_accel_dps2_ = 0.0f;
         previous_activity_roll_deg_ = 0.0f;
         pose_valid_ = false;
+
+        /*
+         * 叙事目录按当前语言加载并在 App 实例内缓存；再次进入同一语言时不会重复解析 JSON。
+         * 首次场景使用带权随机，后续场景会排除当前索引，避免连续看到同一段内容。
+         */
+        narrative_paragraph_index_ = 0;
+        narrative_line_index_ = 0;
+        narrative_page_first_line_ = 0;
+        narrative_page_line_count_ = 0;
+        narrative_last_glitch_ms_ = 0;
+        narrative_available_ = narrative_catalog_.load(
+            TerminalLang::SeaNarrativePath(appManager.getLanguage()));
+        if (narrative_available_)
+            beginNextNarrativeScene();
+        else
+            notifyNarrativeAudio("");
+
+        const uint32_t now = millis();
+        rain_enabled_ = random(100) < 30;
+        rain_target_intensity_ = rain_enabled_ ? 0.58f : 0.0f;
+        next_rain_intensity_change_ms_ = now + (uint32_t)random(RAIN_INTENSITY_CHANGE_MIN_MS,
+                                                                  RAIN_INTENSITY_CHANGE_MAX_MS + 1);
+        next_lightning_ms_ = now + (uint32_t)random(LIGHTNING_FIRST_MIN_MS,
+                                                    LIGHTNING_FIRST_MAX_MS + 1);
+        lightning_stage_deadline_ms_ = 0;
+        lightning_seed_ = 0;
+        lightning_stage_ = 0;
+        lightning_flash_ = 0.0f;
+        notifyRainAudio(rain_enabled_);
     }
 
     void onResume() override
@@ -200,6 +511,11 @@ public:
         last_physics_ms_ = millis();
         last_render_ms_ = 0;
         last_motion_sequence_ = 0;
+        next_lightning_ms_ = millis() + (uint32_t)random(LIGHTNING_FIRST_MIN_MS,
+                                                         LIGHTNING_FIRST_MAX_MS + 1);
+        lightning_stage_ = 0;
+        lightning_flash_ = 0.0f;
+        notifyRainAudio(rain_enabled_);
         drawFrame();
     }
 
@@ -211,21 +527,32 @@ public:
         fluid_input_.lateral_accel_g = 0.0f;
         fluid_input_.vertical_accel_g = 0.0f;
         fluid_input_.valid = false;
+        lightning_stage_ = 0;
+        lightning_flash_ = 0.0f;
+        notifyRainAudio(false);
+        notifyNarrativeAudio("");
     }
 
     void onLoop() override
     {
         updateMotionInput();
+        updateWeather();
 
         const uint32_t now = millis();
+        const bool narrativeFrameChanged = narrative_available_ && narrative_animator_.update(now);
+        if (narrativeFrameChanged && narrative_animator_.isRunning() &&
+            now - narrative_last_glitch_ms_ >= 90)
+        {
+            // 复用现有故障短音/轻触反馈；它走 SFX 队列，不会替换未来由句子 audio 绑定的 WAV。
+            narrative_last_glitch_ms_ = now;
+            Feedback_PlayGlitch();
+        }
+
         if (now - last_physics_ms_ >= UITheme::FRAME_FAST_MS)
         {
             const float dt_seconds = (float)(now - last_physics_ms_) / 1000.0f;
             last_physics_ms_ = now;
-            UIFluidInput frame_input = fluid_input_;
-            frame_input.valid = pose_valid_ &&
-                                now - last_motion_received_ms_ <= MOTION_STALE_MS;
-            fluid_.update(dt_seconds, frame_input);
+            fluid_.update(dt_seconds, buildFluidFrameInput());
         }
 
         // 物理以约 60Hz 推进，整屏旋转/QSPI 刷新锁定约 30FPS，兼顾波动连续性和 TE 等待成本。
@@ -233,10 +560,20 @@ public:
             drawFrame();
     }
 
-    void onDestroy() override {}
+    void onDestroy() override
+    {
+        notifyRainAudio(false);
+        notifyNarrativeAudio("");
+    }
 
     // Sea 页面不把实体旋钮或全局摇动滚动映射为业务操作，避免倾斜观看时误改状态。
     void onKnob(int delta) override { (void)delta; }
+
+    void onKeyShort() override
+    {
+        Feedback_PlayKnobTick();
+        advanceNarrative();
+    }
 
     void onKeyLong() override
     {

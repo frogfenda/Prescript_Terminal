@@ -222,6 +222,14 @@ static void HAL_ApplyFontRole(HALFontRole role)
 {
     UIFontConfig::FontSpec spec = HAL_GetFontSpec(role);
     u8f.setFont(spec.font);
+
+    /*
+     * U8g2_for_TFT_eSPI 的 u8g2_SetFont() 在字体指针变化时会把 is_transparent 重置为 0，
+     * 也就是重新启用背景色填充。初始化阶段只调用一次 setFontMode(1) 并不够：页面在
+     * BODY/TITLE/SMALL 之间切换后，下一次文字就会在彩色海面上绘制黑色字形矩形。
+     * 因此每次应用字体后都恢复透明模式；黑底页面视觉不变，叠加式 UI 则保留原背景像素。
+     */
+    u8f.setFontMode(1);
 }
 
 int HAL_Get_Font_Baseline(HALFontRole role)
