@@ -460,6 +460,8 @@ private:
 public:
     void onCreate() override
     {
+        // 绑定器独立持有雨声句柄；Sea 页面只确保它已经安装，不直接依赖 SysAudio。
+        AppSeaAudio_EnsureInstalled();
         pose_solver_.Begin(IMU_SAMPLE_HZ);
         fluid_.reset(HAL_Get_Screen_Width(), HAL_Get_Screen_Height());
         UIPrescript::InitGlitchPool();

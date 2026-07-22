@@ -46,22 +46,17 @@ void Feedback_PlayAlertPulse()
 void Feedback_PlayAlertSequence()
 {
     sysAudio.playTone(1500, 200);
-    delay(150);
-    sysAudio.playTone(1500, 200);
-    delay(150);
-    sysAudio.playTone(2500, 600);
+    sysAudio.playTone(1500, 200, 150);
+    sysAudio.playTone(2500, 600, 300);
     sysHaptic.playAlert();
 }
 
 void Feedback_PlayDecodeComplete()
 {
     sysAudio.playTone(7000, 70);
-    delay(60);
-    sysAudio.playTone(7000, 70);
-    delay(60);
-    sysAudio.playTone(7000, 70);
-    delay(60);
-    sysAudio.playTone(7000, 250);
+    sysAudio.playTone(7000, 70, 60);
+    sysAudio.playTone(7000, 70, 120);
+    sysAudio.playTone(7000, 250, 180);
     sysHaptic.playDecodeSuccess();
 }
 
@@ -102,8 +97,7 @@ void Feedback_PlayGachaReveal(int star, bool isWalpurgisnacht)
 void Feedback_PlayNetworkOk()
 {
     sysAudio.playTone(2000, 80);
-    delay(60);
-    sysAudio.playTone(2500, 150);
+    sysAudio.playTone(2500, 150, 60);
     sysHaptic.playConfirm();
 }
 

@@ -1,51 +1,43 @@
 /*
-【模块职责】资源缓存接口。启动时把 LittleFS 中的音频、硬币贴图、待机图和抽卡池加载到 PSRAM，供 App 快速引用。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+【模块职责】系统常驻资源缓存接口。
+
+SysRes_Init() 在启动阶段从 LittleFS 把常用音频、硬币贴图、纺织机 JSON 和身份池加载到
+PSRAM。音频 PCM 不再作为全局裸指针对 App 暴露，而是在加载完成后注册给 SysAudio；
+App 使用 AudioAssetId 或稳定 binding 播放，真实文件路径只由资源层持有。
 */
-// 文件：src/sys/sys_res.h
 #pragma once
+
 #include <Arduino.h>
 
-extern uint8_t* g_wav_procedure;
-extern uint32_t g_wav_procedure_len;
-extern uint8_t* g_wav_final;
-extern uint32_t g_wav_final_len;
-
-extern uint8_t* g_wav_heads;
-extern uint32_t g_wav_heads_len;
-extern uint8_t* g_wav_tails;
-extern uint32_t g_wav_tails_len;
-extern uint8_t* g_ahab_sound;
-extern uint32_t g_ahab_sound_len;
-
-extern uint16_t* g_img_heads[3];
-extern uint16_t* g_img_tails[3];
-// 硬币贴图边长。当前兼容 64×64 老素材，也支持后续替换为 96×96 RGB565 bin。
+extern uint16_t *g_img_heads[3];
+extern uint16_t *g_img_tails[3];
+// 硬币贴图边长；当前兼容 64×64 旧素材，也支持 96×96 RGB565 bin。
 extern int g_img_heads_size[3];
 extern int g_img_tails_size[3];
 
-// ==========================================
-// 【新增】：提取部数据结构与全局池指针
-// ==========================================
-struct IdentityData {
+/** 提取部单条身份数据；字符串对象在 PSRAM 数组中通过 placement new 构造。 */
+struct IdentityData
+{
     String sinner;
     String id_name;
     int star;
     int walp;
 };
 
-extern IdentityData* g_gacha_pool;
+extern IdentityData *g_gacha_pool;
 extern int g_gacha_pool_total;
-extern int* g_gacha_1star; extern int g_count_1star;
-extern int* g_gacha_2star; extern int g_count_2star;
-extern int* g_gacha_3star; extern int g_count_3star;
+extern int *g_gacha_1star;
+extern int g_count_1star;
+extern int *g_gacha_2star;
+extern int g_count_2star;
+extern int *g_gacha_3star;
+extern int g_count_3star;
 
-// 纺织机 JSON 原始素材。
-// 资源管家启动时从 LittleFS 读入 PSRAM，sys_oracle 只负责解析这些已挂载的素材，
-// 避免应用层和答案池模块反复直接访问 LittleFS。
-extern char* g_oracle_json_zh;
+// 纺织机 JSON 原始素材。sys_oracle 只解析这些已缓存内容，不直接反复访问 LittleFS。
+extern char *g_oracle_json_zh;
 extern uint32_t g_oracle_json_zh_len;
-extern char* g_oracle_json_en;
+extern char *g_oracle_json_en;
 extern uint32_t g_oracle_json_en_len;
 
+/** 挂载并注册全部常驻资源；LittleFS 必须已经由启动流程完成挂载。 */
 void SysRes_Init();

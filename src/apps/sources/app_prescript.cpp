@@ -5,7 +5,6 @@
 #include "sys/sys_config.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_haptic.h"
-#include "sys/sys_res.h"
 #include "sys/sys_specials.h"
 #include "sys/sys_prescript_target.h"
 #include "hal/hal.h"
@@ -39,12 +38,12 @@ namespace
 
     /**
      * 解码动画帧间回调。
-     * procedure.wav 存在时已经由 AppPrescript 以 loop=true 交给音频任务循环播放；
+     * procedure.wav 存在时已经由 AppPrescript 以 Crossfade 循环交给音频任务播放；
      * 如果资源未加载，则退回轻量 glitch 音，保持动画仍有反馈。
      */
     void PrescriptProcedureTick()
     {
-        if (!g_wav_procedure)
+        if (!sysAudio.hasAsset(AudioAssetId::Procedure))
             SYS_SOUND_GLITCH();
     }
 
@@ -67,6 +66,16 @@ private:
     uint32_t m_next_chaos_sound_delay_ms = 0;
     int m_scroll_offset = 0;
     UIPrescript::TextLayout m_layout;
+    AudioHandle m_audio_handle = AUDIO_HANDLE_INVALID;
+
+    /** 只停止本 App 持有的实例，不能误伤海浪、对白或其他模块的并行声音。 */
+    void stopOwnedAudio(uint16_t fadeMs = 0)
+    {
+        if (m_audio_handle == AUDIO_HANDLE_INVALID)
+            return;
+        sysAudio.stop(m_audio_handle, fadeMs);
+        m_audio_handle = AUDIO_HANDLE_INVALID;
+    }
 
     /**
      * 启动 procedure 循环音。
@@ -74,8 +83,13 @@ private:
      */
     void beginProcedureSound()
     {
-        if (g_wav_procedure)
-            sysAudio.playWAV(g_wav_procedure, g_wav_procedure_len, true);
+        stopOwnedAudio();
+        AudioPlayOptions options;
+        options.bus = AudioBus::Ambient;
+        options.loopMode = AudioLoopMode::Crossfade;
+        options.fadeInMs = 20;
+        options.crossfadeMs = 24;
+        m_audio_handle = sysAudio.play(AudioAssetId::Procedure, options);
     }
 
     /**
@@ -84,39 +98,36 @@ private:
      */
     void playFinishFeedback(const DrawResult &res)
     {
-        sysAudio.stopWAV();
+        stopOwnedAudio(15);
 
         String bind = res.audio_bind;
-        if (bind == "heads" && g_wav_heads)
-        {
-            sysAudio.playWAV(g_wav_heads, g_wav_heads_len, false);
-            SYS_HAPTIC_DECODE();
-        }
-        else if (bind == "tails" && g_wav_tails)
-        {
-            sysAudio.playWAV(g_wav_tails, g_wav_tails_len, false);
-            SYS_HAPTIC_DECODE();
-        }
-        else if (bind == "Ahab" && g_ahab_sound)
-        {
-            sysAudio.playWAV(g_ahab_sound, g_ahab_sound_len, false);
-            SYS_HAPTIC_DECODE();
-        }
-        else if (bind == "none")
+        if (bind == "none")
         {
             // 静默指令：只停止 procedure，不播放结尾音效。
+            return;
+        }
+
+        AudioPlayOptions options;
+        options.bus = bind == "Ahab" ? AudioBus::Voice : AudioBus::Effect;
+
+        // heads/tails/Ahab 是 JSON 稳定 binding；真实路径只存在于 SysRes 的资源表中。
+        bool has_specific_binding = bind == "heads" || bind == "tails" || bind == "Ahab";
+        if (has_specific_binding)
+            m_audio_handle = sysAudio.play(bind.c_str(), options);
+        else
+            m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
+
+        // 指定资源缺失时仍回退到通用收尾音；通用资源也缺失才使用程序提示音。
+        if (m_audio_handle == AUDIO_HANDLE_INVALID && has_specific_binding)
+            m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
+
+        if (m_audio_handle != AUDIO_HANDLE_INVALID)
+        {
+            SYS_HAPTIC_DECODE();
         }
         else
         {
-            if (g_wav_final)
-            {
-                sysAudio.playWAV(g_wav_final, g_wav_final_len, false);
-                SYS_HAPTIC_DECODE();
-            }
-            else
-            {
-                SYS_SOUND_SUCCESS_4BEEPS();
-            }
+            SYS_SOUND_SUCCESS_4BEEPS();
         }
     }
 
@@ -212,8 +223,7 @@ public:
 
     void onDestroy() override
     {
-        sysAudio.stopWAV();
-        delay(5);
+        stopOwnedAudio();
         g_prescript_needs_roll = true; // 退出时重置状态，保证下次手动进入能正常抽取。
     }
 

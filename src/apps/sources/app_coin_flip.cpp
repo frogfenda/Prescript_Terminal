@@ -167,6 +167,28 @@ protected:
 
     bool global_is_animating = false;
     uint32_t last_frame_time = 0;
+    AudioHandle coin_audio_handle = AUDIO_HANDLE_INVALID;
+
+    /**
+     * 硬币页只替换自己上一枚硬币的落点声音。
+     * 这是业务上明确的“同类结果音替换”，不会调用 stopBus() 影响其他并行音频。
+     */
+    void stopCoinAudio()
+    {
+        if (coin_audio_handle == AUDIO_HANDLE_INVALID)
+            return;
+        sysAudio.stop(coin_audio_handle);
+        coin_audio_handle = AUDIO_HANDLE_INVALID;
+    }
+
+    bool playCoinAudio(AudioAssetId asset)
+    {
+        stopCoinAudio();
+        AudioPlayOptions options;
+        options.bus = AudioBus::Effect;
+        coin_audio_handle = sysAudio.play(asset, options);
+        return coin_audio_handle != AUDIO_HANDLE_INVALID;
+    }
 
     // 【函数说明】返回硬币动画左侧保留区域宽度；快速和技能投掷都使用全宽动画，所以返回 0。
     virtual int getLeftPanelWidth() { return 0; }
@@ -350,7 +372,7 @@ public:
 
    // 【函数说明】离开硬币动画页时停止动画标志，静态资源继续保留在全局资源缓存中。
    void onDestroy() override {
-        sysAudio.stopWAV();
+        stopCoinAudio();
         // 退出时只释放橡皮擦缓存，不碰全局图片
         if (coin_buffer) { free(coin_buffer); coin_buffer = nullptr; }
     }
@@ -376,15 +398,12 @@ protected:
 
     // 【函数说明】单枚硬币停止时的回调，子类用它更新计数、点数和结果反馈。
     void onCoinStop(int idx) override {
-        sysAudio.stopWAV();
         if (coins[idx].target_face == 0) {
             coins[idx].flash_frames = CoinAnimParams::FLASH_DURATION;
-            if (g_wav_heads) sysAudio.playWAV(g_wav_heads, g_wav_heads_len);
-            else SYS_SOUND_CONFIRM();
+            if (!playCoinAudio(AudioAssetId::CoinHeads)) SYS_SOUND_CONFIRM();
             SYS_HAPTIC_COIN_HEADS();
         } else {
-            if (g_wav_tails) sysAudio.playWAV(g_wav_tails, g_wav_tails_len);
-            else SYS_SOUND_NAV();
+            if (!playCoinAudio(AudioAssetId::CoinTails)) SYS_SOUND_NAV();
             SYS_HAPTIC_COIN_TAILS();
         }
     }
@@ -414,7 +433,7 @@ public:
             if (sysConfig.coin_data.mode == 1) { for (int i=0; i<active_coins; i++) if (coins[i].is_flipping) { stopCoin(i); break; } }
             return;
         }
-        sysAudio.stopWAV(); SYS_SOUND_CONFIRM(); global_is_animating = true;
+        stopCoinAudio(); SYS_SOUND_CONFIRM(); global_is_animating = true;
         for (int i=0; i<active_coins; i++) {
             coins[i].is_flipping = true; coins[i].flash_frames = 0; coins[i].target_face = 0;
             if (sysConfig.coin_data.mode == 0) coins[i].auto_stop_timer = CoinAnimParams::AUTO_SPIN_INITIAL + i * CoinAnimParams::AUTO_SPIN_INTERVAL;
@@ -517,7 +536,6 @@ protected:
 
     // 【函数说明】单枚硬币停止时的回调，子类用它更新计数、点数和结果反馈。
     void onCoinStop(int idx) override {
-        sysAudio.stopWAV();
         CoinPreset& p = sysConfig.coin_presets[g_coin_run_idx];
 
         if (coins[idx].target_face == 0) {
@@ -527,14 +545,14 @@ protected:
             top_pop_color = TFT_YELLOW;
             top_pop_timer = 20; 
             updateTopPanelScore(TFT_WHITE); 
-            if (g_wav_heads) sysAudio.playWAV(g_wav_heads, g_wav_heads_len); else SYS_SOUND_CONFIRM();
+            if (!playCoinAudio(AudioAssetId::CoinHeads)) SYS_SOUND_CONFIRM();
             SYS_HAPTIC_COIN_HEADS();
         } else {
             top_pop_text = "+0";
             top_pop_color = 0x7BEF;
             top_pop_timer = 20;
             updateTopPanelScore(TFT_WHITE); 
-            if (g_wav_tails) sysAudio.playWAV(g_wav_tails, g_wav_tails_len); else SYS_SOUND_NAV();
+            if (!playCoinAudio(AudioAssetId::CoinTails)) SYS_SOUND_NAV();
             SYS_HAPTIC_COIN_TAILS();
         }
     }
@@ -579,7 +597,7 @@ void onCreate() override {
             drawActiveCoinsOnly(); drawStaticUI(); HAL_Screen_Update();
             return;
         }
-        sysAudio.stopWAV(); SYS_SOUND_CONFIRM();
+        stopCoinAudio(); SYS_SOUND_CONFIRM();
         global_is_animating = true; phase = 1; current_power = sysConfig.coin_presets[g_coin_run_idx].base_power; top_pop_timer = 0;
         for (int i=0; i<active_coins; i++) {
             coins[i].is_flipping = true; coins[i].flash_frames = 0; coins[i].target_face = 0;

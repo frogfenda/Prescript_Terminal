@@ -106,8 +106,8 @@ public:
         {
             drawUI(UIStrings::WifiConnected(appManager.getLanguage()));
             sysAudio.playTone(2000, 80);
-            delay(60);
-            sysAudio.playTone(2500, 150);
+            // 第二个音由独立程序音 Voice 定时，避免连接成功时冻结 UI 主循环。
+            sysAudio.playTone(2500, 150, 60);
             is_finished = true;
             result_show_time = millis();
         }

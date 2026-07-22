@@ -91,26 +91,44 @@ namespace BSP::AudioI2S
     // 【函数说明】清空 I2S DMA 缓冲。
     void ClearDma()
     {
-        if (s_ready)
+        if (!s_ready || s_i2sMutex == NULL)
+            return;
+
+        /*
+         * ClearDma/Sleep/Wakeup 必须和 Write 使用同一把锁。
+         * 仅仅创建 mutex 但不在电源操作中获取它，仍可能让 Core 0 正在 i2s_write 时
+         * 被主循环清 DMA 或停时钟，造成播放位置前进而硬件没有输出对应采样。
+         */
+        if (xSemaphoreTake(s_i2sMutex, portMAX_DELAY) == pdTRUE)
+        {
             i2s_zero_dma_buffer(I2S_NUM_0);
+            xSemaphoreGive(s_i2sMutex);
+        }
     }
 
     // 【函数说明】休眠前停止 I2S 输出并清空缓冲。
     void Sleep()
     {
-        if (!s_ready)
+        if (!s_ready || s_i2sMutex == NULL)
             return;
 
-        // 先清空再停止，减少功放端残留短音。
-        i2s_zero_dma_buffer(I2S_NUM_0);
-        i2s_stop(I2S_NUM_0);
+        if (xSemaphoreTake(s_i2sMutex, portMAX_DELAY) == pdTRUE)
+        {
+            // 音频任务已经由 SysAudio 暂停；锁用于等待最后一次 DMA 写入完整结束。
+            i2s_zero_dma_buffer(I2S_NUM_0);
+            i2s_stop(I2S_NUM_0);
+            xSemaphoreGive(s_i2sMutex);
+        }
     }
 
     // 【函数说明】唤醒后恢复 I2S 输出。
     void Wakeup()
     {
-        if (s_ready)
+        if (s_ready && s_i2sMutex != NULL && xSemaphoreTake(s_i2sMutex, portMAX_DELAY) == pdTRUE)
+        {
             i2s_start(I2S_NUM_0);
+            xSemaphoreGive(s_i2sMutex);
+        }
     }
 }
 

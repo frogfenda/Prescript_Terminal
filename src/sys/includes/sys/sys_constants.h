@@ -111,6 +111,7 @@ namespace PrescriptConst
     constexpr const char *AUDIO_PROCEDURE_WAV = "/common/procedure.wav";
     constexpr const char *AUDIO_FINAL_WAV = "/common/final.wav";
     constexpr const char *AUDIO_AHAB_WAV = "/common/Ahab.wav";
+    constexpr const char *AUDIO_SEA_RAIN_WAV = "/common/rain.wav";
     constexpr const char *COIN_ASSET_DIR = "/common/coins/";
     constexpr const char *COIN_ASSET_LEGACY_DIR = "/assets/coins/";
 

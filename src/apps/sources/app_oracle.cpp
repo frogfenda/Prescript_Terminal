@@ -14,7 +14,6 @@
 #include "sys/sys_config.h"
 #include "sys/sys_oracle.h"
 #include "sys/sys_audio.h"
-#include "sys/sys_res.h"
 #include "sys/sys_feedback.h"
 #include "ui/ui_prescript_decoder.h"
 #include "ui/ui_theme.h"
@@ -79,6 +78,16 @@ private:
     const char *m_question = nullptr;
     OracleAnswer m_answer;
     UIPrescript::TextLayout m_layout;
+    AudioHandle m_audio_handle = AUDIO_HANDLE_INVALID;
+
+    /** 停止纺织机自己持有的 Voice，不按总线粗暴停止其他应用或系统声音。 */
+    void stopOwnedAudio(uint16_t fadeMs = 0)
+    {
+        if (m_audio_handle == AUDIO_HANDLE_INVALID)
+            return;
+        sysAudio.stop(m_audio_handle, fadeMs);
+        m_audio_handle = AUDIO_HANDLE_INVALID;
+    }
 
     const char *selectedType() const
     {
@@ -151,13 +160,18 @@ private:
 
     void beginProcedureSound()
     {
-        if (g_wav_procedure)
-            sysAudio.playWAV(g_wav_procedure, g_wav_procedure_len, true);
+        stopOwnedAudio();
+        AudioPlayOptions options;
+        options.bus = AudioBus::Ambient;
+        options.loopMode = AudioLoopMode::Crossfade;
+        options.fadeInMs = 20;
+        options.crossfadeMs = 24;
+        m_audio_handle = sysAudio.play(AudioAssetId::Procedure, options);
     }
 
     static void procedureTick()
     {
-        if (!g_wav_procedure)
+        if (!sysAudio.hasAsset(AudioAssetId::Procedure))
             SYS_SOUND_GLITCH();
     }
 
@@ -170,10 +184,11 @@ private:
         UIPrescript::PlayDecodeSequence(m_layout, sysConfig.decode_anim_style, procedureTick);
         UIPrescript::DrawDoneFrame(m_layout, 0);
 
-        sysAudio.stopWAV();
-        if (g_wav_final)
-            sysAudio.playWAV(g_wav_final, g_wav_final_len, false);
-        else
+        stopOwnedAudio(15);
+        AudioPlayOptions options;
+        options.bus = AudioBus::Effect;
+        m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
+        if (m_audio_handle == AUDIO_HANDLE_INVALID)
             Feedback_PlayDecodeComplete();
 
         m_state = S_RESULT;
@@ -222,7 +237,7 @@ public:
 
     void onDestroy() override
     {
-        sysAudio.stopWAV();
+        stopOwnedAudio();
     }
 
     void onKnob(int delta) override
@@ -249,7 +264,7 @@ public:
         {
             // 答案显示完成后，短按返回纺织机自己的入口页，
             // 方便连续问询；长按仍然返回系统主菜单。
-            sysAudio.stopWAV();
+            stopOwnedAudio();
             SYS_SOUND_NAV();
             m_selected = 0;
             chooseQuestion();

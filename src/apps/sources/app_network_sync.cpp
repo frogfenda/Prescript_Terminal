@@ -73,7 +73,9 @@ public:
         if (state == NET_SYNC_SUCCESS) {
             if (m_state != 2) {
                 m_state = 2; m_timer = millis();
-                sysAudio.playTone(2000, 80); delay(60); sysAudio.playTone(2500, 150);
+                // 第二个音由音频任务延迟启动，网络状态页主循环不再阻塞 60ms。
+                sysAudio.playTone(2000, 80);
+                sysAudio.playTone(2500, 150, 60);
             }
             if (millis() - m_timer > 1500) { appManager.popApp(); return; }
         }

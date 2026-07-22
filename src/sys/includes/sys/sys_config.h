@@ -94,7 +94,7 @@ public:
     // 【新增】：日程表硬盘数据
     uint8_t schedule_count;
     ScheduleItem schedules[PrescriptConst::MAX_SCHEDULES]; // 最多日程数由 sys_constants.h 统一定义
-    uint8_t volume;             // 【新增】：系统全局音量 (0~10)
+    uint8_t volume;             // 系统全局音量，持久化和 UI 均使用 0~100。
     bool haptic_enable;         // 震动总开关
     uint8_t haptic_intensity;   // 震动强度 (1=弱, 2=中, 3=强)
     uint8_t nfc_mode;

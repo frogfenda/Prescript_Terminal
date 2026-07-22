@@ -1,26 +1,29 @@
 ﻿// 文件：src/sys/sys_res.cpp
 // 职责：把 LittleFS 中的常驻资源加载到 PSRAM，包括 WAV 音频、硬币贴图和抽卡身份池。
-// 说明：WAV 不再假设 44 字节固定头，而是扫描 RIFF chunk，找到真正的 data 段后再缓存 PCM 数据。
+// 说明：WAV 不再假设 44 字节固定头，而是扫描 RIFF fmt/data，并在格式验证后缓存 PCM 数据。
 #include "sys/sys_res.h"
 #include "sys/sys_constants.h"
+#include "sys/sys_audio.h"
 #include "sys/app_manager.h"
 #include "lang/terminal_lang.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <new>
 
-uint8_t *g_wav_procedure = nullptr;
-uint32_t g_wav_procedure_len = 0;
-uint8_t *g_wav_final = nullptr;
-uint32_t g_wav_final_len = 0;
+static uint8_t *g_wav_procedure = nullptr;
+static uint32_t g_wav_procedure_len = 0;
+static uint8_t *g_wav_final = nullptr;
+static uint32_t g_wav_final_len = 0;
 
-uint8_t *g_wav_heads = nullptr;
-uint32_t g_wav_heads_len = 0;
-uint8_t *g_wav_tails = nullptr;
-uint32_t g_wav_tails_len = 0;
+static uint8_t *g_wav_heads = nullptr;
+static uint32_t g_wav_heads_len = 0;
+static uint8_t *g_wav_tails = nullptr;
+static uint32_t g_wav_tails_len = 0;
 
-uint8_t *g_ahab_sound = nullptr;
-uint32_t g_ahab_sound_len = 0;
+static uint8_t *g_ahab_sound = nullptr;
+static uint32_t g_ahab_sound_len = 0;
+static uint8_t *g_sea_rain_sound = nullptr;
+static uint32_t g_sea_rain_sound_len = 0;
 
 IdentityData *g_gacha_pool = nullptr;
 int g_gacha_pool_total = 0;
@@ -54,6 +57,12 @@ static uint32_t _ReadU32LE(const uint8_t *p)
            ((uint32_t)p[3] << 24);
 }
 
+/** 读取 WAV fmt chunk 中的 2 字节小端整数。 */
+static uint16_t _ReadU16LE(const uint8_t *p)
+{
+    return (uint16_t)(((uint16_t)p[0]) | ((uint16_t)p[1] << 8));
+}
+
 /**
  * 判断 4 字节 chunk id 是否匹配。
  * 例如 RIFF、WAVE、fmt 、data、LIST 等。
@@ -66,20 +75,31 @@ static bool _ChunkIdEquals(const uint8_t *id, const char *tag)
            id[3] == (uint8_t)tag[3];
 }
 
-/**
- * 从 WAV 文件中定位真正的 PCM data chunk。
- *
- * 旧代码固定 f.seek(44)，但当前资源文件里 WAV 头包含 LIST/INFO 等附加 chunk，
- * 真正的 data 段不在 offset 44，而是在更靠后的位置。
- *
- * 本函数按 RIFF 结构逐个扫描 chunk：
- * RIFF header -> fmt/LIST/... -> data
- * 找到 data 后返回 data_offset 和 data_len。
- */
-static bool _FindWavDataChunk(File &file, uint32_t *out_offset, uint32_t *out_len)
+/** 扫描 WAV 后交给音频引擎的完整格式信息；不能只找到 data 就假定格式正确。 */
+struct WavPcmInfo
 {
-    if (!out_offset || !out_len)
+    uint16_t format = 0;
+    uint16_t channels = 0;
+    uint32_t sample_rate = 0;
+    uint16_t bits_per_sample = 0;
+    uint32_t data_offset = 0;
+    uint32_t data_len = 0;
+    bool has_fmt = false;
+    bool has_data = false;
+};
+
+/**
+ * 按 RIFF 规则扫描 fmt/data chunk。
+ *
+ * 旧实现只寻找 data，所以单声道、48kHz、24bit 或压缩 WAV 都会被误当成
+ * 44.1kHz/16bit/stereo 输出。这里同时取得 fmt 元数据，调用方验证后才允许缓存。
+ */
+static bool _FindWavPcmInfo(File &file, WavPcmInfo *out_info)
+{
+    if (!out_info)
         return false;
+
+    *out_info = WavPcmInfo{};
 
     uint32_t file_size = file.size();
     if (file_size < 12)
@@ -107,46 +127,58 @@ static bool _FindWavDataChunk(File &file, uint32_t *out_offset, uint32_t *out_le
         uint32_t chunk_size = _ReadU32LE(chunk_header + 4);
         uint32_t data_offset = offset + 8;
 
-        if (_ChunkIdEquals(chunk_header, "data"))
+        if (_ChunkIdEquals(chunk_header, "fmt "))
+        {
+            if (chunk_size < 16 || data_offset + 16U > file_size)
+                return false;
+
+            uint8_t fmt[16];
+            file.seek(data_offset);
+            if (file.read(fmt, sizeof(fmt)) != sizeof(fmt))
+                return false;
+            out_info->format = _ReadU16LE(fmt + 0);
+            out_info->channels = _ReadU16LE(fmt + 2);
+            out_info->sample_rate = _ReadU32LE(fmt + 4);
+            out_info->bits_per_sample = _ReadU16LE(fmt + 14);
+            out_info->has_fmt = true;
+        }
+        else if (_ChunkIdEquals(chunk_header, "data"))
         {
             if (data_offset >= file_size)
                 return false;
-
-            uint32_t readable_len = chunk_size;
-            if (data_offset + readable_len > file_size)
-            {
-                readable_len = file_size - data_offset;
-            }
-
-            *out_offset = data_offset;
-            *out_len = readable_len;
-            return true;
+            out_info->data_offset = data_offset;
+            out_info->data_len = min(chunk_size, file_size - data_offset);
+            out_info->has_data = out_info->data_len > 0;
         }
 
         /*
          * RIFF chunk 以偶数字节对齐。
          * 如果 chunk_size 是奇数，下一个 chunk 前会有 1 字节 padding。
          */
-        offset = data_offset + chunk_size + (chunk_size & 0x01);
+        uint64_t next_offset = (uint64_t)data_offset + chunk_size + (chunk_size & 0x01U);
+        if (next_offset <= offset || next_offset > file_size)
+            break;
+        offset = (uint32_t)next_offset;
     }
 
-    return false;
+    return out_info->has_fmt && out_info->has_data;
 }
 
 /**
  * 把 WAV 的 PCM data 段加载进 PSRAM。
  *
  * 输出给 SysAudio 的数据必须是“纯 PCM”，不能包含 RIFF/LIST/data 头。
- * 同时当前音频输出按 44.1kHz / 16bit / stereo 处理，一帧是 4 字节，
- * 因此缓存长度会向下对齐到 4 字节，避免最后半个声道帧进入 I2S。
+ * 当前硬件输出固定为 44.1kHz / 16bit / stereo，但资源允许 mono 或 stereo：
+ * mono 由混音器复制到左右声道。缓存长度按“声道数 × 2 字节”对齐，避免残缺帧进入混音器。
  */
-static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *out_len)
+static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *out_len, AudioClip *out_clip)
 {
-    if (!path || !out_data || !out_len)
+    if (!path || !out_data || !out_len || !out_clip)
         return false;
 
     *out_data = nullptr;
     *out_len = 0;
+    *out_clip = AudioClip{};
 
     File file = LittleFS.open(path, "r");
     if (!file)
@@ -155,19 +187,33 @@ static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *o
         return false;
     }
 
-    uint32_t data_offset = 0;
-    uint32_t data_len = 0;
-    if (!_FindWavDataChunk(file, &data_offset, &data_len))
+    WavPcmInfo info;
+    if (!_FindWavPcmInfo(file, &info))
     {
-        Serial.printf("[资源管家] WAV 加载失败：%s 未找到有效 data 段。\n", path);
+        Serial.printf("[资源管家] WAV 加载失败：%s 缺少有效 fmt 或 data 段。\n", path);
         file.close();
         return false;
     }
 
-    uint32_t aligned_len = data_len & ~0x03UL;
-    if (aligned_len < 4)
+    if (info.format != 1 || info.sample_rate != 44100 || info.bits_per_sample != 16 ||
+        (info.channels != 1 && info.channels != 2))
     {
-        Serial.printf("[资源管家] WAV 加载失败：%s data 段过短，len=%lu。\n", path, (unsigned long)data_len);
+        Serial.printf(
+            "[资源管家] WAV 格式不支持：%s，format=%u，rate=%lu，bits=%u，channels=%u。\n",
+            path,
+            (unsigned)info.format,
+            (unsigned long)info.sample_rate,
+            (unsigned)info.bits_per_sample,
+            (unsigned)info.channels);
+        file.close();
+        return false;
+    }
+
+    uint32_t frame_bytes = (uint32_t)info.channels * sizeof(int16_t);
+    uint32_t aligned_len = info.data_len - (info.data_len % frame_bytes);
+    if (aligned_len < frame_bytes)
+    {
+        Serial.printf("[资源管家] WAV 加载失败：%s data 段过短，len=%lu。\n", path, (unsigned long)info.data_len);
         file.close();
         return false;
     }
@@ -180,7 +226,7 @@ static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *o
         return false;
     }
 
-    file.seek(data_offset);
+    file.seek(info.data_offset);
     size_t read_len = file.read(buffer, aligned_len);
     file.close();
 
@@ -198,24 +244,97 @@ static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *o
 
     *out_data = buffer;
     *out_len = aligned_len;
+    out_clip->samples = reinterpret_cast<const int16_t *>(buffer);
+    out_clip->frameCount = aligned_len / frame_bytes;
+    out_clip->sampleRate = info.sample_rate;
+    out_clip->channels = (uint8_t)info.channels;
+    out_clip->loopStartFrame = 0;
+    out_clip->loopEndFrame = out_clip->frameCount;
 
     Serial.printf(
-        "[资源管家] WAV 已缓存：%s，data_offset=%lu，pcm_len=%lu。\n",
+        "[资源管家] WAV 已缓存：%s，data_offset=%lu，pcm_len=%lu，channels=%u。\n",
         path,
-        (unsigned long)data_offset,
-        (unsigned long)aligned_len
+        (unsigned long)info.data_offset,
+        (unsigned long)aligned_len,
+        (unsigned)info.channels
     );
     return true;
 }
 
 // 【函数说明】先按新资源路径加载，失败时尝试旧 /assets 路径，方便开发板尚未重刷 LittleFS 时继续启动。
-static bool _LoadWavPcmWithFallback(const char *path, const char *legacy_path, uint8_t **out_data, uint32_t *out_len)
+static bool _LoadWavPcmWithFallback(const char *path,
+                                    const char *legacy_path,
+                                    uint8_t **out_data,
+                                    uint32_t *out_len,
+                                    AudioClip *out_clip)
 {
-    if (_LoadWavPcmToPsram(path, out_data, out_len))
+    if (_LoadWavPcmToPsram(path, out_data, out_len, out_clip))
         return true;
     if (legacy_path && strcmp(path, legacy_path) != 0)
-        return _LoadWavPcmToPsram(legacy_path, out_data, out_len);
+        return _LoadWavPcmToPsram(legacy_path, out_data, out_len, out_clip);
     return false;
+}
+
+/**
+ * 为持续环境音剔除文件首尾的近静音区，循环边界仍保留在 AudioClip 元数据里。
+ * 这里只用于明确标记为环境循环的资源；普通对白/效果音必须保留原始起止时序。
+ */
+static void _TrimAmbientLoopSilence(AudioClip &clip)
+{
+    if (!clip.samples || clip.frameCount < 4096 || (clip.channels != 1 && clip.channels != 2))
+        return;
+
+    constexpr int16_t ACTIVE_THRESHOLD = 96;
+    uint32_t first_active = 0;
+    uint32_t last_active = clip.frameCount;
+
+    auto frame_is_active = [&clip](uint32_t frame) -> bool
+    {
+        uint32_t sample = frame * clip.channels;
+        for (uint8_t channel = 0; channel < clip.channels; ++channel)
+        {
+            int32_t value = clip.samples[sample + channel];
+            if (value < 0)
+                value = -value;
+            if (value >= ACTIVE_THRESHOLD)
+                return true;
+        }
+        return false;
+    };
+
+    while (first_active < clip.frameCount && !frame_is_active(first_active))
+        first_active++;
+    while (last_active > first_active && !frame_is_active(last_active - 1U))
+        last_active--;
+
+    // 至少保留 100ms 可循环内容；异常或几乎全静音的素材继续使用完整边界。
+    if (last_active > first_active && last_active - first_active >= 44100U / 10U)
+    {
+        clip.loopStartFrame = first_active;
+        clip.loopEndFrame = last_active;
+    }
+}
+
+/** 加载、可选修正循环点，并同时注册数字 ID 与 JSON 稳定绑定名。 */
+static bool _LoadAndRegisterAudio(AudioAssetId id,
+                                  const char *binding,
+                                  const char *path,
+                                  const char *legacy_path,
+                                  uint8_t **legacy_data,
+                                  uint32_t *legacy_len,
+                                  bool trim_loop_silence)
+{
+    AudioClip clip;
+    if (!_LoadWavPcmWithFallback(path, legacy_path, legacy_data, legacy_len, &clip))
+        return false;
+    if (trim_loop_silence)
+        _TrimAmbientLoopSilence(clip);
+    if (!sysAudio.registerAsset(id, binding, clip))
+    {
+        Serial.printf("[资源管家] WAV 注册失败：%s。\n", path);
+        return false;
+    }
+    return true;
 }
 
 
@@ -380,12 +499,26 @@ void SysRes_Init()
 {
     Serial.println("[资源管家] 正在将高清材质与音频吸入 PSRAM 常驻...");
 
-    // 1. 加载 WAV 音频。这里会解析 RIFF chunk，只缓存真正的 PCM data 段。
-    _LoadWavPcmWithFallback(PrescriptConst::AUDIO_PROCEDURE_WAV, "/assets/procedure.wav", &g_wav_procedure, &g_wav_procedure_len);
-    _LoadWavPcmWithFallback(PrescriptConst::AUDIO_FINAL_WAV, "/assets/final.wav", &g_wav_final, &g_wav_final_len);
-    _LoadWavPcmWithFallback("/common/coins/heads.wav", "/assets/coins/heads.wav", &g_wav_heads, &g_wav_heads_len);
-    _LoadWavPcmWithFallback("/common/coins/tails.wav", "/assets/coins/tails.wav", &g_wav_tails, &g_wav_tails_len);
-    _LoadWavPcmWithFallback(PrescriptConst::AUDIO_AHAB_WAV, "/assets/Ahab.wav", &g_ahab_sound, &g_ahab_sound_len);
+    /*
+     * 1. 加载并注册音频资源。
+     *
+     * App 以后只依赖 AudioAssetId 或 JSON 稳定 binding，不再持有真实路径。
+     * PCM 指针只由本资源模块长期持有，App 不再获得或传递裸指针。
+     * procedure 是现有唯一持续循环素材，因此为它探测首尾近静音并写入 loopStart/loopEnd；
+     * 其他效果音必须保留完整时序，不能使用这个修剪步骤。
+     */
+    _LoadAndRegisterAudio(AudioAssetId::Procedure, "procedure", PrescriptConst::AUDIO_PROCEDURE_WAV, "/assets/procedure.wav",
+                          &g_wav_procedure, &g_wav_procedure_len, true);
+    _LoadAndRegisterAudio(AudioAssetId::Final, "final", PrescriptConst::AUDIO_FINAL_WAV, "/assets/final.wav",
+                          &g_wav_final, &g_wav_final_len, false);
+    _LoadAndRegisterAudio(AudioAssetId::CoinHeads, "heads", "/common/coins/heads.wav", "/assets/coins/heads.wav",
+                          &g_wav_heads, &g_wav_heads_len, false);
+    _LoadAndRegisterAudio(AudioAssetId::CoinTails, "tails", "/common/coins/tails.wav", "/assets/coins/tails.wav",
+                          &g_wav_tails, &g_wav_tails_len, false);
+    _LoadAndRegisterAudio(AudioAssetId::Ahab, "Ahab", PrescriptConst::AUDIO_AHAB_WAV, "/assets/Ahab.wav",
+                          &g_ahab_sound, &g_ahab_sound_len, false);
+    _LoadAndRegisterAudio(AudioAssetId::SeaRain, "sea.rain", PrescriptConst::AUDIO_SEA_RAIN_WAV, nullptr,
+                          &g_sea_rain_sound, &g_sea_rain_sound_len, true);
 
     // 2. 加载 3 套硬币贴图：普通、红色、绿色。
     //    兼容旧 64×64 bin，也支持后续替换为 96×96 bin；缺失时回退到普通金色贴图。
