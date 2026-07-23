@@ -6,7 +6,7 @@
 #include "sys/sys_narrative.h"
 
 #include <ArduinoJson.h>
-#include <LittleFS.h>
+#include <FFat.h>
 #include <string.h>
 #include <utility>
 
@@ -57,7 +57,7 @@ bool SysNarrativeCatalog::load(const char *path)
         return true;
 
     clear();
-    File file = LittleFS.open(path, FILE_READ);
+    File file = FFat.open(path, FILE_READ);
     if (!file)
     {
         Serial.printf("[叙事] 素材加载失败：未找到 %s。\n", path);

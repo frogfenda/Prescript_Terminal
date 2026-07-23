@@ -96,33 +96,23 @@ namespace TerminalLang
 
     inline const char *SpecialsPath(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "/zh/specials_zh.json" : "/en/specials_en.json";
-    }
-
-    inline const char *LegacySpecialsPath(SystemLang_t lang)
-    {
-        return lang == LANG_ZH ? "/assets/specials_zh.json" : "/assets/specials_en.json";
+        return lang == LANG_ZH ? "/content/zh/specials.json" : "/content/en/specials.json";
     }
 
     inline const char *OraclePath(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "/zh/oracle_zh.json" : "/en/oracle_en.json";
+        return lang == LANG_ZH ? "/content/zh/oracle.json" : "/content/en/oracle.json";
     }
 
-    /** 海应用叙事场景；正文与语言绑定，音频字段只保存可选的逻辑标识。 */
+    /** FATFS 中的海应用叙事场景；正文与语言绑定，音频字段只保存可选的逻辑标识。 */
     inline const char *SeaNarrativePath(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "/zh/sea_dialogues.json" : "/en/sea_dialogues.json";
-    }
-
-    inline const char *LegacyOraclePath(SystemLang_t lang)
-    {
-        return lang == LANG_ZH ? "/assets/oracle_zh.json" : "/assets/oracle_en.json";
+        return lang == LANG_ZH ? "/content/zh/sea_dialogues.json" : "/content/en/sea_dialogues.json";
     }
 
     inline const char *IdsPath(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "/zh/ids_zh.json" : "/en/ids_en.json";
+        return lang == LANG_ZH ? "/content/zh/identities.json" : "/content/en/identities.json";
     }
 
     inline const char *ConfigPath(SystemLang_t lang)
@@ -135,8 +125,4 @@ namespace TerminalLang
         return lang == LANG_ZH ? "/zh/config_zh.json" : "/en/config_en.json";
     }
 
-    inline const char *LegacyIdsPath()
-    {
-        return "/assets/ids.json";
-    }
 }

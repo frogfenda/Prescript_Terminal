@@ -77,7 +77,11 @@ void AppManager::toggleLanguage()
     sysConfig.loadLanguageProfile(next_lang);
     current_lang = next_lang;
     config_sleep_time_ms = sysConfig.sleep_time_ms;
-    // 切换后立即重载特异点资源，避免 UI 已变语言但特殊指令池仍停在旧语言。
+    /*
+     * FATFS 内容按语言分目录。切换完成后在主循环同步重载身份池与特殊指令池，
+     * 避免 UI 已切换语言，但提取部或特殊指令仍引用上一语言的 PSRAM 缓存。
+     */
+    (void)SysRes_LoadIdentityPool(current_lang);
     sysSpecials.begin();
 }
 

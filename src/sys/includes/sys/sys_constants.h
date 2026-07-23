@@ -108,12 +108,14 @@ namespace PrescriptConst
     constexpr const char *CONFIG_LEGACY_FILE = "/assets/config.json";
     constexpr const char *STANDBY_IMAGE_BIN = "/common/standby.bin";
     constexpr const char *STANDBY_IMAGE_LEGACY_BIN = "/assets/standby.bin";
-    constexpr const char *AUDIO_PROCEDURE_WAV = "/common/procedure.wav";
-    constexpr const char *AUDIO_FINAL_WAV = "/common/final.wav";
-    constexpr const char *AUDIO_AHAB_WAV = "/common/Ahab.wav";
-    constexpr const char *AUDIO_SEA_RAIN_WAV = "/common/rain.wav";
-    constexpr const char *COIN_ASSET_DIR = "/common/coins/";
-    constexpr const char *COIN_ASSET_LEGACY_DIR = "/assets/coins/";
+    // 可替换的大型音频和硬币贴图放在 FATFS，启动时由 SysRes 一次性读入 PSRAM。
+    constexpr const char *AUDIO_PROCEDURE_WAV = "/audio/common/procedure.wav";
+    constexpr const char *AUDIO_FINAL_WAV = "/audio/common/final.wav";
+    constexpr const char *AUDIO_AHAB_WAV = "/audio/common/ahab.wav";
+    constexpr const char *AUDIO_SEA_RAIN_WAV = "/audio/sea/rain.wav";
+    constexpr const char *AUDIO_COIN_HEADS_WAV = "/audio/coin/heads.wav";
+    constexpr const char *AUDIO_COIN_TAILS_WAV = "/audio/coin/tails.wav";
+    constexpr const char *COIN_ASSET_DIR = "/images/coin/";
 
     constexpr const char *BLE_DEVICE_NAME = "Terminal_01";
     constexpr const char *BLE_SERVICE_UUID = "0000DEAD-0000-1000-8000-00805F9B34FB";

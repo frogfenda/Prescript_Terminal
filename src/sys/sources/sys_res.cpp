@@ -1,12 +1,12 @@
 ﻿// 文件：src/sys/sys_res.cpp
-// 职责：把 LittleFS 中的常驻资源加载到 PSRAM，包括 WAV 音频、硬币贴图和抽卡身份池。
+// 职责：把 FATFS 中的常驻资源加载到 PSRAM，包括 WAV 音频、硬币贴图和双语内容。
 // 说明：WAV 不再假设 44 字节固定头，而是扫描 RIFF fmt/data，并在格式验证后缓存 PCM 数据。
 #include "sys/sys_res.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_audio.h"
 #include "sys/app_manager.h"
 #include "lang/terminal_lang.h"
-#include <LittleFS.h>
+#include <FFat.h>
 #include <ArduinoJson.h>
 #include <new>
 
@@ -180,7 +180,7 @@ static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *o
     *out_len = 0;
     *out_clip = AudioClip{};
 
-    File file = LittleFS.open(path, "r");
+    File file = FFat.open(path, "r");
     if (!file)
     {
         Serial.printf("[资源管家] WAV 加载失败：未找到 %s\n", path);
@@ -261,20 +261,6 @@ static bool _LoadWavPcmToPsram(const char *path, uint8_t **out_data, uint32_t *o
     return true;
 }
 
-// 【函数说明】先按新资源路径加载，失败时尝试旧 /assets 路径，方便开发板尚未重刷 LittleFS 时继续启动。
-static bool _LoadWavPcmWithFallback(const char *path,
-                                    const char *legacy_path,
-                                    uint8_t **out_data,
-                                    uint32_t *out_len,
-                                    AudioClip *out_clip)
-{
-    if (_LoadWavPcmToPsram(path, out_data, out_len, out_clip))
-        return true;
-    if (legacy_path && strcmp(path, legacy_path) != 0)
-        return _LoadWavPcmToPsram(legacy_path, out_data, out_len, out_clip);
-    return false;
-}
-
 /**
  * 为持续环境音剔除文件首尾的近静音区，循环边界仍保留在 AudioClip 元数据里。
  * 这里只用于明确标记为环境循环的资源；普通对白/效果音必须保留原始起止时序。
@@ -319,13 +305,12 @@ static void _TrimAmbientLoopSilence(AudioClip &clip)
 static bool _LoadAndRegisterAudio(AudioAssetId id,
                                   const char *binding,
                                   const char *path,
-                                  const char *legacy_path,
-                                  uint8_t **legacy_data,
-                                  uint32_t *legacy_len,
+                                  uint8_t **owned_data,
+                                  uint32_t *owned_len,
                                   bool trim_loop_silence)
 {
     AudioClip clip;
-    if (!_LoadWavPcmWithFallback(path, legacy_path, legacy_data, legacy_len, &clip))
+    if (!_LoadWavPcmToPsram(path, owned_data, owned_len, &clip))
         return false;
     if (trim_loop_silence)
         _TrimAmbientLoopSilence(clip);
@@ -342,7 +327,7 @@ static bool _LoadAndRegisterAudio(AudioAssetId id,
  * 把普通文本/JSON 文件加载到 PSRAM，并补 0 结尾。
  *
  * 这类资源不是二进制贴图，也不需要 WAV chunk 解析；
- * 但 JSON 解析器需要稳定的内存区域，所以资源管家统一负责从 LittleFS 挂载到内存。
+ * 但 JSON 解析器需要稳定的内存区域，所以资源管家统一负责从 FATFS 挂载到内存。
  */
 static bool _LoadTextToPsram(const char *path, char **out_data, uint32_t *out_len)
 {
@@ -352,7 +337,7 @@ static bool _LoadTextToPsram(const char *path, char **out_data, uint32_t *out_le
     *out_data = nullptr;
     *out_len = 0;
 
-    File file = LittleFS.open(path, "r");
+    File file = FFat.open(path, "r");
     if (!file)
     {
         Serial.printf("[资源管家] 文本素材加载失败：未找到 %s\n", path);
@@ -393,35 +378,6 @@ static bool _LoadTextToPsram(const char *path, char **out_data, uint32_t *out_le
     return true;
 }
 
-// 【函数说明】文本素材新路径加载失败时回退旧路径；用于运行期资源目录迁移阶段。
-static bool _LoadTextWithFallback(const char *path, const char *legacy_path, char **out_data, uint32_t *out_len)
-{
-    if (_LoadTextToPsram(path, out_data, out_len))
-        return true;
-    if (legacy_path && strcmp(path, legacy_path) != 0)
-        return _LoadTextToPsram(legacy_path, out_data, out_len);
-    return false;
-}
-
-/**
- * 加载固定尺寸的二进制图片到 PSRAM。
- * 当前硬币素材是 64×64 RGB565，因此固定读取 8192 字节。
- */
-static bool _LoadBinaryToPsram(const char *path, uint8_t *dst, uint32_t expected_len)
-{
-    if (!path || !dst || expected_len == 0)
-        return false;
-
-    File file = LittleFS.open(path, "r");
-    if (!file)
-        return false;
-
-    size_t read_len = file.read(dst, expected_len);
-    file.close();
-
-    return read_len == expected_len;
-}
-
 /**
  * 加载 RGB565 硬币贴图。
  *
@@ -436,7 +392,7 @@ static bool _LoadCoinBitmapToPsram(const char *path, uint16_t **out, int *out_si
     if (!path || !out || !out_size)
         return false;
 
-    File file = LittleFS.open(path, "r");
+    File file = FFat.open(path, "r");
     if (!file)
         return false;
 
@@ -490,10 +446,109 @@ static bool _LoadCoinBitmapToPsram(const char *path, uint16_t **out, int *out_si
 }
 
 /**
+ * 释放当前提取部身份池。
+ * IdentityData 通过 placement new 构造，其中的 String 必须逐个析构后才能释放 PSRAM；
+ * 语言切换和加载失败都走同一入口，避免旧语言文本残留或重复加载造成泄漏。
+ */
+static void _ReleaseIdentityPool()
+{
+    if (g_gacha_pool)
+    {
+        for (int i = 0; i < g_gacha_pool_total; ++i)
+            g_gacha_pool[i].~IdentityData();
+        free(g_gacha_pool);
+    }
+    free(g_gacha_1star);
+    free(g_gacha_2star);
+    free(g_gacha_3star);
+
+    g_gacha_pool = nullptr;
+    g_gacha_pool_total = 0;
+    g_gacha_1star = nullptr;
+    g_count_1star = 0;
+    g_gacha_2star = nullptr;
+    g_count_2star = 0;
+    g_gacha_3star = nullptr;
+    g_count_3star = 0;
+}
+
+bool SysRes_LoadIdentityPool(SystemLang_t lang)
+{
+    const char *path = TerminalLang::IdsPath(lang);
+    File file = FFat.open(path, FILE_READ);
+    if (!file)
+    {
+        _ReleaseIdentityPool();
+        Serial.printf("[资源管家] 找不到提取部身份文件：%s。\n", path);
+        return false;
+    }
+
+    JsonDocument document;
+    const DeserializationError error = deserializeJson(document, file);
+    file.close();
+    if (error || !document.is<JsonArray>() || document.size() == 0)
+    {
+        _ReleaseIdentityPool();
+        Serial.printf("[资源管家] 提取部身份文件解析失败或为空：%s，错误=%s。\n",
+                      path, error ? error.c_str() : "根节点不是非空数组");
+        return false;
+    }
+
+    const int total = (int)document.size();
+    IdentityData *newPool = (IdentityData *)ps_malloc(sizeof(IdentityData) * total);
+    int *newOneStar = (int *)ps_malloc(sizeof(int) * total);
+    int *newTwoStar = (int *)ps_malloc(sizeof(int) * total);
+    int *newThreeStar = (int *)ps_malloc(sizeof(int) * total);
+    if (!newPool || !newOneStar || !newTwoStar || !newThreeStar)
+    {
+        free(newPool);
+        free(newOneStar);
+        free(newTwoStar);
+        free(newThreeStar);
+        _ReleaseIdentityPool();
+        Serial.printf("[资源管家] 提取部身份池申请 PSRAM 失败：记录=%d。\n", total);
+        return false;
+    }
+
+    int oneStarCount = 0;
+    int twoStarCount = 0;
+    int threeStarCount = 0;
+    for (int i = 0; i < total; ++i)
+    {
+        new (&newPool[i]) IdentityData();
+        newPool[i].sinner = document[i]["sinner"].as<String>();
+        newPool[i].id_name = document[i]["id"].as<String>();
+        newPool[i].star = document[i]["star"].as<int>();
+        newPool[i].walp = document[i]["walp"].as<int>();
+
+        if (newPool[i].star == 1)
+            newOneStar[oneStarCount++] = i;
+        else if (newPool[i].star == 2)
+            newTwoStar[twoStarCount++] = i;
+        else if (newPool[i].star == 3)
+            newThreeStar[threeStarCount++] = i;
+    }
+
+    _ReleaseIdentityPool();
+    g_gacha_pool = newPool;
+    g_gacha_pool_total = total;
+    g_gacha_1star = newOneStar;
+    g_count_1star = oneStarCount;
+    g_gacha_2star = newTwoStar;
+    g_count_2star = twoStarCount;
+    g_gacha_3star = newThreeStar;
+    g_count_3star = threeStarCount;
+
+    Serial.printf("[资源管家] 已加载%s提取部身份：%d 条。\n",
+                  TerminalLang::DisplayName(lang, LANG_ZH), total);
+    return true;
+}
+
+/**
  * 初始化资源系统。
  *
  * 启动时把常用音频和图像一次性加载到 PSRAM，后续 App 播放/绘制时只访问内存，
- * 避免在动画或音频播放过程中反复从 LittleFS 读取导致卡顿。
+ * 避免在动画或音频播放过程中反复从 FATFS 读取导致卡顿。
  */
 void SysRes_Init()
 {
@@ -507,101 +562,49 @@ void SysRes_Init()
      * procedure 是现有唯一持续循环素材，因此为它探测首尾近静音并写入 loopStart/loopEnd；
      * 其他效果音必须保留完整时序，不能使用这个修剪步骤。
      */
-    _LoadAndRegisterAudio(AudioAssetId::Procedure, "procedure", PrescriptConst::AUDIO_PROCEDURE_WAV, "/assets/procedure.wav",
+    _LoadAndRegisterAudio(AudioAssetId::Procedure, "procedure", PrescriptConst::AUDIO_PROCEDURE_WAV,
                           &g_wav_procedure, &g_wav_procedure_len, true);
-    _LoadAndRegisterAudio(AudioAssetId::Final, "final", PrescriptConst::AUDIO_FINAL_WAV, "/assets/final.wav",
+    _LoadAndRegisterAudio(AudioAssetId::Final, "final", PrescriptConst::AUDIO_FINAL_WAV,
                           &g_wav_final, &g_wav_final_len, false);
-    _LoadAndRegisterAudio(AudioAssetId::CoinHeads, "heads", "/common/coins/heads.wav", "/assets/coins/heads.wav",
+    _LoadAndRegisterAudio(AudioAssetId::CoinHeads, "heads", PrescriptConst::AUDIO_COIN_HEADS_WAV,
                           &g_wav_heads, &g_wav_heads_len, false);
-    _LoadAndRegisterAudio(AudioAssetId::CoinTails, "tails", "/common/coins/tails.wav", "/assets/coins/tails.wav",
+    _LoadAndRegisterAudio(AudioAssetId::CoinTails, "tails", PrescriptConst::AUDIO_COIN_TAILS_WAV,
                           &g_wav_tails, &g_wav_tails_len, false);
-    _LoadAndRegisterAudio(AudioAssetId::Ahab, "Ahab", PrescriptConst::AUDIO_AHAB_WAV, "/assets/Ahab.wav",
+    _LoadAndRegisterAudio(AudioAssetId::Ahab, "Ahab", PrescriptConst::AUDIO_AHAB_WAV,
                           &g_ahab_sound, &g_ahab_sound_len, false);
-    _LoadAndRegisterAudio(AudioAssetId::SeaRain, "sea.rain", PrescriptConst::AUDIO_SEA_RAIN_WAV, nullptr,
+    _LoadAndRegisterAudio(AudioAssetId::SeaRain, "sea.rain", PrescriptConst::AUDIO_SEA_RAIN_WAV,
                           &g_sea_rain_sound, &g_sea_rain_sound_len, true);
 
     // 2. 加载 3 套硬币贴图：普通、红色、绿色。
     //    兼容旧 64×64 bin，也支持后续替换为 96×96 bin；缺失时回退到普通金色贴图。
     String prefixes[3] = {String(PrescriptConst::COIN_ASSET_DIR), String(PrescriptConst::COIN_ASSET_DIR) + "r", String(PrescriptConst::COIN_ASSET_DIR) + "g"};
-    String legacy_prefixes[3] = {String(PrescriptConst::COIN_ASSET_LEGACY_DIR), String(PrescriptConst::COIN_ASSET_LEGACY_DIR) + "r", String(PrescriptConst::COIN_ASSET_LEGACY_DIR) + "g"};
+    const String baseHeadsPath = String(PrescriptConst::COIN_ASSET_DIR) + "heads.bin";
+    const String baseTailsPath = String(PrescriptConst::COIN_ASSET_DIR) + "tails.bin";
     for (int i = 0; i < 3; i++)
     {
         String heads_path = prefixes[i] + "heads.bin";
         if (!_LoadCoinBitmapToPsram(heads_path.c_str(), &g_img_heads[i], &g_img_heads_size[i]))
         {
-            String legacy_heads_path = legacy_prefixes[i] + "heads.bin";
-            if (!_LoadCoinBitmapToPsram(legacy_heads_path.c_str(), &g_img_heads[i], &g_img_heads_size[i]))
-                _LoadCoinBitmapToPsram("/common/coins/heads.bin", &g_img_heads[i], &g_img_heads_size[i]);
-            if (!g_img_heads[i])
-                _LoadCoinBitmapToPsram("/assets/coins/heads.bin", &g_img_heads[i], &g_img_heads_size[i]);
+            // 彩色素材缺失时继续沿用现有普通金色贴图兜底；普通素材本身缺失时保持空指针。
+            if (i > 0)
+                _LoadCoinBitmapToPsram(baseHeadsPath.c_str(), &g_img_heads[i], &g_img_heads_size[i]);
         }
 
         String tails_path = prefixes[i] + "tails.bin";
         if (!_LoadCoinBitmapToPsram(tails_path.c_str(), &g_img_tails[i], &g_img_tails_size[i]))
         {
-            String legacy_tails_path = legacy_prefixes[i] + "tails.bin";
-            if (!_LoadCoinBitmapToPsram(legacy_tails_path.c_str(), &g_img_tails[i], &g_img_tails_size[i]))
-                _LoadCoinBitmapToPsram("/common/coins/tails.bin", &g_img_tails[i], &g_img_tails_size[i]);
-            if (!g_img_tails[i])
-                _LoadCoinBitmapToPsram("/assets/coins/tails.bin", &g_img_tails[i], &g_img_tails_size[i]);
+            if (i > 0)
+                _LoadCoinBitmapToPsram(baseTailsPath.c_str(), &g_img_tails[i], &g_img_tails_size[i]);
         }
     }
 
-    // 3. 加载纺织机答案池 JSON。sys_oracle 只解析这两段已挂载素材，不直接反复读取 LittleFS。
-    _LoadTextWithFallback(TerminalLang::OraclePath(LANG_ZH), TerminalLang::LegacyOraclePath(LANG_ZH), &g_oracle_json_zh, &g_oracle_json_zh_len);
-    _LoadTextWithFallback(TerminalLang::OraclePath(LANG_EN), TerminalLang::LegacyOraclePath(LANG_EN), &g_oracle_json_en, &g_oracle_json_en_len);
+    // 3. 双语纺织机答案都从 FATFS 缓存到 PSRAM，运行时切换语言只切换解析目标。
+    _LoadTextToPsram(TerminalLang::OraclePath(LANG_ZH), &g_oracle_json_zh, &g_oracle_json_zh_len);
+    _LoadTextToPsram(TerminalLang::OraclePath(LANG_EN), &g_oracle_json_en, &g_oracle_json_en_len);
 
     // 4. 加载抽卡身份池，并按星级建立索引表，供提取部模拟快速随机抽取。
-    SystemLang_t ids_lang = TerminalLang::LOCKED ? TerminalLang::DEFAULT_LANG : appManager.getLanguage();
-    File f_json = LittleFS.open(TerminalLang::IdsPath(ids_lang), "r");
-    if (!f_json)
-        f_json = LittleFS.open(TerminalLang::LegacyIdsPath(), "r");
-    if (f_json)
-    {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, f_json);
-        if (!error && doc.size() > 0)
-        {
-            g_gacha_pool_total = doc.size();
-            g_gacha_pool = (IdentityData *)ps_malloc(sizeof(IdentityData) * g_gacha_pool_total);
-            g_gacha_1star = (int *)ps_malloc(sizeof(int) * g_gacha_pool_total);
-            g_gacha_2star = (int *)ps_malloc(sizeof(int) * g_gacha_pool_total);
-            g_gacha_3star = (int *)ps_malloc(sizeof(int) * g_gacha_pool_total);
-
-            if (!g_gacha_pool || !g_gacha_1star || !g_gacha_2star || !g_gacha_3star)
-            {
-                Serial.println("[资源管家] 提取部数据申请 PSRAM 失败！");
-            }
-            else
-            {
-                for (int i = 0; i < g_gacha_pool_total; i++)
-                {
-                    new (&g_gacha_pool[i]) IdentityData();
-                    g_gacha_pool[i].sinner = doc[i]["sinner"].as<String>();
-                    g_gacha_pool[i].id_name = doc[i]["id"].as<String>();
-                    g_gacha_pool[i].star = doc[i]["star"].as<int>();
-                    g_gacha_pool[i].walp = doc[i]["walp"].as<int>();
-
-                    if (g_gacha_pool[i].star == 1)
-                        g_gacha_1star[g_count_1star++] = i;
-                    else if (g_gacha_pool[i].star == 2)
-                        g_gacha_2star[g_count_2star++] = i;
-                    else if (g_gacha_pool[i].star == 3)
-                        g_gacha_3star[g_count_3star++] = i;
-                }
-                Serial.printf("[资源管家] 提取部数据挂载完毕！总计载入身份: %d\n", g_gacha_pool_total);
-            }
-        }
-        else
-        {
-            Serial.println("[资源管家] 当前语言 ids 文件解析失败或为空！");
-        }
-        f_json.close();
-    }
-    else
-    {
-        Serial.println("[资源管家] 未找到当前语言 ids 文件。");
-    }
+    const SystemLang_t idsLang = TerminalLang::LOCKED ? TerminalLang::DEFAULT_LANG : appManager.getLanguage();
+    (void)SysRes_LoadIdentityPool(idsLang);
 
     Serial.println("[资源管家] 常驻资产挂载完毕！");
 }

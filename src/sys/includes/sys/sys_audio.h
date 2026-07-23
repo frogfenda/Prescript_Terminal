@@ -2,7 +2,7 @@
 【模块职责】系统音频混音与播放接口。
 
 资源、分类和播放实例是三个互相独立的概念：
-- AudioAssetId：唯一标识一份已经由 SysRes 从 LittleFS 加载的真实音频资源；
+- AudioAssetId：唯一标识一份已经由 SysRes 从 FATFS 加载的真实音频资源；
 - AudioBus：标识环境音、对白、效果音或 UI 音，供整类调节和停止；
 - AudioHandle：唯一标识某一次播放实例，同一资源可以同时得到多个不同句柄。
 
@@ -17,7 +17,7 @@
 using AudioHandle = uint32_t;
 constexpr AudioHandle AUDIO_HANDLE_INVALID = 0;
 
-/** 系统内置音频资源的稳定 ID；真实 LittleFS 路径由 SysRes 统一绑定。 */
+/** 系统音频资源的稳定 ID；真实 FATFS 路径由 SysRes 统一绑定。 */
 enum class AudioAssetId : uint8_t
 {
     Invalid = 0,
@@ -86,7 +86,7 @@ public:
 
     /**
      * 注册一份常驻 PCM 资源。通常只由 SysRes_Init() 在启动阶段调用。
-     * binding 是 JSON 等数据文件使用的稳定字符串，例如 "heads"，不是 LittleFS 路径；
+     * binding 是 JSON 等数据文件使用的稳定字符串，例如 "heads"，不是 FATFS 路径；
      * 最长 63 字节，注册表会复制内容，不要求调用方永久保留原字符串。
      */
     bool registerAsset(AudioAssetId id, const char *binding, const AudioClip &clip);

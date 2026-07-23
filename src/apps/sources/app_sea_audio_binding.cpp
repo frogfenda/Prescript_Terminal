@@ -2,7 +2,7 @@
 【模块职责】把 Sea 应用发布的天气/叙事事件适配到系统多 Voice 音频引擎。
 
 本文件属于 App 集成层：它可以同时依赖 AppSeaAudioBinding 和 SysAudio，但不会绘制海面，
-也不会让 AppSea 或 UIFluidSurface 直接接触 LittleFS、PCM 指针和 I2S。当前只绑定 rain.wav；
+也不会让 AppSea 或 UIFluidSurface 直接接触 FATFS、PCM 指针和 I2S。当前只绑定 rain.wav；
 雷声和逐句对白继续保留空回调，等真实资源加入后在同一适配器内扩展。
 */
 #include "apps/app_sea.h"

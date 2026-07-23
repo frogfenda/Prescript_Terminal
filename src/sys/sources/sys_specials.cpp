@@ -1,11 +1,11 @@
 ﻿/*
-【模块职责】特殊指令实现。按当前语言读取 specials_zh/en.json，抽取时先推进人物链条概率，再抽纯特殊指令，并把进度写回 sysConfig。
+【模块职责】特殊指令实现。按当前语言从 FATFS 读取 content/zh|en/specials.json，抽取时先推进人物链条概率，再抽纯特殊指令，并把进度写回 sysConfig。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 #include "sys/sys_specials.h"
 #include "sys/sys_config.h"
 #include "sys/app_manager.h"
-#include <LittleFS.h>
+#include <FFat.h>
 #include <ArduinoJson.h> // 必须引入 JSON 引擎
 #include <vector>
 #include "sys/sys_ble.h" // 确保引入了蓝牙接口
@@ -53,7 +53,7 @@ std::vector<CharChain> pool_char_chains;
 extern std::vector<String> sys_prescripts_zh;
 extern std::vector<String> sys_prescripts_en;
 
-// 【函数说明】按当前语言读取 specials_zh/en.json，解析人物链条和纯特殊指令。
+// 【函数说明】按当前语言读取 FATFS 中的 specials.json，解析人物链条和纯特殊指令。
 // 运行时语言切换会再次调用本函数，因此 BLE 同步事件只允许订阅一次，避免切换多次后重复回传 SPC_META。
 void SysSpecials::begin()
 {
@@ -63,17 +63,10 @@ void SysSpecials::begin()
     SystemLang_t current_lang = appManager.getLanguage();
     String path = TerminalLang::SpecialsPath(current_lang);
 
-    File f = LittleFS.open(path, "r");
+    File f = FFat.open(path, "r");
     if (!f)
     {
-        String legacy_path = TerminalLang::LegacySpecialsPath(current_lang);
-        f = LittleFS.open(legacy_path, "r");
-        if (f)
-            path = legacy_path;
-    }
-    if (!f)
-    {
-        Serial.println("[SysSpecials] 严重警告：找不到特异点配置文件: " + path);
+        Serial.println("[特殊指令] 找不到 FATFS 内容文件：" + path);
         return;
     }
 
@@ -84,7 +77,7 @@ void SysSpecials::begin()
 
     if (err)
     {
-        Serial.printf("[SysSpecials] JSON 解析失败: %s\n", err.c_str());
+        Serial.printf("[特殊指令] JSON 解析失败：%s。\n", err.c_str());
         return;
     }
 
@@ -122,7 +115,7 @@ void SysSpecials::begin()
         pool_char_chains.push_back(cc);
     }
 
-    Serial.printf("[SysSpecials] 装载完成! 包含 %d 条特殊指令, %d 个人物链条。\n",
+    Serial.printf("[特殊指令] 已从 FATFS 装载：特殊指令=%d，人物链条=%d。\n",
                   pool_pure_specials.size(), pool_char_chains.size());
     // 【新增】：向邮局订阅蓝牙同步广播。运行时切换语言会重载资源，但不能重复登记同一个回调。
     if (!s_specials_sync_subscribed)
