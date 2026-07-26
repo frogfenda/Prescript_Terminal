@@ -10,13 +10,13 @@
 #include <LittleFS.h>
 #include "sys/sys_config.h"
 #include "sys/sys_audio.h"
-#include "sys/sys_res.h"
 #include "sys/sys_haptic.h"
 #include "sys/sys_event.h" 
 #include "sys/sys_ble.h"   
 #include "sys/sys_constants.h"
 #include "sys/sys_command_result.h"
 #include "ui/ui_coin.h"
+#include "ui/ui_floating_value_animator.h"
 #include "lang/ui_strings.h"
 
 int g_coin_run_idx = -1;  // 告诉动画引擎当前在跑哪个技能 (-1代表快速推演)
@@ -453,9 +453,7 @@ private:
     int phase = 0; 
     uint32_t blink_last_time = 0;
     
-    int top_pop_timer = 0;
-    String top_pop_text = "";
-    uint16_t top_pop_color = TFT_WHITE;
+    UIFloatingValueAnimator score_pop_animator;
 
 protected:
     // 【函数说明】返回硬币动画左侧保留区域宽度；快速和技能投掷都使用全宽动画，所以返回 0。
@@ -508,21 +506,18 @@ protected:
         int score_y = (top_h - HAL_Get_Font_Line_Height(HAL_FONT_BODY)) / 2; 
         HAL_Screen_ShowChineseLine_Faded_Color(score_x, score_y, pow_str, 0.0f, color);
 
-        if (top_pop_timer > 0) {
-            int pop_w = HAL_Get_Text_Width(top_pop_text.c_str());
+        if (score_pop_animator.isActive()) {
+            int pop_w = score_pop_animator.width();
             int pop_x = score_x - pop_w - 10; 
             if (pop_x < split_x + 4) pop_x = split_x + 4;    
-            int float_up = (20 - top_pop_timer) * max(8, top_h / 4) / 20; 
-            int pop_y = score_y - float_up; 
-            float fade_alpha = (20.0f - top_pop_timer) / 20.0f;
-            HAL_Screen_ShowChineseLine_Faded_Color(pop_x, pop_y, top_pop_text.c_str(), fade_alpha, top_pop_color);
+            score_pop_animator.draw(pop_x, score_y);
         }
     }
 
     // 【函数说明】绘制硬币页面中随结果变化的 UI，例如技能投掷的点数弹出；返回 true 表示需要推屏。
     bool drawDynamicUI() override {
         bool needs_push = false;
-        if (top_pop_timer > 0) { top_pop_timer--; needs_push = true; }
+        if (score_pop_animator.update()) needs_push = true;
         if (phase == 2) {
             uint32_t now = millis();
             if (now - blink_last_time > 100) { blink_last_time = now; needs_push = true; }
@@ -541,16 +536,13 @@ protected:
         if (coins[idx].target_face == 0) {
             current_power += p.coin_power;
             coins[idx].flash_frames = CoinAnimParams::FLASH_DURATION;
-            top_pop_text = (p.coin_power >= 0 ? "+" : "") + String(p.coin_power);
-            top_pop_color = TFT_YELLOW;
-            top_pop_timer = 20; 
+            const String pop_text = (p.coin_power >= 0 ? "+" : "") + String(p.coin_power);
+            score_pop_animator.trigger(pop_text.c_str(), TFT_YELLOW);
             updateTopPanelScore(TFT_WHITE); 
             if (!playCoinAudio(AudioAssetId::CoinHeads)) SYS_SOUND_CONFIRM();
             SYS_HAPTIC_COIN_HEADS();
         } else {
-            top_pop_text = "+0";
-            top_pop_color = 0x7BEF;
-            top_pop_timer = 20;
+            score_pop_animator.trigger("+0", 0x7BEF);
             updateTopPanelScore(TFT_WHITE); 
             if (!playCoinAudio(AudioAssetId::CoinTails)) SYS_SOUND_NAV();
             SYS_HAPTIC_COIN_TAILS();
@@ -578,7 +570,7 @@ void onCreate() override {
         active_coins = p.coin_count; current_power = p.base_power;
         if (active_coins < 1) active_coins = 1; if (active_coins > UICoin::MAX_COINS) active_coins = UICoin::MAX_COINS; 
         
-        global_is_animating = false; phase = 0; top_pop_timer = 0;
+        global_is_animating = false; phase = 0; score_pop_animator.reset();
         for(int i=0; i<active_coins; i++) { coins[i].current_angle = 0; coins[i].is_flipping = false; coins[i].flash_frames = 0; coins[i].needs_redraw = true; coins[i].target_face = 0; }
         HAL_Sprite_Clear(); drawActiveCoinsOnly(); drawStaticUI(); HAL_Screen_Update();
     }
@@ -598,7 +590,7 @@ void onCreate() override {
             return;
         }
         stopCoinAudio(); SYS_SOUND_CONFIRM();
-        global_is_animating = true; phase = 1; current_power = sysConfig.coin_presets[g_coin_run_idx].base_power; top_pop_timer = 0;
+        global_is_animating = true; phase = 1; current_power = sysConfig.coin_presets[g_coin_run_idx].base_power; score_pop_animator.reset();
         for (int i=0; i<active_coins; i++) {
             coins[i].is_flipping = true; coins[i].flash_frames = 0; coins[i].target_face = 0;
             if (sysConfig.coin_data.mode == 0) coins[i].auto_stop_timer = CoinAnimParams::AUTO_SPIN_INITIAL + i * CoinAnimParams::AUTO_SPIN_INTERVAL;

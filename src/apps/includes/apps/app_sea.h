@@ -38,6 +38,6 @@ void AppSea_ClearAudioBinding();
 
 /**
  * 安装 Sea 到 SysAudio 的默认适配器。AppSea 首次进入时调用；函数可重复调用且只安装一次。
- * 资源必须已经由 SysRes_Init() 注册，缺失时保持静音并允许下次进入重新尝试。
+ * 音频资源必须已经由SysRes_Init()协调SysAudioAssets完成注册；缺失时保持静音。
  */
 void AppSeaAudio_EnsureInstalled();

@@ -12,7 +12,6 @@
 #include "sys/sys_audio.h"
 #include "sys/sys_haptic.h"
 #include "sys/sys_nfc.h"
-#include "sys/sys_specials.h"
 #include "sys/sys_power.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_prescript_target.h"
@@ -50,11 +49,10 @@ void setup()
 
     /*
      * 先把配置中的语言写入 AppManager。
-     * 这样 SysFS_Load_Prescripts() 和 sysSpecials.begin() 能按正确语言加载资源。
+     * 这样LittleFS普通指令和后续SysRes_Init都能按正确语言加载资源。
      */
     appManager.loadLanguageFromConfig();
     SysFS_Load_Prescripts();
-    sysSpecials.begin();
 
     /*
      * SysTime_Init 设置时区并从板载 RTC 恢复时间；RTC 不可信时等待网络或手动校时。

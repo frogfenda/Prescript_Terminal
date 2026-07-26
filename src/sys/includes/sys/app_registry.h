@@ -48,8 +48,11 @@ enum class AppId : uint8_t
     TimeManualSet,
     TimeDateSet,
 
-    // 沉浸式海面流体模拟；追加在枚举末尾，避免改变现有 AppId 的数值。
-    Sea
+    // 沉浸式海面流体模拟；追加在枚举末尾，避免改变此前 AppId 的数值。
+    Sea,
+
+    // 三模式业力木鱼；继续追加，避免改变已经用于导航和日志的枚举值。
+    Karma
 };
 
 /** 根据 AppId 返回对应 App 单例指针，AppManager 的 push/launch/replace 会调用它完成页面跳转。 */

@@ -10,14 +10,12 @@
 #include "sys/sys_ble.h"
 #include "sys/sys_fs.h"
 #include "sys/sys_res.h"
-#include "sys/sys_oracle.h"
 #include "sys/sys_router.h"
 #include "sys/sys_event.h"
 #include "sys/sys_auto_push.h"
 #include "sys/sys_nfc.h"
 #include "sys/sys_ble_queue.h"
 #include "sys/sys_runtime_status.h"
-#include "sys/sys_specials.h"
 #include "sys/sys_reminder.h"
 #include "sys/sys_gesture.h"
 
@@ -78,11 +76,10 @@ void AppManager::toggleLanguage()
     current_lang = next_lang;
     config_sleep_time_ms = sysConfig.sleep_time_ms;
     /*
-     * FATFS 内容按语言分目录。切换完成后在主循环同步重载身份池与特殊指令池，
-     * 避免 UI 已切换语言，但提取部或特殊指令仍引用上一语言的 PSRAM 缓存。
+     * 语言变化后由资源协调器一次性刷新身份、纺织机、特殊指令和Sea叙事。
+     * 这些工作在设置页点击期间同步完成，后续打开应用不再发生FAT读取或JSON解析。
      */
-    (void)SysRes_LoadIdentityPool(current_lang);
-    sysSpecials.begin();
+    SysRes_OnLanguageChanged(current_lang);
 }
 
 void AppManager::begin()
@@ -92,9 +89,7 @@ void AppManager::begin()
     last_tick = millis();
     idle_timer = millis();
 
-    SysRes_Init(); 
-    // 纺织机答案池依赖资源管家挂载的 JSON 素材，必须在 SysRes_Init() 后解析。
-    sysOracle.begin();
+    SysRes_Init();
 
     
     // 系统级的特殊拦截保留在这里
@@ -284,8 +279,8 @@ void AppManager::run()
             // 【全局例外】卡伪装只允许在主菜单由侧键长按启动，避免抢占其他界面的长按操作。
             SysNfc_StartEmulation();
         } else {
-            // 【平行输入】其他界面的侧键长按等价于旋钮主按键长按。
-            currentApp->onKeyLong();
+            // 【来源保留】默认实现仍转发到主键长按；需要区分侧键的页面可单独覆盖。
+            currentApp->onBtn2Long();
         }
     }
     else if (b2_evt == BTN_SHORT) {
@@ -296,8 +291,8 @@ void AppManager::run()
             SysNfc_StopEmulation();         // 下发撤退指令
             Feedback_PlayAbort();    // 播放一声低频“滴”，确认打断
         } else {
-            // 【平行输入】普通状态下，侧键短按等价于旋钮主按键短按。
-            currentApp->onKeyShort();
+            // 【来源保留】默认实现仍转发到主键短按；业力等页面可把侧键作为独立动作输入。
+            currentApp->onBtn2Short();
         }
     }
     currentApp->onLoop(); // 继续执行 UI 刷新

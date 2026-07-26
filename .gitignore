@@ -6,3 +6,4 @@
 reference/
 tmp/
 logs/
+.venv/

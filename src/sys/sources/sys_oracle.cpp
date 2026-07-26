@@ -5,11 +5,11 @@
 - 只维护答案池，不直接切页面、不播放音效、不调用 Prescript/Specials；
 - AppOracle 抽到文本后，直接交给 ui_prescript_decoder 按普通指令动画显示；
 - JSON 字段使用 id/type/weight/text，其中 type 用于区分“纺织机回复”和“吃什么”。
-- JSON 原始素材由资源管家 sys_res 从 LittleFS 挂载到 PSRAM，本模块只解析已挂载的内存素材。
+- JSON通过统一资源IO从FATFS流式解析；解析完成后只保留业务答案池，不缓存双语原文。
 */
 #include "sys/sys_oracle.h"
 #include "sys/app_manager.h"
-#include "sys/sys_res.h"
+#include "sys/sys_resource_io.h"
 #include <ArduinoJson.h>
 #include <vector>
 
@@ -46,16 +46,6 @@ const char* oraclePath(SystemLang_t lang)
     return TerminalLang::OraclePath(lang);
 }
 
-const char* oracleJsonData(SystemLang_t lang)
-{
-    return lang == LANG_ZH ? g_oracle_json_zh : g_oracle_json_en;
-}
-
-uint32_t oracleJsonLen(SystemLang_t lang)
-{
-    return lang == LANG_ZH ? g_oracle_json_zh_len : g_oracle_json_en_len;
-}
-
 void addFallback(SystemLang_t lang)
 {
     g_oracle_pool.clear();
@@ -80,21 +70,24 @@ bool loadOracleJson(SystemLang_t lang)
 {
     g_oracle_pool.clear();
 
-    const char* data = oracleJsonData(lang);
-    uint32_t len = oracleJsonLen(lang);
-    if (!data || len == 0)
+    fs::File file;
+    String resolvedPath;
+    const SysResourcePath path = {TerminalLang::OraclePath(lang)};
+    if (!SysResourceIO::OpenRead(path, file, "纺织机答案", &resolvedPath))
     {
-        Serial.printf("[纺织机] 资源管家未挂载答案池：%s，使用内置兜底。\n", oraclePath(lang));
+        Serial.printf("[纺织机] 答案文件不可用，使用内置兜底：%s。\n", oraclePath(lang));
         addFallback(lang);
         return false;
     }
 
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, data, len);
+    DeserializationError err = deserializeJson(doc, file);
+    file.close();
 
     if (err)
     {
-        Serial.printf("[纺织机] JSON 解析失败：%s，使用内置兜底。\n", err.c_str());
+        Serial.printf("[纺织机] JSON解析失败：%s，错误=%s，使用内置兜底。\n",
+                      resolvedPath.c_str(), err.c_str());
         addFallback(lang);
         return false;
     }
@@ -121,12 +114,12 @@ bool loadOracleJson(SystemLang_t lang)
 
     if (g_oracle_pool.empty())
     {
-        Serial.printf("[纺织机] 答案池为空：%s，使用内置兜底。\n", oraclePath(lang));
+        Serial.printf("[纺织机] 答案池为空：%s，使用内置兜底。\n", resolvedPath.c_str());
         addFallback(lang);
         return false;
     }
 
-    Serial.printf("[纺织机] 已解析 %s，答案 %d 条。\n", oraclePath(lang), (int)g_oracle_pool.size());
+    Serial.printf("[纺织机] 已预加载答案：%s，共%d条。\n", resolvedPath.c_str(), (int)g_oracle_pool.size());
     return true;
 }
 

@@ -96,23 +96,23 @@ namespace TerminalLang
 
     inline const char *SpecialsPath(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "/content/zh/specials.json" : "/content/en/specials.json";
+        return lang == LANG_ZH ? "/Resources/prescript/special/text/zh/specials.json" : "/Resources/prescript/special/text/en/specials.json";
     }
 
     inline const char *OraclePath(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "/content/zh/oracle.json" : "/content/en/oracle.json";
+        return lang == LANG_ZH ? "/Resources/loom/text/zh/oracle.json" : "/Resources/loom/text/en/oracle.json";
     }
 
     /** FATFS 中的海应用叙事场景；正文与语言绑定，音频字段只保存可选的逻辑标识。 */
     inline const char *SeaNarrativePath(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "/content/zh/sea_dialogues.json" : "/content/en/sea_dialogues.json";
+        return lang == LANG_ZH ? "/Resources/sea/text/zh/dialogues.json" : "/Resources/sea/text/en/dialogues.json";
     }
 
     inline const char *IdsPath(SystemLang_t lang)
     {
-        return lang == LANG_ZH ? "/content/zh/identities.json" : "/content/en/identities.json";
+        return lang == LANG_ZH ? "/Resources/gacha/text/zh/identities.json" : "/Resources/gacha/text/en/identities.json";
     }
 
     inline const char *ConfigPath(SystemLang_t lang)

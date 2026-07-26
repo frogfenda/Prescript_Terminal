@@ -42,8 +42,9 @@ public:
 
     // 副按键 (7号引脚)
     // 【函数说明】侧边副按键短按入口；AppManager 全局拦截后才会下发到页面。
-    virtual void onBtn2Short() {}
-    virtual void onBtn2Long() {}
+    // 默认仍保持“侧键等价主键”的历史行为；需要区分来源的页面只覆盖对应侧键接口。
+    virtual void onBtn2Short() { onKeyShort(); }
+    virtual void onBtn2Long() { onKeyLong(); }
     // 【函数说明】侧边副按键双击入口；指令页内部使用，其他页面通常由 AppManager 全局进入指令页。
     virtual void onBtn2Double() {}
     

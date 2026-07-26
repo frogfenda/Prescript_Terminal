@@ -83,6 +83,8 @@ public:
     uint8_t pomodoro_current_idx;
     PomodoroPreset pomodoro_presets[PrescriptConst::MAX_POMODORO_PRESETS];
     GachaStatsData gacha_stats; // <--- 【新增】：抽卡统计数据全局接入口
+    // 三个业力模式分别累计；只由AppKarma退出时写入公共配置，切换语言不会分裂计数。
+    uint32_t karma_counts[PrescriptConst::MAX_KARMA_MODES];
     CoinPreset coin_presets[PrescriptConst::MAX_COIN_PRESETS];
     int coin_preset_count = 0;
     uint8_t prescript_target_count = 0;
@@ -103,7 +105,7 @@ public:
     // 【接口说明】读取公共配置和当前语言配置，并填充 SysConfig 字段。
     void load();
     void save();
-    // 【接口说明】只保存设备级公共配置，例如 WiFi、音量、休眠、网络校时和当前语言。
+    // 【接口说明】只保存设备级公共配置，例如 WiFi、音量、休眠、网络校时、业力计数和当前语言。
     void saveCommon();
     // 【接口说明】读取/保存指定语言的内容配置，例如闹钟、日程、使用者、特异点进度和文本预设。
     void loadLanguageProfile(SystemLang_t lang);

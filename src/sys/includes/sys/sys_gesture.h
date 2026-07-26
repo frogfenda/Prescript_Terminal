@@ -16,6 +16,9 @@ enum class SysGestureType : uint8_t
     ScrollUp,
     ScrollDown,
     WeaponChange,
+    // 业力应用的两个独立敲击语义；识别器将在对应实板动作完成采样标定后再产生事件。
+    KarmaStrikeA,
+    KarmaStrikeB,
 };
 
 /**

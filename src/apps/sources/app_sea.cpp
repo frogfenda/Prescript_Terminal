@@ -18,11 +18,11 @@
 #include "sys/sys_motion.h"
 #include "sys/sys_narrative.h"
 #include "sys/sys_pose_solver.h"
+#include "sys/sys_sea_resources.h"
 #include "ui/ui_clock.h"
 #include "ui/ui_fluid_surface.h"
 #include "ui/ui_prescript_decoder.h"
 #include "ui/ui_theme.h"
-#include "lang/terminal_lang.h"
 
 namespace
 {
@@ -115,7 +115,6 @@ private:
     uint32_t lightning_seed_ = 0;
     uint8_t lightning_stage_ = 0;
     float lightning_flash_ = 0.0f;
-    SysNarrativeCatalog narrative_catalog_;
     UIPrescript::TextLayout narrative_layout_;
     UIPrescript::DecodeOverlayAnimator narrative_animator_;
     int narrative_scene_index_ = -1;
@@ -146,7 +145,7 @@ private:
 
     const SysNarrativeScene *currentNarrativeScene() const
     {
-        return narrative_catalog_.scene(narrative_scene_index_);
+        return SysSeaResources::Narrative().scene(narrative_scene_index_);
     }
 
     const SysNarrativeParagraph *currentNarrativeParagraph() const
@@ -210,7 +209,7 @@ private:
     /** 选择一个不同于上一场景的带权随机场景，并从首段首句开始播放。 */
     bool beginNextNarrativeScene()
     {
-        const int nextScene = narrative_catalog_.chooseWeightedScene(narrative_scene_index_);
+        const int nextScene = SysSeaResources::Narrative().chooseWeightedScene(narrative_scene_index_);
         if (nextScene < 0)
         {
             narrative_available_ = false;
@@ -478,16 +477,15 @@ public:
         pose_valid_ = false;
 
         /*
-         * 叙事目录按当前语言加载并在 App 实例内缓存；再次进入同一语言时不会重复解析 JSON。
-         * 首次场景使用带权随机，后续场景会排除当前索引，避免连续看到同一段内容。
+         * 叙事目录已经由SysRes在开机或语言切换时解析完成；进入Sea只选择场景，
+         * 不再访问FATFS或解析JSON。首次场景使用带权随机，后续排除当前索引避免连续重复。
          */
         narrative_paragraph_index_ = 0;
         narrative_line_index_ = 0;
         narrative_page_first_line_ = 0;
         narrative_page_line_count_ = 0;
         narrative_last_glitch_ms_ = 0;
-        narrative_available_ = narrative_catalog_.load(
-            TerminalLang::SeaNarrativePath(appManager.getLanguage()));
+        narrative_available_ = !SysSeaResources::Narrative().empty();
         if (narrative_available_)
             beginNextNarrativeScene();
         else

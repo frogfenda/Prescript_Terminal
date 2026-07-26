@@ -97,6 +97,7 @@ namespace PrescriptConst
     constexpr uint8_t MAX_BLE_QUEUE = 8;
     constexpr uint8_t MAX_PRESCRIPT_TARGETS = 12;
     constexpr uint8_t MAX_PRESCRIPT_TARGET_LEN = 24;
+    constexpr uint8_t MAX_KARMA_MODES = 3;
 
     // -----------------------------------------------------------------------------
     // Files and BLE protocol identifiers
@@ -108,14 +109,21 @@ namespace PrescriptConst
     constexpr const char *CONFIG_LEGACY_FILE = "/assets/config.json";
     constexpr const char *STANDBY_IMAGE_BIN = "/common/standby.bin";
     constexpr const char *STANDBY_IMAGE_LEGACY_BIN = "/assets/standby.bin";
-    // 可替换的大型音频和硬币贴图放在 FATFS，启动时由 SysRes 一次性读入 PSRAM。
-    constexpr const char *AUDIO_PROCEDURE_WAV = "/audio/common/procedure.wav";
-    constexpr const char *AUDIO_FINAL_WAV = "/audio/common/final.wav";
-    constexpr const char *AUDIO_AHAB_WAV = "/audio/common/ahab.wav";
-    constexpr const char *AUDIO_SEA_RAIN_WAV = "/audio/sea/rain.wav";
-    constexpr const char *AUDIO_COIN_HEADS_WAV = "/audio/coin/heads.wav";
-    constexpr const char *AUDIO_COIN_TAILS_WAV = "/audio/coin/tails.wav";
-    constexpr const char *COIN_ASSET_DIR = "/images/coin/";
+    /*
+     * FATFS大型资源统一放在/Resources下，再按应用域组织，并在启动阶段预加载到PSRAM。
+     * FAT根目录只保留系统更新目录/Update和资源目录/Resources。
+     */
+    constexpr const char *AUDIO_PROCEDURE_WAV = "/Resources/prescript/common/audio/procedure.wav";
+    constexpr const char *AUDIO_FINAL_WAV = "/Resources/prescript/common/audio/final.wav";
+    constexpr const char *AUDIO_AHAB_WAV = "/Resources/prescript/special/audio/ahab.wav";
+    constexpr const char *AUDIO_SEA_RAIN_WAV = "/Resources/sea/audio/rain.wav";
+    constexpr const char *AUDIO_COIN_HEADS_WAV = "/Resources/coin/audio/heads.wav";
+    constexpr const char *AUDIO_COIN_TAILS_WAV = "/Resources/coin/audio/tails.wav";
+    constexpr const char *COIN_ASSET_DIR = "/Resources/coin/images/";
+    constexpr const char *AUDIO_KARMA_1_WAV = "/Resources/karma/audio/muyu1.wav";
+    constexpr const char *AUDIO_KARMA_2_WAV = "/Resources/karma/audio/muyu2.wav";
+    constexpr const char *AUDIO_KARMA_3_WAV = "/Resources/karma/audio/muyu3.wav";
+    constexpr const char *KARMA_IMAGE_DIR = "/Resources/karma/images/";
 
     constexpr const char *BLE_DEVICE_NAME = "Terminal_01";
     constexpr const char *BLE_SERVICE_UUID = "0000DEAD-0000-1000-8000-00805F9B34FB";

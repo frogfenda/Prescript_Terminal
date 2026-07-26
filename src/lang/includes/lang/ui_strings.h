@@ -44,6 +44,7 @@ namespace UIStrings
             "指令推送配置",
             "使用者",
             "海",
+            "业力",
             "系统高级设置",
             "进入待机模式"};
         static const char *en_items[] = {
@@ -59,12 +60,66 @@ namespace UIStrings
             "PUSH SETTINGS",
             "USER",
             "SEA",
+            "KARMA",
             "SYSTEM SETTINGS",
             "STANDBY MODE"};
 
-        if (index < 0 || index >= 14)
+        if (index < 0 || index >= 15)
             return "";
         return IsZh(lang) ? zh_items[index] : en_items[index];
+    }
+
+    // 【业力】沉浸式木鱼页面的模式、累计次数和清空确认文本；三个模式名称暂时相同。
+    inline const char *KarmaModePrefix(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "当前模式[" : "MODE [";
+    }
+
+    inline const char *KarmaModeName(SystemLang_t lang, uint8_t mode)
+    {
+        (void)mode;
+        return IsZh(lang) ? "业" : "KARMA";
+    }
+
+    inline const char *KarmaModeSuffix(SystemLang_t lang)
+    {
+        (void)lang;
+        return "]";
+    }
+
+    inline const char *KarmaCountPrefix(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "你已经累计了" : "ACCUMULATED ";
+    }
+
+    inline const char *KarmaCountUnit(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "点" : " ";
+    }
+
+    inline const char *KarmaCountName(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "业" : "KARMA";
+    }
+
+    inline const char *KarmaClearTitle(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "清空业力？" : "CLEAR KARMA?";
+    }
+
+    inline const char *KarmaClearMessage(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "仅清空当前模式" : "CURRENT MODE ONLY";
+    }
+
+    inline const char *KarmaClearHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "短按清空 / 长按取消" : "CLICK CLEAR / HOLD CANCEL";
+    }
+
+    inline const char *KarmaMissingImage(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "业力图像缺失" : "KARMA IMAGE MISSING";
     }
 
     // 【系统设置】系统高级设置页的条目、网络状态和语言锁定提示。语言项会根据编译宏显示“切换”或“固定版本”。

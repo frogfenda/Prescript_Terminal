@@ -1,7 +1,7 @@
 ﻿/*
 【模块职责】纺织机回复池接口。
 
-本模块只负责解析资源管家挂载的 oracle_zh/en.json 短答案，并按 type + weight 抽取。
+本模块通过统一资源IO解析当前语言的oracle.json短答案，并按type + weight抽取。
 它不接入 sysSpecials，也不写入当前特殊指令结果，避免和特殊指令音频/剧情状态互相污染。
 */
 #pragma once
@@ -18,7 +18,7 @@ struct OracleAnswer
 class SysOracle
 {
 public:
-    /** 按当前系统语言解析答案池；资源缺失时保留内置兜底答案。 */
+    /** 按当前系统语言预加载答案池；资源缺失时保留内置兜底答案。 */
     void begin();
 
     /** 按 type 抽取一条答案。type 例如 "weaver" / "food"。 */

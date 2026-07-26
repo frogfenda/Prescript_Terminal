@@ -137,4 +137,51 @@ public:
                 HAL_Screen_ShowChineseLine(current_x, y, suffix);
         }
     }
+
+    /**
+     * 绘制带独立动态值颜色的三段式文本。
+     *
+     * 该接口与 drawSegmentedText 使用同一套跳动状态，只把 value 改为指定RGB565颜色；
+     * 适用于“当前模式[业]”这类固定括号保持默认色、被切换内容需要强调色的页面。
+     */
+    void drawSegmentedTextWithValueColor(int x, int y,
+                                         const char *prefix,
+                                         const char *value,
+                                         const char *suffix,
+                                         uint16_t valueColor,
+                                         float distance = 0.0f)
+    {
+        int current_x = x;
+
+        if (prefix && prefix[0] != '\0')
+        {
+            if (distance > 0.01f)
+                HAL_Screen_ShowChineseLine_Faded(current_x, y, prefix, distance);
+            else
+                HAL_Screen_ShowChineseLine(current_x, y, prefix);
+            current_x += HAL_Get_Text_Width(prefix);
+        }
+
+        if (value && value[0] != '\0')
+        {
+            int value_y = y;
+            float value_distance = distance;
+            if (progress > 0.01f)
+            {
+                value_y += (int)(progress * direction * 12.0f);
+                value_distance += progress * 1.5f;
+            }
+            HAL_Screen_ShowChineseLine_Faded_Color(current_x, value_y, value,
+                                                   value_distance, valueColor);
+            current_x += HAL_Get_Text_Width(value);
+        }
+
+        if (suffix && suffix[0] != '\0')
+        {
+            if (distance > 0.01f)
+                HAL_Screen_ShowChineseLine_Faded(current_x, y, suffix, distance);
+            else
+                HAL_Screen_ShowChineseLine(current_x, y, suffix);
+        }
+    }
 };

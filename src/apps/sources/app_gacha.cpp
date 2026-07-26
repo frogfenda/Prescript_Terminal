@@ -4,14 +4,16 @@
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_haptic.h"
-#include "sys/sys_res.h"
+#include "sys/sys_identity_catalog.h"
 #include "sys/sys_config.h" // 【新增】：引入全能系统管家
 #include "lang/ui_strings.h"
 
 struct PullResult
 {
-    IdentityData *id_ptr;
-    bool is_new;
+    // 每次抽取保存身份值副本，不持有目录内部指针；运行时切换语言后结算页仍然安全。
+    IdentityData identity;
+    bool valid = false;
+    bool is_new = false;
 };
 
 class AppGacha : public AppBase
@@ -91,10 +93,10 @@ private:
     // ==========================================
     // 底层引擎：抽卡概率与数据分配
     // ==========================================
-    IdentityData *rollSingle(bool is_guaranteed_2star)
+    bool rollSingle(bool is_guaranteed_2star, IdentityData &out)
     {
-        if (g_gacha_pool_total == 0)
-            return nullptr;
+        if (SysIdentityCatalog::Count() == 0)
+            return false;
 
         int r = random(1000);
         int target_star = 1;
@@ -105,22 +107,20 @@ private:
         else if (is_guaranteed_2star)
             target_star = 2;
 
-        if (target_star == 3 && g_count_3star == 0)
+        if (target_star == 3 && !SysIdentityCatalog::HasStar(3))
             target_star = 2;
-        if (target_star == 2 && g_count_2star == 0)
+        if (target_star == 2 && !SysIdentityCatalog::HasStar(2))
             target_star = 1;
-        if (target_star == 1 && g_count_1star == 0)
-            return &g_gacha_pool[0];
+        if (SysIdentityCatalog::DrawByStar((uint8_t)target_star, out))
+            return true;
 
-        int selected_idx = 0;
-        if (target_star == 3)
-            selected_idx = g_gacha_3star[random(g_count_3star)];
-        else if (target_star == 2)
-            selected_idx = g_gacha_2star[random(g_count_2star)];
-        else
-            selected_idx = g_gacha_1star[random(g_count_1star)];
-
-        return &g_gacha_pool[selected_idx];
+        // 异常素材可能缺少一整档星级；按低到高寻找任意可用记录，避免应用崩溃。
+        for (uint8_t star = 1; star <= 3; ++star)
+        {
+            if (SysIdentityCatalog::DrawByStar(star, out))
+                return true;
+        }
+        return false;
     }
 
     void executeTenPull()
@@ -130,12 +130,12 @@ private:
 
         for (int i = 0; i < PULL_COUNT; i++)
         {
-            current_pulls[i].id_ptr = rollSingle(i == 9);
+            current_pulls[i].valid = rollSingle(i == 9, current_pulls[i].identity);
             current_pulls[i].is_new = false;
-            if (current_pulls[i].id_ptr)
+            if (current_pulls[i].valid)
             {
-                int s = current_pulls[i].id_ptr->star;
-                int w = current_pulls[i].id_ptr->walp;
+                int s = current_pulls[i].identity.star;
+                int w = current_pulls[i].identity.walp;
 
                 if (s > max_star_pulled) max_star_pulled = s;
                 if (w == 1) has_walp_pulled = true;
@@ -217,7 +217,7 @@ private:
 
             if (revealed[i])
             {
-                IdentityData *p_id = current_pulls[i].id_ptr;
+                const IdentityData *p_id = current_pulls[i].valid ? &current_pulls[i].identity : nullptr;
                 uint16_t box_color = TFT_DARKGREY;
                 if (p_id)
                 {
@@ -262,7 +262,7 @@ private:
             if (list_idx >= PULL_COUNT)
                 break;
 
-            IdentityData *p_id = current_pulls[list_idx].id_ptr;
+            const IdentityData *p_id = current_pulls[list_idx].valid ? &current_pulls[list_idx].identity : nullptr;
             if (!p_id)
                 continue;
 
@@ -367,7 +367,7 @@ public:
                     if (elapsed >= trigger_time && !revealed[i])
                     {
                         revealed[i] = true;
-                        IdentityData *p_id = current_pulls[i].id_ptr;
+                        const IdentityData *p_id = current_pulls[i].valid ? &current_pulls[i].identity : nullptr;
 
                         // 【不同程度的音效震动反馈】
                         if (p_id)

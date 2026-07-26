@@ -3,7 +3,7 @@
 */
 #include "ui/ui_coin.h"
 #include "hal/hal.h"
-#include "sys/sys_res.h"
+#include "sys/sys_coin_resources.h"
 #include <math.h>
 #include <string.h>
 
@@ -194,9 +194,10 @@ namespace UICoin
 
         int material = clampInt(frame.material, 0, 2);
         const bool isBack = (frame.scaleX < 0.0f);
-        uint16_t *img = isBack ? g_img_tails[material] : g_img_heads[material];
-        int srcSize = isBack ? g_img_tails_size[material] : g_img_heads_size[material];
-        if (!img || srcSize <= 0) return false;
+        const SysRgb565View image = SysCoinResources::GetFace((uint8_t)material, isBack);
+        if (!image.valid() || image.width != image.height) return false;
+        const uint16_t *img = image.pixels;
+        const int srcSize = image.width;
 
         float absScale = fabsf(frame.scaleX);
         int drawW = (int)(targetSize * absScale);

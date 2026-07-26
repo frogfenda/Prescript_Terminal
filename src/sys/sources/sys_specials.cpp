@@ -1,11 +1,11 @@
 ﻿/*
-【模块职责】特殊指令实现。按当前语言从 FATFS 读取 content/zh|en/specials.json，抽取时先推进人物链条概率，再抽纯特殊指令，并把进度写回 sysConfig。
+【模块职责】特殊指令实现。通过统一资源IO按当前语言读取FATFS素材，抽取时先推进人物链条概率，再抽纯特殊指令，并把进度写回sysConfig。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 #include "sys/sys_specials.h"
 #include "sys/sys_config.h"
 #include "sys/app_manager.h"
-#include <FFat.h>
+#include "sys/sys_resource_io.h"
 #include <ArduinoJson.h> // 必须引入 JSON 引擎
 #include <vector>
 #include "sys/sys_ble.h" // 确保引入了蓝牙接口
@@ -61,14 +61,11 @@ void SysSpecials::begin()
     pool_char_chains.clear();
 
     SystemLang_t current_lang = appManager.getLanguage();
-    String path = TerminalLang::SpecialsPath(current_lang);
-
-    File f = FFat.open(path, "r");
-    if (!f)
-    {
-        Serial.println("[特殊指令] 找不到 FATFS 内容文件：" + path);
+    const SysResourcePath path = {TerminalLang::SpecialsPath(current_lang)};
+    fs::File f;
+    String resolvedPath;
+    if (!SysResourceIO::OpenRead(path, f, "特殊指令", &resolvedPath))
         return;
-    }
 
     // 使用 ArduinoJson 7 的自动内存管理
     JsonDocument doc;
@@ -77,7 +74,7 @@ void SysSpecials::begin()
 
     if (err)
     {
-        Serial.printf("[特殊指令] JSON 解析失败：%s。\n", err.c_str());
+        Serial.printf("[特殊指令] JSON解析失败：%s，错误=%s。\n", resolvedPath.c_str(), err.c_str());
         return;
     }
 
@@ -115,8 +112,8 @@ void SysSpecials::begin()
         pool_char_chains.push_back(cc);
     }
 
-    Serial.printf("[特殊指令] 已从 FATFS 装载：特殊指令=%d，人物链条=%d。\n",
-                  pool_pure_specials.size(), pool_char_chains.size());
+    Serial.printf("[特殊指令] 已预加载：特殊指令=%d，人物链条=%d，路径=%s。\n",
+                  pool_pure_specials.size(), pool_char_chains.size(), resolvedPath.c_str());
     // 【新增】：向邮局订阅蓝牙同步广播。运行时切换语言会重载资源，但不能重复登记同一个回调。
     if (!s_specials_sync_subscribed)
     {

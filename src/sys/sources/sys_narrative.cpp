@@ -6,7 +6,7 @@
 #include "sys/sys_narrative.h"
 
 #include <ArduinoJson.h>
-#include <FFat.h>
+#include "sys/sys_resource_io.h"
 #include <string.h>
 #include <utility>
 
@@ -57,26 +57,24 @@ bool SysNarrativeCatalog::load(const char *path)
         return true;
 
     clear();
-    File file = FFat.open(path, FILE_READ);
-    if (!file)
-    {
-        Serial.printf("[叙事] 素材加载失败：未找到 %s。\n", path);
+    fs::File file;
+    String resolvedPath;
+    if (!SysResourceIO::OpenRead({path}, file, "叙事素材", &resolvedPath))
         return false;
-    }
 
     JsonDocument document;
     const DeserializationError error = deserializeJson(document, file);
     file.close();
     if (error)
     {
-        Serial.printf("[叙事] JSON 解析失败：%s，错误=%s。\n", path, error.c_str());
+        Serial.printf("[叙事] JSON解析失败：%s，错误=%s。\n", resolvedPath.c_str(), error.c_str());
         return false;
     }
 
     JsonArrayConst sceneArray = document["scenes"].as<JsonArrayConst>();
     if (sceneArray.isNull())
     {
-        Serial.printf("[叙事] JSON 缺少 scenes 数组：%s。\n", path);
+        Serial.printf("[叙事] JSON缺少scenes数组：%s。\n", resolvedPath.c_str());
         return false;
     }
 
@@ -133,12 +131,12 @@ bool SysNarrativeCatalog::load(const char *path)
 
     if (scenes_.empty())
     {
-        Serial.printf("[叙事] 素材中没有有效场景：%s。\n", path);
+        Serial.printf("[叙事] 素材中没有有效场景：%s。\n", resolvedPath.c_str());
         return false;
     }
 
     loaded_path_ = path;
-    Serial.printf("[叙事] 已加载 %d 个场景：%s。\n", (int)scenes_.size(), path);
+    Serial.printf("[叙事] 已预加载%d个场景：%s。\n", (int)scenes_.size(), resolvedPath.c_str());
     return true;
 }
 

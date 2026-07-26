@@ -77,6 +77,8 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
     cfg.gacha_stats.s1 = 0;
     cfg.gacha_stats.w3 = 0;
     cfg.gacha_stats.w2 = 0;
+    for (uint8_t i = 0; i < PrescriptConst::MAX_KARMA_MODES; ++i)
+        cfg.karma_counts[i] = 0;
 
     const char *fallback_names[PrescriptConst::MAX_POMODORO_PRESETS] = {
         "常规专注", "深度工作", "短时冲刺", "阅读模式", "冥想休息"
@@ -316,6 +318,16 @@ void SysConfig::load()
         gacha_stats.w3 = 0;
         gacha_stats.w2 = 0;
     }
+
+    // 三个模式计数属于设备级公共数据；旧配置没有数组时从0开始，不触发额外写盘迁移。
+    for (uint8_t i = 0; i < PrescriptConst::MAX_KARMA_MODES; ++i)
+        karma_counts[i] = 0;
+    if (doc["karma_counts"].is<JsonArray>())
+    {
+        JsonArray karmaArray = doc["karma_counts"].as<JsonArray>();
+        for (uint8_t i = 0; i < PrescriptConst::MAX_KARMA_MODES && i < karmaArray.size(); ++i)
+            karma_counts[i] = karmaArray[i] | (uint32_t)0;
+    }
     special_toggles = doc["spec_tog"] | 0xFFFFFFFF;
     
     for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++) char_progress[i] = 0;
@@ -383,6 +395,10 @@ void SysConfig::saveCommon()
     gs_node_out["s1"] = gacha_stats.s1;
     gs_node_out["w3"] = gacha_stats.w3;
     gs_node_out["w2"] = gacha_stats.w2;
+
+    JsonArray karma_array = doc["karma_counts"].to<JsonArray>();
+    for (uint8_t i = 0; i < PrescriptConst::MAX_KARMA_MODES; ++i)
+        karma_array.add(karma_counts[i]);
 
     doc["hap_en"] = haptic_enable;
     doc["hap_in"] = haptic_intensity;

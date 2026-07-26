@@ -66,6 +66,11 @@ namespace
         return leaf.equalsIgnoreCase("Update");
     }
 
+    bool isResourcesLeaf(const String &leaf)
+    {
+        return leaf.equalsIgnoreCase("Resources");
+    }
+
     bool isDirectory(const char *path)
     {
         fs::File file = FFat.open(path, FILE_READ);
@@ -545,7 +550,11 @@ namespace
             const bool directory = item.isDirectory();
             item.close();
 
-            if (root && isUpdateLeaf(leaf))
+            /*
+             * FAT根目录对电脑只暴露/Update和/Resources两类入口。
+             * /Update由更新系统自己维护；Backup只允许补齐/Resources，旧版根级资源目录不再恢复。
+             */
+            if (root && (isUpdateLeaf(leaf) || !isResourcesLeaf(leaf)))
             {
                 item = dir.openNextFile();
                 continue;
@@ -558,15 +567,39 @@ namespace
                 // 空备份目录不创建；它既不是恢复载荷，也不应影响空卷判断。
                 if (treeHasFile(LittleFS, sourceChild, false))
                 {
-                    ok = ensureFatDirectory(targetChild) &&
-                         copyBackupTree(sourceChild, targetChild, false, copiedFiles);
+                    /*
+                     * 新FAT结构按应用划分顶级目录，同一应用目录内可能只缺少audio/text中的一部分。
+                     * 因此不能再以“顶级目录已有任意文件”为由跳过整棵树，而要逐层进入并只补缺失文件。
+                     */
+                    if (FFat.exists(targetChild.c_str()) && !fatPathMatchesType(targetChild, true))
+                    {
+                        Serial.printf("[FATFS][恢复] 目录类型冲突，保留现有路径并停止：%s。\n", targetChild.c_str());
+                        ok = false;
+                    }
+                    else
+                    {
+                        ok = ensureFatDirectory(targetChild) &&
+                             copyBackupTree(sourceChild, targetChild, false, copiedFiles);
+                    }
                 }
             }
             else
             {
-                ok = copyBackupFile(sourceChild, targetChild);
-                if (ok)
-                    ++copiedFiles;
+                if (FFat.exists(targetChild.c_str()))
+                {
+                    if (!fatPathMatchesType(targetChild, false))
+                    {
+                        Serial.printf("[FATFS][恢复] 文件类型冲突，保留现有路径并停止：%s。\n", targetChild.c_str());
+                        ok = false;
+                    }
+                    // 已存在的用户文件永不覆盖；这里只继续检查同级其他缺失文件。
+                }
+                else
+                {
+                    ok = copyBackupFile(sourceChild, targetChild);
+                    if (ok)
+                        ++copiedFiles;
+                }
             }
             item = dir.openNextFile();
         }
@@ -715,84 +748,23 @@ namespace SysFatUpdate
     {
         if (!HAL::FatStorage::IsMountedForEsp())
             return false;
-        if (!LittleFS.exists(BACKUP_DIR) || !treeHasFile(LittleFS, BACKUP_DIR, true))
+        const String backupResources = joinPath(BACKUP_DIR, "Resources");
+        if (!LittleFS.exists(backupResources.c_str()) ||
+            !treeHasFile(LittleFS, backupResources, false))
         {
-            Serial.println("[RECOVERY] no non-empty LittleFS /Backup payload");
+            Serial.println("[FATFS][恢复] LittleFS /Backup/Resources不存在或没有有效文件。");
             return false;
         }
-
-        fs::File backupRoot = LittleFS.open(BACKUP_DIR, FILE_READ);
-        if (!backupRoot || !backupRoot.isDirectory())
-        {
-            if (backupRoot)
-                backupRoot.close();
-            return false;
-        }
-
-        bool ok = true;
         size_t copiedFiles = 0;
-        size_t restoredTargets = 0;
-        fs::File item = backupRoot.openNextFile();
-        while (item && ok)
+        const bool ok = copyBackupTree(BACKUP_DIR, "/", true, copiedFiles);
+        if (copiedFiles == 0 && ok)
         {
-            const String leaf = leafName(String(item.name()));
-            const bool directory = item.isDirectory();
-            item.close();
-
-            const String sourcePath = joinPath(BACKUP_DIR, leaf);
-            const String targetPath = joinPath("/", leaf);
-
-            // /Backup/Update 永不参与恢复；空备份目录也不算有效恢复目标。
-            if (isUpdateLeaf(leaf) || (directory && !treeHasFile(LittleFS, sourcePath, false)))
-            {
-                item = backupRoot.openNextFile();
-                continue;
-            }
-
-            const bool targetTypeMatches = fatPathMatchesType(targetPath, directory);
-            const bool targetHasPayload = !directory || treeHasFile(FFat, targetPath, false);
-            if (targetTypeMatches && targetHasPayload)
-            {
-                item = backupRoot.openNextFile();
-                continue;
-            }
-
-            // 类型冲突可能是用户数据，绝不自动删除；停下并明确报告。
-            if (FFat.exists(targetPath.c_str()) && !targetTypeMatches)
-            {
-                Serial.printf("[RECOVERY] target type mismatch, keep existing path: %s\n", targetPath.c_str());
-                ok = false;
-                break;
-            }
-
-            if (directory)
-            {
-                ok = ensureFatDirectory(targetPath) &&
-                     copyBackupTree(sourcePath, targetPath, false, copiedFiles);
-            }
-            else
-            {
-                ok = copyBackupFile(sourcePath, targetPath);
-                if (ok)
-                    ++copiedFiles;
-            }
-            if (ok)
-                ++restoredTargets;
-
-            item = backupRoot.openNextFile();
-        }
-        if (item)
-            item.close();
-        backupRoot.close();
-
-        if (restoredTargets == 0 && ok)
-        {
-            Serial.println("[RECOVERY] all FAT backup targets are present");
+            Serial.println("[FATFS][恢复] FATFS中的备份目标均已存在，无需补齐。");
             return false;
         }
 
-        Serial.printf("[RECOVERY] FAT backup restore %s, targets=%u files=%u\n", ok ? "complete" : "failed",
-                      static_cast<unsigned>(restoredTargets), static_cast<unsigned>(copiedFiles));
-        return ok;
+        Serial.printf("[FATFS][恢复] 缺失文件补齐%s：文件=%u。\n",
+                      ok ? "完成" : "失败", static_cast<unsigned>(copiedFiles));
+        return ok && copiedFiles > 0;
     }
 }

@@ -8,8 +8,8 @@
  * - 更新包目录固定为 FAT 根目录下的 /Update；目录不存在时自动创建。
  * - firmware.bin/app.bin 写入下一个 OTA App 分区。
  * - littlefs.bin/spiffs.bin/fs.bin 写入标签为 spiffs 的 LittleFS 分区。
- * - LittleFS /Backup 可作为 FAT 初始内容备份；恢复时按备份中的顶级目标检查缺失项，
- *   忽略根级 /Update 和所有空目录，避免自动创建 Update 后阻止恢复。
+ * - FAT根目录只保留/Update和/Resources；LittleFS /Backup只允许递归补齐/Resources内的缺失文件，
+ *   绝不覆盖用户已有文件，并忽略旧版根级资源目录和所有空目录。
  *
  * 下列接口仅可在 HAL::FatStorage 已由 ESP 挂载时调用。
  */
@@ -35,6 +35,6 @@ namespace SysFatUpdate
     // 成功时清理更新文件并立即重启；失败时保留文件和错误画面，交由调用方停止普通启动。
     BootResult CheckAndApplyAtBoot();
 
-    // 从 LittleFS /Backup 恢复 FAT 中缺失的顶级备份目标；不覆盖类型正确的现有目标。
+    // 从LittleFS /Backup递归补齐FAT缺失文件；不覆盖现有文件，遇到文件/目录类型冲突则停止。
     bool RestoreFatBackupIfNeeded();
 }

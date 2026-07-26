@@ -66,7 +66,7 @@ public:
     // 【接口说明】返回当前 UI 语言；锁定版由编译宏决定，运行时版由 sysConfig.language 决定。
     SystemLang_t getLanguage() const { return current_lang; }
     bool isLanguageLocked() const { return TerminalLang::LOCKED; }
-    // 【接口说明】根据编译宏和 sysConfig.language 计算 current_lang，必须在 sysSpecials.begin 前执行。
+    // 【接口说明】根据编译宏和sysConfig.language计算current_lang，必须在SysRes_Init前执行。
     void loadLanguageFromConfig();
     void toggleLanguage();
     AppBase *getCurrentApp() { return currentApp; }
