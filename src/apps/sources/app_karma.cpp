@@ -1,5 +1,6 @@
 /*
-【模块职责】实现“业力”三模式木鱼页面：侧键/语义动作敲击、独立累计、模式选择、清空确认和呼吸图片。
+【模块职责】实现“业力”三模式木鱼页面：侧键/语义动作敲击、独立累计、旋钮按键进入模式选择、
+向下旋转进入计数选择、清空确认和呼吸图片。
 【调用关系】AppManager分发旋钮、主键、侧键与SysGesture事件；图片和音频均由SysRes启动预热，页面不直接访问FATFS。
 【重要约束】三个计数只在本次App真正onDestroy退出且发生变化时写入公共配置；运行中和切换模式时不写LittleFS。
 */
@@ -12,6 +13,7 @@
 #include "sys/sys_audio.h"
 #include "sys/sys_config.h"
 #include "sys/sys_constants.h"
+#include "sys/sys_gesture.h"
 #include "sys/sys_karma_resources.h"
 #include "ui/ui_floating_value_animator.h"
 #include "ui/ui_frame.h"
@@ -130,8 +132,9 @@ private:
                                                        TFT_RED, 0.0f);
         if (state_ == KarmaPageState::ModeSelect)
         {
+            // DrawCornerBox的center_y会在内部减2作为框顶，这里传文字顶部锚点，避免括号从行中间开始。
             UIFrame::DrawCornerBox(x - 5, min(sw - 4, x + width + 5),
-                                   y + HAL_Get_Font_Line_Height(HAL_FONT_BODY) / 2,
+                                   y - 2,
                                    0, HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 8,
                                    TFT_RED);
         }
@@ -162,8 +165,9 @@ private:
         count_pop_animator_.draw(popX, y - 2);
         if (state_ == KarmaPageState::CountSelected)
         {
+            // 与右上模式框使用同一顶部锚点，保证左下计数框也完整包住文字行。
             UIFrame::DrawCornerBox(startX - 5, x + 5,
-                                   y + HAL_Get_Font_Line_Height(HAL_FONT_BODY) / 2,
+                                   y - 2,
                                    0, HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 8,
                                    TFT_RED);
         }
@@ -240,6 +244,8 @@ private:
 public:
     void onCreate() override
     {
+        // 业力页面前台期间才启用两种长边敲击；切换上下文会清除上一页面遗留的半截动作和事件。
+        SysGesture_SetProfile(SysGestureProfile::Karma);
         state_ = KarmaPageState::Strike;
         current_mode_ = 0;
         mode_before_edit_ = 0;
@@ -266,7 +272,14 @@ public:
 
     void onResume() override
     {
+        // 页面从弹窗或其他临时页面返回时恢复专属识别；后台期间不会继续累计业力。
+        SysGesture_SetProfile(SysGestureProfile::Karma);
         drawFrame();
+    }
+
+    void onBackground() override
+    {
+        SysGesture_SetProfile(SysGestureProfile::Default);
     }
 
     void onLoop() override
@@ -281,6 +294,8 @@ public:
 
     void onDestroy() override
     {
+        // 必须先恢复默认上下文并清队列，避免退出前最后一个敲击事件落到下一个页面。
+        SysGesture_SetProfile(SysGestureProfile::Default);
         stopOwnedAudio();
         if (counts_dirty_)
         {
@@ -302,29 +317,20 @@ public:
 
         if (state_ == KarmaPageState::Strike)
         {
-            if (delta > 0)
-            {
-                mode_before_edit_ = current_mode_;
-                state_ = KarmaPageState::ModeSelect;
-            }
-            else
+            /*
+             * 敲击状态只保留“向下旋转选择计数”。向上旋转不再进入模式选择；
+             * 模式选择的唯一入口改为旋钮主按键，避免轻微滚动在两个角标间跳转。
+             */
+            if (delta < 0)
             {
                 state_ = KarmaPageState::CountSelected;
-            }
-            drawFrame();
-            return;
-        }
-
-        if (state_ == KarmaPageState::CountSelected)
-        {
-            if (delta > 0)
-            {
-                mode_before_edit_ = current_mode_;
-                state_ = KarmaPageState::ModeSelect;
                 drawFrame();
             }
             return;
         }
+
+        if (state_ == KarmaPageState::CountSelected)
+            return;
 
         int next = ((int)current_mode_ + delta) % PrescriptConst::MAX_KARMA_MODES;
         if (next < 0) next += PrescriptConst::MAX_KARMA_MODES;
@@ -337,7 +343,14 @@ public:
     void onKeyShort() override
     {
         if (state_ == KarmaPageState::Strike)
-            return; // 旋钮主按键不敲木鱼；只有侧键和两个业力动作进入performStrike。
+        {
+            // 旋钮主按键只进入模式选择，不触发木鱼；侧键和两个业力动作仍是敲击入口。
+            mode_before_edit_ = current_mode_;
+            state_ = KarmaPageState::ModeSelect;
+            count_pop_animator_.reset();
+            drawFrame();
+            return;
+        }
 
         if (state_ == KarmaPageState::ModeSelect)
         {

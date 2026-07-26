@@ -16,9 +16,20 @@ enum class SysGestureType : uint8_t
     ScrollUp,
     ScrollDown,
     WeaponChange,
-    // 业力应用的两个独立敲击语义；识别器将在对应实板动作完成采样标定后再产生事件。
+    // 业力应用的两个独立长边敲击语义；只会在 Karma 识别上下文中产生。
     KarmaStrikeA,
     KarmaStrikeB,
+};
+
+/**
+ * 离散手势识别上下文。
+ * Default 保持全局滚动和换武器识别；Karma 保留滚动、启用两种长边敲击，并关闭会与敲击
+ * 共用 gz 主轴的换武器判定。新增应用专属动作时扩展该枚举和内部策略，不新增一组零散开关。
+ */
+enum class SysGestureProfile : uint8_t
+{
+    Default = 0,
+    Karma,
 };
 
 /**
@@ -42,6 +53,13 @@ void SysGesture_Init();
  * 同一 sequence 只处理一次；函数不访问 I2C、不阻塞，也不会输出高频串口日志。
  */
 void SysGesture_Update();
+
+/**
+ * 切换当前页面需要的手势识别上下文。
+ * 【调用时机】只能由 Arduino 主线程中的 App 生命周期调用；进入专属页面时设置，后台或退出时
+ * 恢复 Default。上下文变化会清除半截动作和待分发事件，防止专属事件跨页面泄漏。
+ */
+void SysGesture_SetProfile(SysGestureProfile profile);
 
 /**
  * 从内部小队列取出最早的一条手势事件。

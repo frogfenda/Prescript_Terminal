@@ -7,3 +7,4 @@ reference/
 tmp/
 logs/
 .venv/
+.imu_captures/

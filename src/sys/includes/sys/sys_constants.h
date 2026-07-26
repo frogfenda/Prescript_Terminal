@@ -80,7 +80,7 @@ namespace PrescriptConst
     constexpr uint32_t DEFAULT_IDLE_SLEEP_MS = 30000UL;
     constexpr uint32_t NEVER_SLEEP_MS = 0xFFFFFFFFUL;
     constexpr uint32_t BUTTON_LONG_MS = 800UL;
-    constexpr uint32_t BUTTON_DOUBLE_GAP_MS = 150UL;
+    constexpr uint32_t BUTTON_DOUBLE_GAP_MS = 100UL;
     constexpr uint32_t BUTTON_DEBOUNCE_MS = 20UL;
     constexpr uint32_t BUTTON_MAIN_DEBOUNCE_MS = 55UL;
     constexpr uint32_t BUTTON_SIDE_DEBOUNCE_MS = 35UL;
