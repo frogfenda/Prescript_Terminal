@@ -188,11 +188,11 @@ extern "C" uint16_t fogfendaMscLoadDescriptor(uint8_t *destination, uint8_t *int
 
 extern "C" uint8_t tud_msc_get_maxlun_cb(void)
 {
-    return 0;
+    return 1;
 }
 
 extern "C" void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendorId[8],
-                                    uint8_t productId[16], uint8_t productRevision[4])
+                                   uint8_t productId[16], uint8_t productRevision[4])
 {
     (void)lun;
     std::memset(vendorId, ' ', 8);
