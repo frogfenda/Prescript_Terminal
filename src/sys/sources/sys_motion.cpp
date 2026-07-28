@@ -15,6 +15,7 @@ namespace
 {
     static constexpr uint32_t POLL_INTERVAL_US = 9000;
     static constexpr uint32_t RECOVERY_INTERVAL_MS = 1000;
+    static constexpr SysMotionAcquisitionConfig ACQUISITION_CONFIG = {104, 16, 2000};
 
     bool s_started = false;
     bool s_available = false;
@@ -29,8 +30,12 @@ namespace
         BSP::Lsm6dsl::Config config = {};
         config.accelRate = BSP::Lsm6dsl::OutputDataRate::Hz104;
         config.gyroRate = BSP::Lsm6dsl::OutputDataRate::Hz104;
-        // 换武器动作实测打满 ±4 g 且达到约 904 dps，扩大两类量程以保留动作波形和个体差异余量。
-        config.accelRange = BSP::Lsm6dsl::AccelRange::G8;
+        /*
+         * 首批双蛇杖横斩/竖斩在 ±8 g 下已出现单轴 raw 削顶。全系统消费者都读取 BSP
+         * 换算后的物理量，因此统一升到 ±16 g 可以保留完整冲击波形，不需要按比例修改
+         * 滚动、业力、换武器或海的 g/dps 阈值；代价是加速度分辨率减半。
+         */
+        config.accelRange = BSP::Lsm6dsl::AccelRange::G16;
         config.gyroRange = BSP::Lsm6dsl::GyroRange::Dps2000;
         return config;
     }
@@ -105,7 +110,15 @@ bool SysMotion_Init()
 
     s_available = true;
     ScheduleNextPoll();
-    Serial.println("[运动] LSM6DSL 已初始化：104 Hz，±8 g，±2000 dps。");
+    Serial.println("[运动] LSM6DSL 已初始化：104 Hz，±16 g，±2000 dps。");
+    return true;
+}
+
+bool SysMotion_GetAcquisitionConfig(SysMotionAcquisitionConfig *out)
+{
+    if (!out)
+        return false;
+    *out = ACQUISITION_CONFIG;
     return true;
 }
 

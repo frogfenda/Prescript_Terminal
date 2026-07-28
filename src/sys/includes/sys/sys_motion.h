@@ -35,10 +35,28 @@ struct SysMotionSample
 };
 
 /**
- * 初始化 LSM6DSL 和采样状态。当前统一使用 104 Hz、±8 g、±2000 dps；实板动作采集确认
- * 换武器手势会打满 ±4 g，并接近 ±1000 dps。初始化失败不会阻止系统启动，Update 会低频重试。
+ * SysMotion 当前固定的采集契约。脱线记录器把这些值写入 CSV 元数据，分析工具据此选择
+ * raw 到物理量的换算比例，避免量程调整后继续套用旧系数。上层业务只应读取本结构用于
+ * 诊断和数据标注，不应根据量程自行重新换算或访问 BSP 配置。
+ */
+struct SysMotionAcquisitionConfig
+{
+    uint16_t output_rate_hz;
+    uint8_t accel_range_g;
+    uint16_t gyro_range_dps;
+};
+
+/**
+ * 初始化 LSM6DSL 和采样状态。当前统一使用 104 Hz、±16 g、±2000 dps；首批双蛇杖
+ * 横斩/竖斩数据确认 ±8 g 已削顶。初始化失败不会阻止系统启动，Update 会低频重试。
  */
 bool SysMotion_Init();
+
+/**
+ * 复制正常固件与脱线采集固件共用的采集频率和量程。返回 false 表示 out 为空；该配置是
+ * 编译期契约，不要求传感器已经在线，因此错误页仍可把预期量程写入诊断信息。
+ */
+bool SysMotion_GetAcquisitionConfig(SysMotionAcquisitionConfig *out);
 
 /** 返回运动传感器当前是否在线且可以采样。 */
 bool SysMotion_IsAvailable();

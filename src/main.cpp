@@ -26,7 +26,7 @@ void setup()
     setCpuFrequencyMhz(PrescriptConst::CPU_RUNTIME_MHZ);
 
     const bool bootTestEnabled = SysBootTest::Enabled();
-    SysUsbSession::BeginAndHandleBootMode(bootTestEnabled);
+    SysUsbSession::BeginAndHandleBootMode(bootTestEnabled, SysBootTest::AllowsMscBoot());
 
     if (bootTestEnabled)
     {

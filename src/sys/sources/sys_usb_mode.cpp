@@ -401,6 +401,13 @@ namespace SysUsbMode
 
     void Service()
     {
+        /*
+         * IMU 纯脱线记录路径有意不调用 Begin()，因此主循环即使沿用统一 Service 调用点，
+         * 也不能进入 USBCDC/TinyUSB。正常 CDC/MSC 启动成功后才补发缓存并消费事件。
+         */
+        if (!s_started)
+            return;
+
         CDCSerial.Service();
 
         (void)__atomic_exchange_n(&s_pendingEvents, 0U, __ATOMIC_ACQ_REL);
