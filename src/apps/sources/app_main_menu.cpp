@@ -1,5 +1,5 @@
 ﻿/*
-【模块职责】主菜单。把15个顶层功能入口映射到AppId跳转，包括指令、纺织机、日程、闹钟、TT2、番茄、硬币、抽卡、档案、使用者、海、业力和设置。
+【模块职责】主菜单。把16个顶层功能入口映射到AppId跳转，包括指令、纺织机、日程、闹钟、TT2、番茄、硬币、双蛇杖、抽卡、档案、使用者、海、业力和设置。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/apps/app_main_menu.cpp
@@ -9,8 +9,8 @@
 class AppMainMenu : public AppMenuBase
 {
 protected:
-    // 【函数说明】返回15个主菜单入口，数量必须与UIStrings和下方路由保持一致。
-    int getMenuCount() override { return 15; }
+    // 【函数说明】返回16个主菜单入口，数量必须与UIStrings和下方路由保持一致。
+    int getMenuCount() override { return 16; }
 
     const char *getTitle() override
     {
@@ -40,20 +40,22 @@ void onItemClicked(int index) override
         else if (index == 6)
             appManager.push(AppId::CoinFlip);
         else if (index == 7)
-            appManager.push(AppId::Gacha); // 路由到抽卡模拟器
+            appManager.push(AppId::Caduceus);
         else if (index == 8)
-            appManager.push(AppId::PrescriptList);
+            appManager.push(AppId::Gacha); // 路由到抽卡模拟器
         else if (index == 9)
-            appManager.push(AppId::PushSetting);
+            appManager.push(AppId::PrescriptList);
         else if (index == 10)
-            appManager.push(AppId::PrescriptTarget);
+            appManager.push(AppId::PushSetting);
         else if (index == 11)
-            appManager.push(AppId::Sea);
+            appManager.push(AppId::PrescriptTarget);
         else if (index == 12)
-            appManager.push(AppId::Karma);
+            appManager.push(AppId::Sea);
         else if (index == 13)
-            appManager.push(AppId::SystemSettings);
+            appManager.push(AppId::Karma);
         else if (index == 14)
+            appManager.push(AppId::SystemSettings);
+        else if (index == 15)
             appManager.launch(AppId::Standby);
     }
 

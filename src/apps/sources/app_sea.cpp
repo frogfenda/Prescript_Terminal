@@ -379,13 +379,14 @@ private:
                                            0.050f);
         }
 
-        pose_solver_.Update(sample.imu);
+        // 海的现有实机参数仍基于传感器原生轴；坐标底座改造期间显式保留旧语义，后续单独回归迁移。
+        pose_solver_.Update(sample.sensor_imu);
         const SysPose::Result pose = pose_solver_.GetResult(false);
         if (!pose.valid)
             return;
 
         fluid_input_.roll_deg = pose.euler.rollDeg;
-        fluid_input_.roll_rate_dps = sample.imu.gxDps;
+        fluid_input_.roll_rate_dps = sample.sensor_imu.gxDps;
 
         /*
          * 角加速度使用相邻真实 IMU 时间戳求导，再做一次快速低通。它只用于“停止转动后的反向回摆”，
@@ -393,11 +394,11 @@ private:
          */
         const float raw_roll_accel = (previous_timestamp_us == 0 || discontinuity)
                                          ? 0.0f
-                                         : (sample.imu.gxDps - previous_roll_rate_dps_) / sample_dt_seconds;
+                                         : (sample.sensor_imu.gxDps - previous_roll_rate_dps_) / sample_dt_seconds;
         const float accel_alpha = ClampFloat(sample_dt_seconds * ANGULAR_ACCEL_FILTER_HZ, 0.0f, 1.0f);
         filtered_roll_accel_dps2_ += (raw_roll_accel - filtered_roll_accel_dps2_) * accel_alpha;
         fluid_input_.roll_accel_dps2 = filtered_roll_accel_dps2_;
-        previous_roll_rate_dps_ = sample.imu.gxDps;
+        previous_roll_rate_dps_ = sample.sensor_imu.gxDps;
 
         if (sample.accel_fresh)
         {
@@ -408,9 +409,9 @@ private:
             const SysPose::Quaternion &q = pose.quaternion;
             const float expected_gravity_y = 2.0f * (q.w * q.x + q.y * q.z);
             const float expected_gravity_z = q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z;
-            fluid_input_.lateral_accel_g = ApplyDeadZone(sample.imu.ayG - expected_gravity_y,
+            fluid_input_.lateral_accel_g = ApplyDeadZone(sample.sensor_imu.ayG - expected_gravity_y,
                                                          LINEAR_ACCEL_DEAD_ZONE_G);
-            fluid_input_.vertical_accel_g = ApplyDeadZone(sample.imu.azG - expected_gravity_z,
+            fluid_input_.vertical_accel_g = ApplyDeadZone(sample.sensor_imu.azG - expected_gravity_z,
                                                           LINEAR_ACCEL_DEAD_ZONE_G);
         }
 

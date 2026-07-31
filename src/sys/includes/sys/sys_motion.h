@@ -1,8 +1,8 @@
 /*
 【模块职责】系统级运动采样服务。它是正常运行时唯一允许持续读取 LSM6DSL 的模块，负责定频轮询、
 最新样本缓存、共享 I2C 故障恢复以及 Light Sleep 前后的传感器功耗切换。
-【能力边界】本服务暂不猜测 V4B 的物理轴向，也不判断“上滚、下滚、换武器”等动作；这些策略必须在
-实板采集完成后建立在本服务之上，避免多个 APP 各自访问 BSP 或维护重复阈值。
+【坐标契约】BSP换算值保留为LSM6DSL传感器坐标；本服务同时按V4B六面/三轴实测安装关系生成统一
+机身坐标：+X向屏幕右、+Y向机身顶部、+Z向屏幕外。这里只做固定坐标变换，不判断动作语义。
 【调用关系】setup() 调用 SysMotion_Init()，主循环调用 SysMotion_Update()；APP 和算法只能读取缓存样本。
 */
 #pragma once
@@ -12,7 +12,10 @@
 
 /**
  * 一份系统运动样本。
- * imu 字段可直接交给现有 MahonySolver；raw 字段保留给实板标定、饱和判断和诊断采集。
+ * 【坐标层级】raw字段是LSM6DSL寄存器整数；sensor_imu是量程换算后的传感器原生坐标；
+ * body_imu是固定安装矩阵转换后的机身右手坐标（+X屏幕右、+Y机身顶部、+Z屏幕外）。
+ * 【兼容约束】Default/Karma/Sea在完成各自实机回归前继续显式读取sensor_imu；新的机身方向算法
+ * 必须显式读取body_imu，不能再使用含义不清的通用imu字段。
  */
 struct SysMotionSample
 {
@@ -30,7 +33,8 @@ struct SysMotionSample
     int16_t gz_raw = 0;
     int16_t temperature_raw = 0;
 
-    SysPose::ImuSample imu;
+    SysPose::ImuSample sensor_imu;
+    SysPose::ImuSample body_imu;
     float temperature_c = 0.0f;
 };
 

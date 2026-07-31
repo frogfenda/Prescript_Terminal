@@ -8,6 +8,7 @@
 
 #include <math.h>
 
+#include "sys/sys_caduceus_recognizer.h"
 #include "sys/sys_motion.h"
 
 namespace
@@ -141,12 +142,12 @@ namespace
 
     bool DetectWeaponChange(const SysMotionSample &sample)
     {
-        const float abs_gx = fabsf(sample.imu.gxDps);
-        const float abs_gy = fabsf(sample.imu.gyDps);
-        const float abs_gz = fabsf(sample.imu.gzDps);
-        const float accel_mag = sqrtf(sample.imu.axG * sample.imu.axG +
-                                      sample.imu.ayG * sample.imu.ayG +
-                                      sample.imu.azG * sample.imu.azG);
+        const float abs_gx = fabsf(sample.sensor_imu.gxDps);
+        const float abs_gy = fabsf(sample.sensor_imu.gyDps);
+        const float abs_gz = fabsf(sample.sensor_imu.gzDps);
+        const float accel_mag = sqrtf(sample.sensor_imu.axG * sample.sensor_imu.axG +
+                                      sample.sensor_imu.ayG * sample.sensor_imu.ayG +
+                                      sample.sensor_imu.azG * sample.sensor_imu.azG);
 
         if (abs_gz < WEAPON_GZ_PEAK_DPS ||
             abs_gz < abs_gy * WEAPON_GZ_TO_GY_RATIO ||
@@ -156,7 +157,7 @@ namespace
             return false;
         }
 
-        const int8_t direction = sample.imu.gzDps >= 0.0f ? 1 : -1;
+        const int8_t direction = sample.sensor_imu.gzDps >= 0.0f ? 1 : -1;
         PushEvent(SysGestureType::WeaponChange, sample.timestamp_us, abs_gz, direction);
         ResetTracking();
         s_cooldown_until_us = sample.timestamp_us + WEAPON_COOLDOWN_US;
@@ -166,13 +167,13 @@ namespace
     bool UpdateKarmaStrike(const SysMotionSample &sample)
     {
         const uint32_t now = sample.timestamp_us;
-        const float abs_gx = fabsf(sample.imu.gxDps);
-        const float abs_gy = fabsf(sample.imu.gyDps);
-        const float abs_gz = fabsf(sample.imu.gzDps);
+        const float abs_gx = fabsf(sample.sensor_imu.gxDps);
+        const float abs_gy = fabsf(sample.sensor_imu.gyDps);
+        const float abs_gz = fabsf(sample.sensor_imu.gzDps);
         const float cross_axis = fmaxf(abs_gx, abs_gy);
-        const float accel_mag = sqrtf(sample.imu.axG * sample.imu.axG +
-                                      sample.imu.ayG * sample.imu.ayG +
-                                      sample.imu.azG * sample.imu.azG);
+        const float accel_mag = sqrtf(sample.sensor_imu.axG * sample.sensor_imu.axG +
+                                      sample.sensor_imu.ayG * sample.sensor_imu.ayG +
+                                      sample.sensor_imu.azG * sample.sensor_imu.azG);
 
         if (DeadlinePending(now, s_karma_cooldown_until_us))
             return false;
@@ -185,7 +186,7 @@ namespace
                 abs_gz >= cross_axis * KARMA_ARM_AXIS_DOMINANCE)
             {
                 s_karma.active = true;
-                s_karma.direction = sample.imu.gzDps >= 0.0f ? 1 : -1;
+                s_karma.direction = sample.sensor_imu.gzDps >= 0.0f ? 1 : -1;
                 s_karma.started_us = now;
                 s_karma.primary_peak_dps = abs_gz;
                 s_karma.return_peak_dps = 0.0f;
@@ -206,12 +207,12 @@ namespace
          * 若一个较弱的杂波先以错误方向启动，而真正主脉冲尚未达到确认阈值，则允许强反向段
          * 重新建档。这样不会因为敲击前的小回摆吞掉本次动作，同时已成形的主脉冲不会被改向。
          */
-        if (sample.imu.gzDps * s_karma.direction < 0.0f &&
+        if (sample.sensor_imu.gzDps * s_karma.direction < 0.0f &&
             s_karma.primary_peak_dps < KARMA_PRIMARY_PEAK_DPS &&
             abs_gz >= KARMA_ARM_DPS &&
             abs_gz >= cross_axis * KARMA_ARM_AXIS_DOMINANCE)
         {
-            s_karma.direction = sample.imu.gzDps >= 0.0f ? 1 : -1;
+            s_karma.direction = sample.sensor_imu.gzDps >= 0.0f ? 1 : -1;
             s_karma.started_us = now;
             s_karma.primary_peak_dps = abs_gz;
             s_karma.return_peak_dps = 0.0f;
@@ -220,7 +221,7 @@ namespace
             return false;
         }
 
-        if (sample.imu.gzDps * s_karma.direction >= 0.0f)
+        if (sample.sensor_imu.gzDps * s_karma.direction >= 0.0f)
             s_karma.primary_peak_dps = fmaxf(s_karma.primary_peak_dps, abs_gz);
         else
             s_karma.return_peak_dps = fmaxf(s_karma.return_peak_dps, abs_gz);
@@ -253,13 +254,13 @@ namespace
     void UpdateScroll(const SysMotionSample &sample)
     {
         const uint32_t now = sample.timestamp_us;
-        const float abs_gx = fabsf(sample.imu.gxDps);
-        const float abs_gy = fabsf(sample.imu.gyDps);
-        const float abs_gz = fabsf(sample.imu.gzDps);
+        const float abs_gx = fabsf(sample.sensor_imu.gxDps);
+        const float abs_gy = fabsf(sample.sensor_imu.gyDps);
+        const float abs_gz = fabsf(sample.sensor_imu.gzDps);
 
         if (!s_scroll.active)
         {
-            const bool is_down = sample.imu.gyDps < 0.0f;
+            const bool is_down = sample.sensor_imu.gyDps < 0.0f;
             const float arm_dps = is_down ? SCROLL_DOWN_ARM_DPS : SCROLL_UP_ARM_DPS;
             const float axis_dominance = is_down ? SCROLL_DOWN_AXIS_DOMINANCE
                                                  : SCROLL_UP_AXIS_DOMINANCE;
@@ -270,7 +271,7 @@ namespace
                 abs_gy >= abs_gz * axis_dominance)
             {
                 s_scroll.active = true;
-                s_scroll.direction = sample.imu.gyDps >= 0.0f ? 1 : -1;
+                s_scroll.direction = sample.sensor_imu.gyDps >= 0.0f ? 1 : -1;
                 s_scroll.started_us = now;
                 s_scroll.primary_peak_dps = abs_gy;
                 s_scroll.return_peak_dps = 0.0f;
@@ -288,7 +289,7 @@ namespace
             return;
         }
 
-        if (sample.imu.gyDps * s_scroll.direction >= 0.0f)
+        if (sample.sensor_imu.gyDps * s_scroll.direction >= 0.0f)
             s_scroll.primary_peak_dps = fmaxf(s_scroll.primary_peak_dps, abs_gy);
         else
             s_scroll.return_peak_dps = fmaxf(s_scroll.return_peak_dps, abs_gy);
@@ -342,8 +343,23 @@ void SysGesture_Update()
         return;
 
     if (s_last_sample_us != 0 && sample.timestamp_us - s_last_sample_us > SAMPLE_DISCONTINUITY_US)
+    {
         ResetTracking();
+        SysCaduceusRecognizer_Reset();
+    }
     s_last_sample_us = sample.timestamp_us;
+
+    if (s_profile == SysGestureProfile::Caduceus)
+    {
+        /*
+         * 双蛇杖斩击会大量满足旧滚动、换武器或业力的轴向阈值，所以该上下文必须独占分类器。
+         * None/模糊结果不会入统一队列，App 也就不会把普通晃动当成“做错动作”。
+         */
+        SysGestureEvent event = {};
+        if (SysCaduceusRecognizer_Update(sample, &event))
+            PushEvent(event.type, event.timestamp_us, event.strength_dps, event.direction);
+        return;
+    }
 
     if (DeadlinePending(sample.timestamp_us, s_cooldown_until_us))
         return;
@@ -376,6 +392,7 @@ void SysGesture_SetProfile(SysGestureProfile profile)
     s_last_sample_us = 0;
     s_cooldown_until_us = 0;
     s_karma_cooldown_until_us = 0;
+    SysCaduceusRecognizer_Reset();
     ClearEventQueue();
 }
 
@@ -398,5 +415,6 @@ void SysGesture_Reset()
     s_last_sample_us = 0;
     s_cooldown_until_us = 0;
     s_karma_cooldown_until_us = 0;
+    SysCaduceusRecognizer_Reset();
     ClearEventQueue();
 }

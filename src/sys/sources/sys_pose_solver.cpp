@@ -18,7 +18,8 @@ namespace SysPose
     void MahonySolver::Begin(float sampleHz)
     {
         if (sampleHz > 0.0f)
-            invSampleFreq_ = 1.0f / sampleHz;
+            defaultDeltaSeconds_ = 1.0f / sampleHz;
+        activeDeltaSeconds_ = defaultDeltaSeconds_;
         Reset();
     }
 
@@ -33,9 +34,76 @@ namespace SysPose
         integralFBz_ = 0.0f;
         valid_ = false;
         magUsed_ = false;
+        activeDeltaSeconds_ = defaultDeltaSeconds_;
+    }
+
+    bool MahonySolver::ResetFromAccel(const ImuSample &imu)
+    {
+        const float norm_sq = imu.axG * imu.axG + imu.ayG * imu.ayG + imu.azG * imu.azG;
+        if (!isfinite(norm_sq) || norm_sq <= 0.000001f)
+            return false;
+
+        const float recip_norm = InvSqrt(norm_sq);
+        const float ax = imu.axG * recip_norm;
+        const float ay = imu.ayG * recip_norm;
+        const float az = imu.azG * recip_norm;
+
+        /*
+         * 构造把世界重力轴旋到设备坐标重力方向的最短四元数。Mahony 的预测重力公式为
+         * (2(xz-wy), 2(wx+yz), w²-x²-y²+z²)，因此这里的 x/y 符号必须与该公式配套。
+         * 当重力接近完全倒置时，最短旋转的分母趋近零，固定选设备 X 轴完成 180° 初始化。
+         */
+        if (az > -0.9999f)
+        {
+            q0_ = sqrtf((1.0f + az) * 0.5f);
+            const float scale = 0.5f / q0_;
+            q1_ = ay * scale;
+            q2_ = -ax * scale;
+            q3_ = 0.0f;
+        }
+        else
+        {
+            q0_ = 0.0f;
+            q1_ = 1.0f;
+            q2_ = 0.0f;
+            q3_ = 0.0f;
+        }
+
+        const float quat_recip_norm = InvSqrt(q0_ * q0_ + q1_ * q1_ + q2_ * q2_ + q3_ * q3_);
+        q0_ *= quat_recip_norm;
+        q1_ *= quat_recip_norm;
+        q2_ *= quat_recip_norm;
+        q3_ *= quat_recip_norm;
+        integralFBx_ = 0.0f;
+        integralFBy_ = 0.0f;
+        integralFBz_ = 0.0f;
+        valid_ = true;
+        magUsed_ = false;
+        return true;
     }
 
     void MahonySolver::Update(const ImuSample &imu, const MagSample *mag)
+    {
+        activeDeltaSeconds_ = defaultDeltaSeconds_;
+        UpdateCore(imu, mag);
+    }
+
+    bool MahonySolver::UpdateWithDeltaSeconds(const ImuSample &imu,
+                                              float deltaSeconds,
+                                              const MagSample *mag)
+    {
+        /*
+         * 100ms以上已属于真实采样断点：继续积分会把未知期间的运动压缩成一帧，钳位又会伪造角度。
+         * 因此这里明确拒绝，由SysGesture/页面现有断点策略决定Reset和重新蓄能。
+         */
+        if (!isfinite(deltaSeconds) || deltaSeconds <= 0.0f || deltaSeconds > 0.1f)
+            return false;
+        activeDeltaSeconds_ = deltaSeconds;
+        UpdateCore(imu, mag);
+        return true;
+    }
+
+    void MahonySolver::UpdateCore(const ImuSample &imu, const MagSample *mag)
     {
         bool useMag = mag && mag->valid && !(mag->x == 0.0f && mag->y == 0.0f && mag->z == 0.0f);
         magUsed_ = useMag;
@@ -140,9 +208,9 @@ namespace SysPose
     {
         if (twoKi_ > 0.0f)
         {
-            integralFBx_ += twoKi_ * halfex * invSampleFreq_;
-            integralFBy_ += twoKi_ * halfey * invSampleFreq_;
-            integralFBz_ += twoKi_ * halfez * invSampleFreq_;
+            integralFBx_ += twoKi_ * halfex * activeDeltaSeconds_;
+            integralFBy_ += twoKi_ * halfey * activeDeltaSeconds_;
+            integralFBz_ += twoKi_ * halfez * activeDeltaSeconds_;
             gx += integralFBx_;
             gy += integralFBy_;
             gz += integralFBz_;
@@ -161,9 +229,9 @@ namespace SysPose
 
     void MahonySolver::Integrate(float gx, float gy, float gz)
     {
-        gx *= 0.5f * invSampleFreq_;
-        gy *= 0.5f * invSampleFreq_;
-        gz *= 0.5f * invSampleFreq_;
+        gx *= 0.5f * activeDeltaSeconds_;
+        gy *= 0.5f * activeDeltaSeconds_;
+        gz *= 0.5f * activeDeltaSeconds_;
 
         float qa = q0_;
         float qb = q1_;

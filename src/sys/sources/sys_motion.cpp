@@ -25,6 +25,24 @@ namespace
     uint32_t s_next_recovery_ms = 0;
     SysMotionSample s_latest = {};
 
+    /**
+     * 把LSM6DSL传感器坐标转换为V4B统一机身坐标。
+     * 2026-07-30六面静态标签1～6得到BodyX=-SensorY、BodyY=+SensorX、BodyZ=+SensorZ，
+     * 标签20～25的三轴双方向旋转又独立验证了同一陀螺仪轴和符号。该变换是行列式+1的
+     * 有符号置换，必须同时作用于加速度和角速度；这里不混入单台设备、单温度下的零偏值。
+     */
+    SysPose::ImuSample SensorToBody(const SysPose::ImuSample &sensor)
+    {
+        SysPose::ImuSample body = {};
+        body.axG = -sensor.ayG;
+        body.ayG = sensor.axG;
+        body.azG = sensor.azG;
+        body.gxDps = -sensor.gyDps;
+        body.gyDps = sensor.gxDps;
+        body.gzDps = sensor.gzDps;
+        return body;
+    }
+
     BSP::Lsm6dsl::Config MotionConfig()
     {
         BSP::Lsm6dsl::Config config = {};
@@ -174,12 +192,13 @@ bool SysMotion_Update()
     sample.gz_raw = reading.gzRaw;
     sample.temperature_raw = reading.temperatureRaw;
 
-    sample.imu.axG = reading.axG;
-    sample.imu.ayG = reading.ayG;
-    sample.imu.azG = reading.azG;
-    sample.imu.gxDps = reading.gxDps;
-    sample.imu.gyDps = reading.gyDps;
-    sample.imu.gzDps = reading.gzDps;
+    sample.sensor_imu.axG = reading.axG;
+    sample.sensor_imu.ayG = reading.ayG;
+    sample.sensor_imu.azG = reading.azG;
+    sample.sensor_imu.gxDps = reading.gxDps;
+    sample.sensor_imu.gyDps = reading.gyDps;
+    sample.sensor_imu.gzDps = reading.gzDps;
+    sample.body_imu = SensorToBody(sample.sensor_imu);
     sample.temperature_c = reading.temperatureC;
 
     s_latest = sample;

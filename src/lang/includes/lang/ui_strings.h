@@ -39,6 +39,7 @@ namespace UIStrings
             "TT2协议",
             "专注协议",
             "硬币决定器",
+            "双蛇杖",
             "提取部模拟",
             "指令档案",
             "指令推送配置",
@@ -55,6 +56,7 @@ namespace UIStrings
             "TT2 PROTOCOL",
             "POMODORO TIMER",
             "QUANTUM COIN",
+            "CADUCEUS",
             "EXTRACTION SIM",
             "PRESCRIPT DB",
             "PUSH SETTINGS",
@@ -64,9 +66,54 @@ namespace UIStrings
             "SYSTEM SETTINGS",
             "STANDBY MODE"};
 
-        if (index < 0 || index >= 15)
+        if (index < 0 || index >= 16)
             return "";
         return IsZh(lang) ? zh_items[index] : en_items[index];
+    }
+
+    // 【双蛇杖】运行时标定骨架的固定文本。动作名称下标由 App 内的语义映射产生，不依赖枚举数值。
+    inline const char *CaduceusTitle(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "双蛇杖" : "CADUCEUS";
+    }
+
+    inline const char *CaduceusWaiting(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "等待动作..." : "WAITING FOR ACTION...";
+    }
+
+    inline const char *CaduceusActionPrefix(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "动作: " : "ACTION: ";
+    }
+
+    inline const char *CaduceusActionName(SystemLang_t lang, int index)
+    {
+        static const char *zh_actions[] = {"横斩", "竖斩", "斜斩 A", "斜斩 B", "突刺", "上挑"};
+        static const char *en_actions[] = {
+            "HORIZONTAL", "VERTICAL", "DIAGONAL A", "DIAGONAL B", "THRUST", "UPPERCUT"};
+        if (index < 0 || index >= 6)
+            return "";
+        return IsZh(lang) ? zh_actions[index] : en_actions[index];
+    }
+
+    inline const char *CaduceusDirectionPrefix(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "横斩方向: " : "HORIZONTAL DIR: ";
+    }
+
+    inline const char *CaduceusDirectionValue(SystemLang_t lang, int direction)
+    {
+        if (direction == 0)
+            return "--";
+        if (IsZh(lang))
+            return direction > 0 ? "正向" : "反向";
+        return direction > 0 ? "POSITIVE" : "NEGATIVE";
+    }
+
+    inline const char *CaduceusStrengthPrefix(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "角速度峰值: " : "GYRO PEAK: ";
     }
 
     // 【业力】沉浸式木鱼页面的模式、累计次数和清空确认文本；三个模式名称暂时相同。

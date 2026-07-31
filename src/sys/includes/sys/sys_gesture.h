@@ -19,17 +19,27 @@ enum class SysGestureType : uint8_t
     // 业力应用的两个独立长边敲击语义；只会在 Karma 识别上下文中产生。
     KarmaStrikeA,
     KarmaStrikeB,
+
+    // 双蛇杖应用的六种基础动作；只会在 Caduceus 识别上下文中产生。
+    HorizontalSlash,
+    VerticalSlash,
+    DiagonalSlashA,
+    DiagonalSlashB,
+    Thrust,
+    Uppercut,
 };
 
 /**
  * 离散手势识别上下文。
  * Default 保持全局滚动和换武器识别；Karma 保留滚动、启用两种长边敲击，并关闭会与敲击
- * 共用 gz 主轴的换武器判定。新增应用专属动作时扩展该枚举和内部策略，不新增一组零散开关。
+ * 共用 gz 主轴的换武器判定；Caduceus 独占六种斩击/突刺识别，关闭滚动、换武器和业力。
+ * 新增应用专属动作时扩展该枚举和内部策略，不新增一组零散开关。
  */
 enum class SysGestureProfile : uint8_t
 {
     Default = 0,
     Karma,
+    Caduceus,
 };
 
 /**
