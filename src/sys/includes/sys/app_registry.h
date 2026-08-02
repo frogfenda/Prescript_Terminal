@@ -54,8 +54,11 @@ enum class AppId : uint8_t
     // 三模式业力木鱼；继续追加，避免改变已经用于导航和日志的枚举值。
     Karma,
 
-    // 双蛇杖最终应用骨架；继续追加以保持既有 AppId 数值稳定。
-    Caduceus
+    // 双蛇杖正式应用；继续追加以保持既有 AppId 数值稳定。
+    Caduceus,
+
+    // 六动作语义校准页只从系统设置进入；追加在末尾，避免改变此前AppId数值。
+    CaduceusActionTest
 };
 
 /** 根据 AppId 返回对应 App 单例指针，AppManager 的 push/launch/replace 会调用它完成页面跳转。 */

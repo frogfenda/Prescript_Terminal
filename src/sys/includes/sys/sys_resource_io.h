@@ -100,6 +100,18 @@ namespace SysResourceIO
                  SysLoadedAudioAsset &out);
 
     /**
+     * 【接口说明】按调用方给出的固定宽高加载无文件头、行优先排列的RGB565图片。
+     * 【尺寸约束】文件字节数必须严格等于width*height*2；尺寸不符时拒绝加载，不能裁切或猜测。
+     * 【所有权】成功后out独占PSRAM像素；若out已经有效则直接复用，适合启动阶段统一预热。
+     * 【调用时机】只允许在FATFS归ESP持有时从启动流程或Arduino主线程调用，UI层只读取返回视图。
+     */
+    bool LoadRgb565(const SysResourcePath &resourcePath,
+                    const char *label,
+                    uint16_t width,
+                    uint16_t height,
+                    SysLoadedRgb565Asset &out);
+
+    /**
      * 【接口说明】加载无文件头的正方形 RGB565 图片，并由字节数推断边长。
      * 【尺寸约束】推断边长必须在 minSide~maxSide 之间，否则拒绝资源。
      * 【所有权】成功后 out 独占像素；若 out 已有效则直接复用。

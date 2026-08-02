@@ -77,6 +77,15 @@ bool SysMotion_Update();
  */
 bool SysMotion_GetLatest(SysMotionSample *out);
 
+/**
+ * 按采样产生顺序取出尚未消费的样本。该接口只由 SysGesture 使用，
+ * 用来避免主循环一次刷新跨过多个 IMU 帧时丢失动作中间波形；不会访问 I2C。
+ */
+bool SysMotion_PopPending(SysMotionSample *out);
+
+/** 返回并清除采样环溢出标记；溢出后离散识别器应丢弃当前候选并重新锚定。 */
+bool SysMotion_ConsumePendingOverflow();
+
 /** Light Sleep 前关闭两个测量单元；服务离线时也会停止自动恢复，避免静默唤醒期间访问 I2C。 */
 void SysMotion_Sleep();
 

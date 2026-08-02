@@ -10,10 +10,24 @@ SysGesture 的统一小队列交给 AppManager，本模块不接触 App、反馈
 #include "sys/sys_motion.h"
 
 /**
- * 清空动作窗口、静止门控和 Mahony 姿态状态。
+ * 清空动作窗口、静止门控、链内预测重力和陀螺仪零偏。
  * 进入/离开 Caduceus Profile 以及采样超过 100ms 的真实断点时必须调用，防止半截动作跨页面或休眠。
  */
 void SysCaduceusRecognizer_Reset();
+
+/**
+ * 【入口校准】开始一次双蛇杖页面专用的放平校准。
+ * 调用后识别器会暂时屏蔽六种动作，等待屏幕正面朝上且机身静止，
+ * 使用一小段连续样本平均出 Body 重力方向和陀螺仪零偏；校准完成时
+ * 同时清空动作相对积分，避免进入页面前残留的姿态或角速度被当成首个动作。
+ */
+void SysCaduceusRecognizer_BeginEntryCalibration();
+
+/** 返回入口放平校准是否已经通过。 */
+bool SysCaduceusRecognizer_IsEntryCalibrationComplete();
+
+/** 退出双蛇杖页面时取消入口校准状态，避免下一个页面被校准门控影响。 */
+void SysCaduceusRecognizer_CancelEntryCalibration();
 
 /**
  * 用一帧 fresh 陀螺仪样本推进识别器。

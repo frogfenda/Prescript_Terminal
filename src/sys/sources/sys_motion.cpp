@@ -7,7 +7,10 @@
 */
 #include "sys/sys_motion.h"
 
+#include <new>
 #include <Wire.h>
+
+#include <esp_heap_caps.h>
 
 #include "bsp/bsp_imu_lsm6dsl.h"
 
@@ -15,6 +18,8 @@ namespace
 {
     static constexpr uint32_t POLL_INTERVAL_US = 9000;
     static constexpr uint32_t RECOVERY_INTERVAL_MS = 1000;
+    // 104Hz 下约覆盖 300ms。主循环短时阻塞时保留完整动作相位，溢出则由上层安全复位。
+    static constexpr uint8_t PENDING_SAMPLE_CAPACITY = 32;
     static constexpr SysMotionAcquisitionConfig ACQUISITION_CONFIG = {104, 16, 2000};
 
     bool s_started = false;
@@ -24,6 +29,62 @@ namespace
     uint32_t s_next_poll_us = 0;
     uint32_t s_next_recovery_ms = 0;
     SysMotionSample s_latest = {};
+    /*
+     * 32帧待消费环用于吸收主循环短暂停顿，约占2.5 KiB。它不参与DMA或ISR，放入PSRAM可把
+     * 内部DRAM留给BLE、WiFi和FreeRTOS任务栈；初始化后固定地址，采样路径不会重复分配。
+     * 若PSRAM异常，退化为一帧内部缓冲并标记溢出，保证普通姿态消费者仍可工作。
+     */
+    SysMotionSample *s_pending = nullptr;
+    SysMotionSample s_pending_fallback = {};
+    uint8_t s_pending_capacity = 0;
+    uint8_t s_pending_head = 0;
+    uint8_t s_pending_count = 0;
+    bool s_pending_overflow = false;
+
+    void EnsurePendingStorage()
+    {
+        if (s_pending)
+            return;
+
+        void *storage = heap_caps_malloc(sizeof(SysMotionSample) * PENDING_SAMPLE_CAPACITY,
+                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!storage)
+        {
+            s_pending = &s_pending_fallback;
+            s_pending_capacity = 1;
+            Serial.println("[运动] 待消费采样环申请PSRAM失败，已退化为单帧缓冲。");
+            return;
+        }
+
+        s_pending = static_cast<SysMotionSample *>(storage);
+        s_pending_capacity = PENDING_SAMPLE_CAPACITY;
+        for (uint8_t index = 0; index < s_pending_capacity; ++index)
+            new (&s_pending[index]) SysMotionSample();
+    }
+
+    void ClearPendingSamples()
+    {
+        EnsurePendingStorage();
+        s_pending_head = 0;
+        s_pending_count = 0;
+        s_pending_overflow = false;
+        for (uint8_t index = 0; index < s_pending_capacity; ++index)
+            s_pending[index] = {};
+    }
+
+    void EnqueuePendingSample(const SysMotionSample &sample)
+    {
+        if (s_pending_count >= s_pending_capacity)
+        {
+            // 丢弃最旧帧会破坏连续动作相位，因此必须通知识别器重新锚定，而不是静默拼接。
+            s_pending_head = (uint8_t)((s_pending_head + 1) % s_pending_capacity);
+            --s_pending_count;
+            s_pending_overflow = true;
+        }
+        const uint8_t target = (uint8_t)((s_pending_head + s_pending_count) % s_pending_capacity);
+        s_pending[target] = sample;
+        ++s_pending_count;
+    }
 
     /**
      * 把LSM6DSL传感器坐标转换为V4B统一机身坐标。
@@ -117,6 +178,7 @@ bool SysMotion_Init()
     s_next_poll_us = 0;
     s_next_recovery_ms = 0;
     s_latest = {};
+    ClearPendingSamples();
 
     if (!BSP::Lsm6dsl::Begin(Wire1, BSP::Lsm6dsl::DEFAULT_ADDRESS, MotionConfig()))
     {
@@ -203,6 +265,7 @@ bool SysMotion_Update()
 
     s_latest = sample;
     s_has_sample = true;
+    EnqueuePendingSample(sample);
     return true;
 }
 
@@ -215,12 +278,30 @@ bool SysMotion_GetLatest(SysMotionSample *out)
     return true;
 }
 
+bool SysMotion_PopPending(SysMotionSample *out)
+{
+    if (!out || s_pending_count == 0)
+        return false;
+    *out = s_pending[s_pending_head];
+    s_pending_head = (uint8_t)((s_pending_head + 1) % s_pending_capacity);
+    --s_pending_count;
+    return true;
+}
+
+bool SysMotion_ConsumePendingOverflow()
+{
+    const bool overflowed = s_pending_overflow;
+    s_pending_overflow = false;
+    return overflowed;
+}
+
 void SysMotion_Sleep()
 {
     if (!s_started || s_sleeping)
         return;
 
     s_sleeping = true;
+    ClearPendingSamples();
     if (s_available && !BSP::Lsm6dsl::PowerDown())
         MarkOffline();
 }

@@ -124,6 +124,8 @@ namespace PrescriptConst
     constexpr const char *AUDIO_KARMA_2_WAV = "/Resources/karma/audio/muyu2.wav";
     constexpr const char *AUDIO_KARMA_3_WAV = "/Resources/karma/audio/muyu3.wav";
     constexpr const char *KARMA_IMAGE_DIR = "/Resources/karma/images/";
+    // 双蛇杖图片均为428x142无文件头RGB565；具体文件名由SysCaduceusResources集中管理。
+    constexpr const char *FURIOSO_IMAGE_DIR = "/Resources/furioso/images/";
 
     constexpr const char *BLE_DEVICE_NAME = "Terminal_01";
     constexpr const char *BLE_SERVICE_UUID = "0000DEAD-0000-1000-8000-00805F9B34FB";

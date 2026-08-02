@@ -30,6 +30,26 @@ enum class AudioAssetId : uint8_t
     Karma1,
     Karma2,
     Karma3,
+
+    // 双蛇杖短音频：3段切换、9段本次首次完成语音、6段可复用武器效果音。
+    CaduceusChange1,
+    CaduceusChange2,
+    CaduceusChange3,
+    CaduceusFirst1,
+    CaduceusFirst2,
+    CaduceusFirst3,
+    CaduceusFirst4,
+    CaduceusFirst5,
+    CaduceusFirst6,
+    CaduceusFirst7,
+    CaduceusFirst8,
+    CaduceusFirst9,
+    CaduceusEffectGiantSword,
+    CaduceusEffectScythe,
+    CaduceusEffectSword1,
+    CaduceusEffectSword2,
+    CaduceusEffectSword3,
+    CaduceusEffectWhip,
     Count
 };
 
@@ -102,6 +122,13 @@ public:
     AudioHandle play(AudioAssetId id, const AudioPlayOptions &options = AudioPlayOptions());
     AudioHandle play(const char *binding, const AudioPlayOptions &options = AudioPlayOptions());
     AudioHandle play(const AudioClip &clip, const AudioPlayOptions &options = AudioPlayOptions());
+
+    /**
+     * 查询指定播放实例是否仍在等待任务处理或正在播放。
+     * 返回true从play()成功接纳命令开始保持到PCM尾帧释放；接口只读取跨核心句柄表，
+     * 不阻塞音频任务。App可据此串联“音效结束后播放台词”，无需猜测WAV时长。
+     */
+    bool isPlaying(AudioHandle handle) const;
 
     /** 只控制指定实例；fadeMs 为 0 时立即停止，否则在指定时间内淡出。 */
     void stop(AudioHandle handle, uint16_t fadeMs = 0);

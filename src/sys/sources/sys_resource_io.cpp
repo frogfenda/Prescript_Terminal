@@ -11,6 +11,38 @@
 
 namespace
 {
+    /**
+     * 分块把已打开文件的指定字节完整读入目标缓冲区。
+     *
+     * 启动预热会连续读取多份常驻WAV和全屏RGB565图片。如果把整份文件交给一次
+     * File::read，底层FAT/Flash读取可能长时间占住Arduino主任务，使同核Idle任务
+     * 得不到运行机会并触发任务看门狗。这里把单次读取限制为16KiB，并在每块后
+     * 主动阻塞一个系统Tick；这既允许Idle任务和系统服务运行，也不会改变调用方的
+     * 文件位置、PSRAM所有权或“必须完整读取”的失败语义。
+     *
+     * @return 实际累计读取的字节数；小于bytes表示到达文件尾或底层读取失败。
+     */
+    size_t ReadFullyCooperatively(fs::File &file, uint8_t *buffer, size_t bytes)
+    {
+        constexpr size_t READ_CHUNK_BYTES = 16U * 1024U;
+        size_t totalRead = 0;
+
+        while (totalRead < bytes)
+        {
+            const size_t remaining = bytes - totalRead;
+            const size_t wanted = min(remaining, READ_CHUNK_BYTES);
+            const size_t readBytes = file.read(buffer + totalRead, wanted);
+            if (readBytes == 0)
+                break;
+
+            totalRead += readBytes;
+
+            // delay(1)会让当前loopTask真正进入阻塞态，比只调用yield更可靠地给Idle任务喂看门狗。
+            delay(1);
+        }
+        return totalRead;
+    }
+
     uint32_t ReadU32LE(const uint8_t *p)
     {
         return ((uint32_t)p[0]) |
@@ -131,6 +163,60 @@ namespace
             clip.loopEndFrame = lastActive;
         }
     }
+
+    /**
+     * 已打开RGB565文件的唯一读入实现。正方形推断和固定矩形加载都汇合到这里，
+     * 从而保证尺寸校验、PSRAM所有权、短读错误和中文日志完全一致。
+     */
+    bool LoadOpenedRgb565(fs::File &file,
+                          const String &resolvedPath,
+                          uint16_t width,
+                          uint16_t height,
+                          SysLoadedRgb565Asset &out)
+    {
+        if (width == 0 || height == 0)
+        {
+            file.close();
+            return false;
+        }
+
+        const size_t expectedBytes = (size_t)width * height * sizeof(uint16_t);
+        const size_t actualBytes = file.size();
+        if (actualBytes != expectedBytes)
+        {
+            Serial.printf("[资源IO] RGB565尺寸不匹配：%s，期望=%ux%u/%u字节，实际=%u字节。\n",
+                          resolvedPath.c_str(), (unsigned)width, (unsigned)height,
+                          (unsigned)expectedBytes, (unsigned)actualBytes);
+            file.close();
+            return false;
+        }
+
+        uint16_t *buffer = (uint16_t *)ps_malloc(expectedBytes);
+        if (!buffer)
+        {
+            Serial.printf("[资源IO] RGB565申请PSRAM失败：%s，字节=%u。\n",
+                          resolvedPath.c_str(), (unsigned)expectedBytes);
+            file.close();
+            return false;
+        }
+
+        const size_t readBytes = ReadFullyCooperatively(file, (uint8_t *)buffer, expectedBytes);
+        file.close();
+        if (readBytes != expectedBytes)
+        {
+            Serial.printf("[资源IO] RGB565读取不完整：%s，期望=%u，实际=%u。\n",
+                          resolvedPath.c_str(), (unsigned)expectedBytes, (unsigned)readBytes);
+            free(buffer);
+            return false;
+        }
+
+        out.pixels = buffer;
+        out.width = width;
+        out.height = height;
+        Serial.printf("[资源IO] RGB565已预加载：%s，尺寸=%ux%u。\n",
+                      resolvedPath.c_str(), (unsigned)width, (unsigned)height);
+        return true;
+    }
 }
 
 void SysLoadedAudioAsset::reset()
@@ -233,7 +319,7 @@ bool SysResourceIO::LoadWav(const SysResourcePath &resourcePath,
     }
 
     file.seek(info.dataOffset);
-    const size_t readBytes = file.read(buffer, alignedBytes);
+    const size_t readBytes = ReadFullyCooperatively(file, buffer, alignedBytes);
     file.close();
     if (readBytes != alignedBytes)
     {
@@ -301,28 +387,23 @@ bool SysResourceIO::LoadSquareRgb565(const SysResourcePath &resourcePath,
         return false;
     }
 
-    uint16_t *buffer = (uint16_t *)ps_malloc(bytes);
-    if (!buffer)
-    {
-        Serial.printf("[资源IO] RGB565申请PSRAM失败：%s，字节=%u。\n", resolvedPath.c_str(), (unsigned)bytes);
-        file.close();
-        return false;
-    }
+    return LoadOpenedRgb565(file, resolvedPath, side, side, out);
+}
 
-    const size_t readBytes = file.read((uint8_t *)buffer, bytes);
-    file.close();
-    if (readBytes != bytes)
-    {
-        Serial.printf("[资源IO] RGB565读取不完整：%s，期望=%u，实际=%u。\n",
-                      resolvedPath.c_str(), (unsigned)bytes, (unsigned)readBytes);
-        free(buffer);
+bool SysResourceIO::LoadRgb565(const SysResourcePath &resourcePath,
+                               const char *label,
+                               uint16_t width,
+                               uint16_t height,
+                               SysLoadedRgb565Asset &out)
+{
+    if (out.valid())
+        return true;
+    if (width == 0 || height == 0)
         return false;
-    }
 
-    out.pixels = buffer;
-    out.width = side;
-    out.height = side;
-    Serial.printf("[资源IO] RGB565已预加载：%s，尺寸=%ux%u。\n",
-                  resolvedPath.c_str(), (unsigned)side, (unsigned)side);
-    return true;
+    fs::File file;
+    String resolvedPath;
+    if (!OpenRead(resourcePath, file, label, &resolvedPath))
+        return false;
+    return LoadOpenedRgb565(file, resolvedPath, width, height, out);
 }

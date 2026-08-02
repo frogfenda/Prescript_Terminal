@@ -120,7 +120,7 @@ namespace
             event = {};
     }
 
-    void PushEvent(SysGestureType type, uint32_t timestamp_us, float strength_dps, int8_t direction)
+    void PushEvent(const SysGestureEvent &event)
     {
         /*
          * 事件代表即时交互，队列满时旧事件已经失去时效，丢弃最旧一条比阻塞采样或丢掉新动作更合理。
@@ -133,11 +133,20 @@ namespace
         }
 
         const uint8_t tail = (uint8_t)((s_queue_head + s_queue_count) % EVENT_QUEUE_CAPACITY);
-        s_queue[tail].type = type;
-        s_queue[tail].timestamp_us = timestamp_us;
-        s_queue[tail].strength_dps = strength_dps;
-        s_queue[tail].direction = direction;
+        s_queue[tail] = event;
         ++s_queue_count;
+    }
+
+    void PushEvent(SysGestureType type, uint32_t timestamp_us, float strength_dps, int8_t direction)
+    {
+        SysGestureEvent event = {};
+        event.type = type;
+        event.timestamp_us = timestamp_us;
+        event.strength_dps = strength_dps;
+        event.direction = direction;
+        // 旧滚动/换武器/业力识别器没有候选边界分数；1表示其既有硬规则已经通过。
+        event.confidence = 1.0f;
+        PushEvent(event);
     }
 
     bool DetectWeaponChange(const SysMotionSample &sample)
@@ -330,10 +339,9 @@ void SysGesture_Init()
     SysGesture_Reset();
 }
 
-void SysGesture_Update()
+static void ProcessMotionSample(const SysMotionSample &sample)
 {
-    SysMotionSample sample = {};
-    if (!SysMotion_GetLatest(&sample) || sample.sequence == s_last_sequence)
+    if (sample.sequence == s_last_sequence)
         return;
 
     s_last_sequence = sample.sequence;
@@ -357,7 +365,7 @@ void SysGesture_Update()
          */
         SysGestureEvent event = {};
         if (SysCaduceusRecognizer_Update(sample, &event))
-            PushEvent(event.type, event.timestamp_us, event.strength_dps, event.direction);
+            PushEvent(event);
         return;
     }
 
@@ -382,18 +390,64 @@ void SysGesture_Update()
     UpdateScroll(sample);
 }
 
+void SysGesture_Update()
+{
+    /*
+     * SysMotion 仍是唯一 I2C 采样者；这里只消费固定环中的已完成样本。
+     * 环溢出代表中间波形已经不可恢复，先丢弃残留帧，再让各识别器从新静止段重新建立基准。
+     */
+    if (SysMotion_ConsumePendingOverflow())
+    {
+        while (true)
+        {
+            SysMotionSample discarded = {};
+            if (!SysMotion_PopPending(&discarded))
+                break;
+        }
+        SysGesture_Reset();
+        return;
+    }
+
+    SysMotionSample sample = {};
+    while (SysMotion_PopPending(&sample))
+        ProcessMotionSample(sample);
+}
+
 void SysGesture_SetProfile(SysGestureProfile profile)
 {
     if (profile == s_profile)
         return;
 
     s_profile = profile;
+    if (profile != SysGestureProfile::Caduceus)
+        SysCaduceusRecognizer_CancelEntryCalibration();
     ResetTracking();
     s_last_sample_us = 0;
     s_cooldown_until_us = 0;
     s_karma_cooldown_until_us = 0;
     SysCaduceusRecognizer_Reset();
     ClearEventQueue();
+    // 切换专属 Profile 时丢弃旧页面积压的 IMU 帧，避免把进页面前的动作当成首个动作。
+    SysMotion_ConsumePendingOverflow();
+    while (true)
+    {
+        SysMotionSample discarded = {};
+        if (!SysMotion_PopPending(&discarded))
+            break;
+    }
+}
+
+void SysGesture_BeginCaduceusEntryCalibration()
+{
+    if (s_profile != SysGestureProfile::Caduceus)
+        return;
+    SysCaduceusRecognizer_BeginEntryCalibration();
+}
+
+bool SysGesture_IsCaduceusEntryCalibrationComplete()
+{
+    return s_profile == SysGestureProfile::Caduceus &&
+           SysCaduceusRecognizer_IsEntryCalibrationComplete();
 }
 
 bool SysGesture_PopEvent(SysGestureEvent *out)
@@ -415,6 +469,7 @@ void SysGesture_Reset()
     s_last_sample_us = 0;
     s_cooldown_until_us = 0;
     s_karma_cooldown_until_us = 0;
+    SysCaduceusRecognizer_CancelEntryCalibration();
     SysCaduceusRecognizer_Reset();
     ClearEventQueue();
 }

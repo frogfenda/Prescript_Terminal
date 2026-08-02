@@ -30,7 +30,10 @@ enum class FeedbackPattern : uint8_t
     NfcReadOk,
     NfcReadError,
     Wake,
-    Abort
+    Abort,
+    CaduceusCorrect,
+    CaduceusWrong,
+    CaduceusFuriosoFailure
 };
 
 // 【接口说明】按 FeedbackPattern 分派到具体音频和震动组合，是所有语义化反馈函数的底层入口。
@@ -66,3 +69,10 @@ void Feedback_PlayNfcReadError();
 void Feedback_PlayWake();
 // 【接口说明】播放取消/中止反馈，副按键短按取消 NFC 伪装时使用。
 void Feedback_PlayAbort();
+
+/** 双蛇杖动作正确：只播放确认震动，武器音效和首次语音仍由App通过AudioAssetId并行播放。 */
+void Feedback_PlayCaduceusCorrect();
+/** 双蛇杖动作错误：只播放与正确反馈不同的返回/错误震动，不附加程序提示音。 */
+void Feedback_PlayCaduceusWrong();
+/** Furioso超时或错误动作：使用强警报震动，特殊武器图片由App状态机负责显示。 */
+void Feedback_PlayCaduceusFuriosoFailure();

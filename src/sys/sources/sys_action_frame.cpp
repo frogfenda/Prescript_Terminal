@@ -188,6 +188,22 @@ namespace SysActionFrame
         return true;
     }
 
+    bool Integrator::SnapshotReference(Vector3 *gravity_body,
+                                       Vector3 *gyro_bias_body_dps) const
+    {
+        if (!valid_ || !has_timestamp_ || !gravity_body || !gyro_bias_body_dps)
+            return false;
+
+        /*
+         * relative_orientation_把“当前机身”旋到“本次起手机身”，所以用其共轭把起手重力
+         * 旋回当前机身即可得到连续链路下一拍的重力起点。这里只继承短时可靠的陀螺仪积分，
+         * 不在挥动冲击中拿加速度重新估计重力。
+         */
+        *gravity_body = Rotate(Conjugate(relative_orientation_), anchor_gravity_body_);
+        *gyro_bias_body_dps = gyro_bias_body_dps_;
+        return Norm(*gravity_body) >= 0.5f && Norm(*gravity_body) <= 1.5f;
+    }
+
     bool ExtractPhase(const FrameSample *samples,
                       uint8_t sample_count,
                       uint32_t trigger_us,

@@ -20,6 +20,7 @@
 #include "sys/sys_usb_mode.h"
 #include "sys/sys_usb_session.h"
 #include "sys/sys_fat_update.h"
+#include "sys/sys_res.h"
 
 void setup()
 {
@@ -114,6 +115,7 @@ void loop()
     SysTime_Update();
     SysMotion_Update();
     SysGesture_Update();
+    SysRes_Update();
 
     SysAutoPush_Update();
     appManager.run();

@@ -44,8 +44,10 @@ enum class SysGestureProfile : uint8_t
 
 /**
  * 一次已完成识别的手势。
- * timestamp_us 使用产生事件的 IMU 样本时间；strength_dps 是主轴峰值，便于 App 调整动画强度；
- * direction 保存物理主轴符号（+1/-1），换武器应用以后可以按旋转方向选择前后武器。
+ * timestamp_us 使用动作触发时的 IMU 样本时间；strength_dps 是主轴峰值，便于 App 调整动画强度；
+ * direction 保存物理主轴符号（+1/-1）。candidate_id、识别延迟、边界置信度和采样质量用于
+ * 动作测试/离线诊断，旧 App 可继续只读取前四个稳定语义字段。confidence 是离物理分类边界
+ * 的0～1分数而非统计概率；旧识别器事件固定为1，不参与双蛇杖自适应收窗判定。
  */
 struct SysGestureEvent
 {
@@ -53,6 +55,11 @@ struct SysGestureEvent
     uint32_t timestamp_us = 0;
     float strength_dps = 0.0f;
     int8_t direction = 0;
+    uint32_t candidate_id = 0;
+    uint32_t recognition_latency_us = 0;
+    float confidence = 0.0f;
+    float class_margin = 0.0f;
+    uint16_t quality_flags = 0;
 };
 
 /** 初始化并清空识别器状态和待处理事件；必须从 Arduino 主线程调用一次。 */
@@ -70,6 +77,15 @@ void SysGesture_Update();
  * 恢复 Default。上下文变化会清除半截动作和待分发事件，防止专属事件跨页面泄漏。
  */
 void SysGesture_SetProfile(SysGestureProfile profile);
+
+/**
+ * 【双蛇杖入口校准】在 Caduceus Profile 已切换完成后调用，开始等待用户放平设备。
+ * 应用层只使用这个统一手势服务接口，不直接接触 IMU 或内部识别器。
+ */
+void SysGesture_BeginCaduceusEntryCalibration();
+
+/** 返回双蛇杖入口校准是否完成；非 Caduceus Profile 始终返回 false。 */
+bool SysGesture_IsCaduceusEntryCalibrationComplete();
 
 /**
  * 从内部小队列取出最早的一条手势事件。

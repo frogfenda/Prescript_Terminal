@@ -96,6 +96,15 @@ namespace SysActionFrame
                     const SysPose::ImuSample &body_imu,
                     FrameSample *out);
 
+        /**
+         * 读取当前时刻在机身坐标中的预测重力和本次静止段测得的陀螺仪零偏。
+         * 【用途】连续动作在一个完整候选窗口结算后可用这两个事实重新Reset，使下一动作以当前机身为局部
+         * 起点，而不必在每一拍之间再次静止；本接口不读取加速度，也不会修改积分器状态。
+         * 【返回】尚未Reset、发生过长断点或输出指针为空时返回false。
+         */
+        bool SnapshotReference(Vector3 *gravity_body,
+                               Vector3 *gyro_bias_body_dps) const;
+
         bool IsValid() const { return valid_; }
 
     private:

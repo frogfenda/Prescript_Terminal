@@ -77,9 +77,54 @@ namespace UIStrings
         return IsZh(lang) ? "双蛇杖" : "CADUCEUS";
     }
 
+    inline const char *CaduceusActionTestTitle(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "动作测试" : "ACTION TEST";
+    }
+
+    inline const char *CaduceusResourceLoading(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "正在加载武器资源" : "LOADING WEAPON ASSETS";
+    }
+
+    inline const char *CaduceusResourceLoadingDetail(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "音频与图片正在预热" : "PREPARING AUDIO AND IMAGES";
+    }
+
+    inline const char *CaduceusResourceUnavailable(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "武器资源暂不可用" : "WEAPON ASSETS UNAVAILABLE";
+    }
+
+    inline const char *CaduceusResourceUnavailableDetail(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "检查资源后重启重试" : "CHECK ASSETS AND RESTART";
+    }
+
     inline const char *CaduceusWaiting(SystemLang_t lang)
     {
         return IsZh(lang) ? "等待动作..." : "WAITING FOR ACTION...";
+    }
+
+    inline const char *CaduceusCalibrationPrompt(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "请将屏幕向上平放" : "PLACE SCREEN UP";
+    }
+
+    inline const char *CaduceusCalibrationDetail(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "保持静止，底边朝向自己" : "KEEP STILL, BOTTOM TOWARD YOU";
+    }
+
+    inline const char *CaduceusStartPrompt(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "开始吧" : "BEGIN";
+    }
+
+    inline const char *CaduceusMissingImage(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "武器图片缺失" : "WEAPON IMAGE MISSING";
     }
 
     inline const char *CaduceusActionPrefix(SystemLang_t lang)
@@ -217,6 +262,7 @@ namespace UIStrings
             "设定休眠时间",
             "音量与振动",
             "解码动画配置",
+            "动作测试",
             "返回上一级"};
         static const char *en_items[] = {
             "",
@@ -227,9 +273,10 @@ namespace UIStrings
             "SLEEP SETTINGS",
             "VOL&HAPTIC",
             "ANIMATION SETUP",
+            "ACTION TEST",
             "BACK TO MAIN"};
 
-        if (index < 0 || index >= 9)
+        if (index < 0 || index >= 10)
             return "";
         if (index == 4)
             return LanguageBuildItem(lang, TerminalLang::DEFAULT_LANG);

@@ -149,6 +149,22 @@ void Feedback_PlayAbort()
     sysHaptic.playBack();
 }
 
+void Feedback_PlayCaduceusCorrect()
+{
+    // 武器PCM与首次语音会同时占用混音器Voice，这里只补充触觉，不额外叠加程序音。
+    sysHaptic.playConfirm();
+}
+
+void Feedback_PlayCaduceusWrong()
+{
+    sysHaptic.playBack();
+}
+
+void Feedback_PlayCaduceusFuriosoFailure()
+{
+    sysHaptic.playAlert();
+}
+
 void Feedback_Play(FeedbackPattern pattern)
 {
     switch (pattern)
@@ -212,6 +228,15 @@ void Feedback_Play(FeedbackPattern pattern)
         break;
     case FeedbackPattern::Abort:
         Feedback_PlayAbort();
+        break;
+    case FeedbackPattern::CaduceusCorrect:
+        Feedback_PlayCaduceusCorrect();
+        break;
+    case FeedbackPattern::CaduceusWrong:
+        Feedback_PlayCaduceusWrong();
+        break;
+    case FeedbackPattern::CaduceusFuriosoFailure:
+        Feedback_PlayCaduceusFuriosoFailure();
         break;
     }
 }

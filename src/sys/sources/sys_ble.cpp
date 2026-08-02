@@ -67,7 +67,10 @@ void bleDaemonTask(void *pvParameters)
 // 【函数说明】创建 NimBLE 设备 Terminal_01，注册 DEAD 服务和 BEEF 特征，并启动可写/可 Notify 的 WebBLE 服务。
 void SysBLE_Init()
 {
-    xTaskCreatePinnedToCore(bleDaemonTask, "BLE_Daemon", 4096, NULL, 1, NULL, 0);
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        bleDaemonTask, "BLE_Daemon", 4096, NULL, 1, NULL, 0);
+    if (created != pdPASS)
+        Serial.println("[BLE] 守护任务创建失败，BLE服务本次启动不可用。");
 }
 
 // 【关键 3】：实现实体函数，让任何文件都能 include "sys_ble.h" 后向手机发数据！

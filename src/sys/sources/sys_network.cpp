@@ -19,6 +19,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <esp_sntp.h>
+#include <esp_heap_caps.h>
 #include "sys/sys_router.h"
 #include "sys/sys_event.h"
 #include "sys/sys_constants.h"
@@ -69,6 +70,13 @@ static constexpr uint32_t NETWORK_TOTAL_TIMEOUT_MS = 25000;
 /* 周期轻量校时失败后的退避时间。无网时不要连续反复打开 WiFi。 */
 static constexpr uint32_t TIME_RESYNC_RETRY_AFTER_FAIL_MS = 5UL * 60UL * 1000UL;
 static uint32_t g_next_time_resync_allowed_ms = 0;
+
+/*
+ * V4B实测BLE与NFC完成后最大内部连续块约为7.6 KiB，旧10 KiB任务栈必然创建失败。
+ * 本任务的大对象（String、HTTPClient、ArduinoJson文档）均由堆持有，函数内没有大尺寸数组；
+ * 实机最坏的WiFi超时路径仍剩约4 KiB栈，因此固定使用7 KiB，不再保留每轮栈诊断日志。
+ */
+static constexpr uint32_t NETWORK_TASK_STACK_BYTES = 7U * 1024U;
 
 namespace
 {
@@ -385,15 +393,22 @@ void Network_Init()
 
     SysEvent_Subscribe(EVT_WIFI_SET, _Cb_WifiSet);
 
-    xTaskCreatePinnedToCore(
+    const BaseType_t created = xTaskCreatePinnedToCore(
         network_daemon_task,
         "NetDaemon",
-        10240,
+        NETWORK_TASK_STACK_BYTES,
         NULL,
         1,
         &g_netTaskHandle,
         0
     );
+    if (created != pdPASS)
+    {
+        g_netTaskHandle = NULL;
+        Serial.printf("[网络] 后台任务创建失败；内部堆=%u字节，最大内部块=%u字节。\n",
+                      static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                      static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+    }
 }
 
 void Network_StartSync(bool keep_alive)

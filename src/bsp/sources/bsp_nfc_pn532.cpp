@@ -55,7 +55,8 @@ namespace BSP::NfcPn532
     // 【函数说明】重新初始化 PN532，包括引脚、SPI、固件探测和天线启动。
     bool Reinitialize(const char *reason, bool longBootWait)
     {
-        Serial.printf("[BSP][NFC] %s，重新初始化 PN532...\n", reason ? reason : "收到恢复请求");
+        Serial.printf("[BSP][NFC] %s，正在重新初始化 PN532。\n",
+                      reason ? reason : "收到恢复请求");
 
         // 先把 RESET/SS 设为明确输出状态，避免复位过程中片选浮动。
         pinMode(Pins::NFC_RESET, OUTPUT);
@@ -75,7 +76,12 @@ namespace BSP::NfcPn532
 
         // 初始化独立 SPI 总线，再交给 Adafruit_PN532 建立内部状态。
         s_nfcSpi.begin(Pins::NFC_SCK, Pins::NFC_MISO, Pins::NFC_MOSI, -1);
-        s_nfc.begin();
+        if (!s_nfc.begin())
+        {
+            Serial.println("[BSP][NFC] Adafruit PN532对象初始化失败，本轮初始化结束。");
+            s_ready = false;
+            return false;
+        }
 
         // 固件版本读取是 PN532 是否真实在线的第一层确认。
         uint32_t versiondata = 0;

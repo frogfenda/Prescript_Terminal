@@ -117,7 +117,9 @@ TaskHandle_t g_audioTask = nullptr;
 AssetEntry g_assets[(size_t)AudioAssetId::Count];
 portMUX_TYPE g_assetMux = portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE g_handleMux = portMUX_INITIALIZER_UNLOCKED;
+portMUX_TYPE g_playingHandleMux = portMUX_INITIALIZER_UNLOCKED;
 uint32_t g_nextHandle = 1;
+AudioHandle g_playingHandles[AUDIO_PCM_VOICE_COUNT] = {};
 
 // 兼容接口只管理自己创建的实例，不能误停新引擎中的环境音、对白或 UI 音。
 AudioHandle g_legacyHandle = AUDIO_HANDLE_INVALID;
@@ -158,6 +160,64 @@ AudioHandle allocateHandle()
         handle = g_nextHandle++;
     portEXIT_CRITICAL(&g_handleMux);
     return handle;
+}
+
+/**
+ * 在播放命令进入队列前登记句柄。
+ * 句柄表容量与PCM槽信号量完全一致，因此正常情况下预约到信号量后必然能登记；
+ * 单独保留失败返回是为了在内部状态异常时归还预约，而不是让App永久等待一个幽灵句柄。
+ */
+bool markHandlePlaying(AudioHandle handle)
+{
+    if (handle == AUDIO_HANDLE_INVALID)
+        return false;
+    bool marked = false;
+    portENTER_CRITICAL(&g_playingHandleMux);
+    for (AudioHandle &entry : g_playingHandles)
+    {
+        if (entry == AUDIO_HANDLE_INVALID)
+        {
+            entry = handle;
+            marked = true;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&g_playingHandleMux);
+    return marked;
+}
+
+void markHandleFinished(AudioHandle handle)
+{
+    if (handle == AUDIO_HANDLE_INVALID)
+        return;
+    portENTER_CRITICAL(&g_playingHandleMux);
+    for (AudioHandle &entry : g_playingHandles)
+    {
+        if (entry == handle)
+        {
+            entry = AUDIO_HANDLE_INVALID;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&g_playingHandleMux);
+}
+
+bool handleIsPlaying(AudioHandle handle)
+{
+    if (handle == AUDIO_HANDLE_INVALID)
+        return false;
+    bool playing = false;
+    portENTER_CRITICAL(&g_playingHandleMux);
+    for (const AudioHandle entry : g_playingHandles)
+    {
+        if (entry == handle)
+        {
+            playing = true;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&g_playingHandleMux);
+    return playing;
 }
 
 bool enqueueCommand(const AudioCommand &command, TickType_t waitTicks = 0)
@@ -216,6 +276,7 @@ void releasePcmVoice(PcmVoice &voice)
     if (!voice.active)
         return;
 
+    markHandleFinished(voice.handle);
     voice = PcmVoice{};
     if (g_pcmSlotSemaphore != nullptr)
         xSemaphoreGive(g_pcmSlotSemaphore);
@@ -418,6 +479,7 @@ void processCommand(const AudioCommand &command,
         // 正常情况下计数信号量保证一定有槽；若状态异常则归还预约，避免永久耗尽。
         if (g_pcmSlotSemaphore != nullptr)
             xSemaphoreGive(g_pcmSlotSemaphore);
+        markHandleFinished(command.handle);
         Serial.println("[音频] PCM 槽预约与任务状态不一致，本次播放已取消。");
         return;
 
@@ -707,12 +769,28 @@ AudioHandle SysAudio::play(const AudioClip &clip, const AudioPlayOptions &option
     command.options = options;
     command.options.gain = clampGain(options.gain);
 
-    if (!enqueueCommand(command))
+    /*
+     * 先登记再入队，使isPlaying()从play()返回的第一刻就能看见“待播放”状态；
+     * 若先入队，极短PCM可能在主线程登记前已经被后台播放并释放，留下永不结束的假状态。
+     */
+    if (!markHandlePlaying(command.handle))
     {
         xSemaphoreGive(g_pcmSlotSemaphore);
         return AUDIO_HANDLE_INVALID;
     }
+
+    if (!enqueueCommand(command))
+    {
+        markHandleFinished(command.handle);
+        xSemaphoreGive(g_pcmSlotSemaphore);
+        return AUDIO_HANDLE_INVALID;
+    }
     return command.handle;
+}
+
+bool SysAudio::isPlaying(AudioHandle handle) const
+{
+    return handleIsPlaying(handle);
 }
 
 void SysAudio::stop(AudioHandle handle, uint16_t fadeMs)
