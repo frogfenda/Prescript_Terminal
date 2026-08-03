@@ -42,6 +42,8 @@ extern AppBase *appSea;
 extern AppBase *appKarma;
 extern AppBase *appCaduceus;
 extern AppBase *appCaduceusActionTest;
+extern AppBase *appHumanFrameDrift;
+extern AppBase *appMagDiagnostics;
 
 // 时间设置相关 App 在 app_time_setting.cpp 中定义。
 extern AppBase *appTimeSetting;
@@ -90,6 +92,8 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::Karma: return appKarma;
         case AppId::Caduceus: return appCaduceus;
         case AppId::CaduceusActionTest: return appCaduceusActionTest;
+        case AppId::HumanFrameDriftTest: return appHumanFrameDrift;
+        case AppId::MagDiagnostics: return appMagDiagnostics;
         default: return nullptr;
     }
 }
@@ -136,6 +140,8 @@ const char* AppRegistry_Name(AppId id)
         case AppId::Karma: return "Karma";
         case AppId::Caduceus: return "Caduceus";
         case AppId::CaduceusActionTest: return "CaduceusActionTest";
+        case AppId::HumanFrameDriftTest: return "HumanFrameDriftTest";
+        case AppId::MagDiagnostics: return "MagDiagnostics";
         default: return "Unknown";
     }
 }

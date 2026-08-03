@@ -16,6 +16,7 @@
 #include "sys/sys_constants.h"
 #include "sys/sys_prescript_target.h"
 #include "sys/sys_motion.h"
+#include "sys/sys_mag.h"
 #include "sys/sys_gesture.h"
 #include "sys/sys_usb_mode.h"
 #include "sys/sys_usb_session.h"
@@ -62,6 +63,8 @@ void setup()
      */
     SysTime_Init();
     SysMotion_Init();
+    // 地磁与IMU共用Wire1，但拥有独立采样/校准服务；初始化失败不阻止其他系统启动。
+    SysMag_Init();
     SysGesture_Init();
 
     sysAudio.begin();
@@ -114,6 +117,7 @@ void loop()
      */
     SysTime_Update();
     SysMotion_Update();
+    SysMag_Update();
     SysGesture_Update();
     SysRes_Update();
 

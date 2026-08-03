@@ -13,6 +13,7 @@
 #include "sys/sys_time.h"
 #include "sys/sys_sleep_scheduler.h"
 #include "sys/sys_motion.h"
+#include "sys/sys_mag.h"
 
 class AppStandby : public AppBase
 {
@@ -82,6 +83,7 @@ public:
             SysAudio_Sleep();
             SysNfc_Sleep();
             SysMotion_Sleep();
+            SysMag_Sleep();
 
             // --- 3. 硬件级休眠：调用最新拆分的 HAL 底层 ---
             HAL_Sleep_Enter_Prepare(); // 引脚锁定，驱动 IC 挂起
@@ -115,6 +117,7 @@ public:
             // --- 4. 唤醒：恢复屏幕与外设，并把本次唤醒按压交给 ButtonEngine 非阻塞吞掉 ---
             HAL_Sleep_Wakeup_Post();
             SysMotion_Wakeup();
+            SysMag_Wakeup();
 
             // --- 5. 业务逻辑恢复 ---
             // 唤醒后仍停留在待机页面，避免重复调用各模块 wakeup。

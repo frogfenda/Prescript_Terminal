@@ -29,6 +29,8 @@ namespace
     uint32_t s_writeBytes = 0;
     uint32_t s_ioErrors = 0;
     uint32_t s_hostAccessObserved = 0;
+    uint32_t s_bootloaderRequested = 0;
+    uint32_t s_bootloaderAllowed = 0;
     bool s_mscMediaPresent = false;
     HAL::FatStorage::Geometry s_mscGeometry;
     char s_mscVendorId[9] = "FOGFENDA";
@@ -48,6 +50,8 @@ namespace
         EVENT_CDC_CLOSED = 1U << 8,
         EVENT_EJECT_IGNORED = 1U << 9,
     };
+
+    constexpr uint32_t USB_UNMOUNT_TIMEOUT_MS = 1000;
 
     void queueEvent(uint32_t event)
     {
@@ -139,12 +143,78 @@ namespace
     void onCdcEvent(void *arg, esp_event_base_t eventBase, int32_t eventId, void *eventData)
     {
         (void)arg;
-        if (eventBase != ARDUINO_USB_CDC_EVENTS || eventId != ARDUINO_USB_CDC_LINE_STATE_EVENT || !eventData)
+        if (eventBase != ARDUINO_USB_CDC_EVENTS || !eventData)
             return;
 
         const auto *data = static_cast<const arduino_usb_cdc_event_data_t *>(eventData);
+        if (eventId == ARDUINO_USB_CDC_LINE_CODING_EVENT)
+        {
+            /*
+             * Arduino Core的enableReboot(true)会在TinyUSB设备任务的回调栈内同步切换PHY。
+             * 本项目还要统一执行MSC写入保护和主循环状态门控，因此回调这里只提交请求；
+             * 主循环随后仍调用Core的完整下载入口，不自行复制底层PHY或复位寄存器操作。
+             */
+            if (data->line_coding.bit_rate == 1200 &&
+                __atomic_load_n(&s_bootloaderAllowed, __ATOMIC_ACQUIRE) != 0)
+            {
+                __atomic_store_n(&s_bootloaderRequested, 1U, __ATOMIC_RELEASE);
+            }
+            return;
+        }
+
+        if (eventId != ARDUINO_USB_CDC_LINE_STATE_EVENT)
+            return;
+
         // TinyUSB 以 DTR 表示串口已打开；RTS 是否置位由 VOFA+ 等上位机自行决定。
         queueEvent(data->line_state.dtr ? EVENT_CDC_OPENED : EVENT_CDC_CLOSED);
+
+        /*
+         * 如果主机曾在 MSC 保护期把串口速率设为 1200，USBCDC 后续再次收到相同速率时
+         * 不会重复产生 LINE_CODING 事件。PlatformIO 的 1200bps touch 一定会打开再关闭
+         * 端口，因此在 DTR 撤销时再检查一次当前速率，保证安全弹出后的下一次上传仍能触发。
+         */
+        if (!data->line_state.dtr && s_cdc->baudRate() == 1200 &&
+            __atomic_load_n(&s_bootloaderAllowed, __ATOMIC_ACQUIRE) != 0)
+        {
+            __atomic_store_n(&s_bootloaderRequested, 1U, __ATOMIC_RELEASE);
+        }
+    }
+
+    // 【函数说明】普通软件重启前主动撤销 TinyUSB 上拉并等待主机确认卸载；只能从 Arduino 主循环调用。
+    void disconnectTinyUsb(uint32_t settleMs)
+    {
+        s_mscMediaPresent = false;
+        tud_disconnect();
+
+        const uint32_t unmountStartedAt = millis();
+        while (tud_mounted() && millis() - unmountStartedAt < USB_UNMOUNT_TIMEOUT_MS)
+            delay(10);
+
+        const uint32_t settleStartedAt = millis();
+        while (millis() - settleStartedAt < settleMs)
+            delay(10);
+    }
+
+    /*
+     * 【函数说明】通过Arduino Core的ESP32-S3官方入口完成1200bps下载器切换。
+     * 【调用约束】只由SysUsbMode::Service()在主循环调用；MSC活跃时回调不会提交请求。
+     * 【关键原因】ESP32-S3的同一组USB引脚由TinyUSB OTG与ROM USB-Serial/JTAG复用。
+     * 仅设置FORCE_DOWNLOAD_BOOT再esp_restart()不会交还PHY，实机会停在“应用COM消失、
+     * ROM COM不枚举”的下载态。usb_persist_restart()会先完成PHY切换和主机BUS_RESET握手，
+     * 再由其关机处理器写入ROM下载标志并复位；这里不再复制或拆分Core内部时序。
+     */
+    void restartIntoRomBootloader()
+    {
+        /*
+         * 此时PlatformIO已经撤销DTR，任何日志都会进入环形缓冲，既无法帮助当前上传，
+         * 还可能让复位路径等待发送锁。因此这里不打印、不flush、不先tud_disconnect()。
+         * 正常情况下下列函数不会返回；若Core无法注册关机处理器而返回，则保持应用运行，
+         * 让用户仍可操作设备和重新打开串口，而不是留下无法恢复的半断开状态。
+         */
+        __atomic_store_n(&s_bootloaderAllowed, 0U, __ATOMIC_RELEASE);
+        usb_persist_restart(RESTART_BOOTLOADER);
+        __atomic_store_n(&s_bootloaderAllowed, 1U, __ATOMIC_RELEASE);
+        Serial.println("[USB] 进入ROM下载器失败，设备已保持在应用模式，可重新尝试上传。");
     }
 
     template <size_t N>
@@ -317,10 +387,14 @@ namespace SysUsbMode
         }
 
         s_cdc->begin(config.cdcBaud);
-        // 正常 CDC-only 启动使用 Arduino-ESP32 原生 1200bps/DTR 下载流程；
-        // MSC 模式禁止串口触发下载，避免电脑打开 CDC 时中断 FAT 会话。
-        s_cdc->enableReboot(mode == Mode::CdcOnly);
+        /*
+         * 禁用Arduino Core在TinyUSB回调里的即时重启。普通模式的1200bps请求由onCdcEvent
+         * 原子提交，再由主循环Service()完成干净断开；MSC模式则始终忽略下载请求，避免
+         * Windows仍持有FAT写缓存时中断块设备会话。
+         */
+        s_cdc->enableReboot(false);
         s_cdc->onEvent(ARDUINO_USB_CDC_LINE_STATE_EVENT, onCdcEvent);
+        s_cdc->onEvent(ARDUINO_USB_CDC_LINE_CODING_EVENT, onCdcEvent);
 
         __atomic_store_n(&s_pendingEvents, 0U, __ATOMIC_RELAXED);
         __atomic_store_n(&s_readOps, 0U, __ATOMIC_RELAXED);
@@ -329,6 +403,8 @@ namespace SysUsbMode
         __atomic_store_n(&s_writeBytes, 0U, __ATOMIC_RELAXED);
         __atomic_store_n(&s_ioErrors, 0U, __ATOMIC_RELAXED);
         __atomic_store_n(&s_hostAccessObserved, 0U, __ATOMIC_RELAXED);
+        __atomic_store_n(&s_bootloaderRequested, 0U, __ATOMIC_RELAXED);
+        __atomic_store_n(&s_bootloaderAllowed, 0U, __ATOMIC_RELAXED);
 
         if (mode == Mode::CdcWithMsc)
         {
@@ -370,11 +446,19 @@ namespace SysUsbMode
         USB.onEvent(onUsbEvent);
         // 在 USB.begin() 之前就锁定模式，避免主机极快发送 1200bps 时误走 CDC-only 分支。
         s_mode = mode;
+        /*
+         * USB事件运行在Arduino事件任务，不直接读取主循环修改的s_mode/s_mscActive。
+         * 只通过这个原子门控公布“当前可进入下载器”，保证MSC块设备在线时不会被中断。
+         */
+        __atomic_store_n(&s_bootloaderAllowed,
+                         mode == Mode::CdcOnly ? 1U : 0U,
+                         __ATOMIC_RELEASE);
         if (!USB.begin())
         {
             rollbackMsc();
             s_cdc->end();
             s_mode = Mode::CdcOnly;
+            __atomic_store_n(&s_bootloaderAllowed, 0U, __ATOMIC_RELEASE);
             s_error = Error::UsbStartFailed;
             return false;
         }
@@ -396,7 +480,12 @@ namespace SysUsbMode
         rollbackMsc();
         if (s_mode == Mode::CdcWithMsc)
             s_mode = Mode::CdcOnly;
-        Serial.println("[FATFS][MSC] 原始块后端已关闭，PC 的 FAT 访问权已释放。");
+        __atomic_store_n(&s_bootloaderAllowed, 1U, __ATOMIC_RELEASE);
+        /*
+         * USB描述符在本次启动内仍包含MSC接口，但介质和原始块后端都已经关闭。
+         * 从这里开始允许onCdcEvent再次提交1200bps请求，正常固件无需为了恢复上传能力重启。
+         */
+        Serial.println("[FATFS][MSC] 原始块后端已关闭，PC的FAT访问权已释放，串口下载已恢复。");
     }
 
     void Service()
@@ -408,8 +497,15 @@ namespace SysUsbMode
         if (!s_started)
             return;
 
-        CDCSerial.Service();
+        /*
+         * 下载请求必须先于普通日志补发处理。1200bps touch已经关闭主机串口，
+         * 复位链路不应再触碰CDC发送锁或TinyUSB TX状态。
+         */
+        if (__atomic_exchange_n(&s_bootloaderRequested, 0U, __ATOMIC_ACQ_REL) != 0 &&
+            __atomic_load_n(&s_bootloaderAllowed, __ATOMIC_ACQUIRE) != 0)
+            restartIntoRomBootloader();
 
+        CDCSerial.Service();
         (void)__atomic_exchange_n(&s_pendingEvents, 0U, __ATOMIC_ACQ_REL);
     }
 
@@ -422,17 +518,8 @@ namespace SysUsbMode
         CDCSerial.Service();
         delay(50);
 
-        s_mscMediaPresent = false;
-        tud_disconnect();
-
-        // 先等待 TinyUSB 确认主机已撤销配置，再给 Windows 的复合设备子节点留下完整清理窗口。
-        const uint32_t unmountStartedAt = millis();
-        while (tud_mounted() && millis() - unmountStartedAt < 1000)
-            delay(10);
-
-        const uint32_t startedAt = millis();
-        while (millis() - startedAt < settleMs)
-            delay(10);
+        // 复用与下载器切换相同的撤销流程，确保软件重启和FAT更新也不会留下失效设备节点。
+        disconnectTinyUsb(settleMs);
     }
 
     bool IsStarted()

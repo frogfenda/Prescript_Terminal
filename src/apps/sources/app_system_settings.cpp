@@ -21,10 +21,10 @@
 class AppSystemSettings : public AppMenuBase {
 protected:
     /**
-     * 系统设置共10项。“动作测试”只承担双蛇杖六分类校准，放在返回项之前，
-     * 避免正式应用继续暴露角速度峰值等开发信息。
+     * 系统设置共12项。“动作测试”承担双蛇杖六分类校准；坐标漂移和地磁诊断均为独立硬件
+     * 调试入口，不接入正式识别器。三个调试入口都放在返回项之前。
      */
-    int getMenuCount() override { return 10; }
+    int getMenuCount() override { return 12; }
 
     /** 返回系统设置页标题，使用已有 UIStrings 适配中英文。 */
     const char* getTitle() override {
@@ -67,7 +67,9 @@ protected:
      * 6 音量震动；
      * 7 解码动画；
      * 8 双蛇杖动作测试；
-     * 9 返回。
+     * 9 固定入口人体坐标漂移测试；
+     * 10 地磁数据/校准诊断；
+     * 11 返回。
      */
     void onItemClicked(int index) override {
         if (index == 0) appManager.push(AppId::WifiConnect);
@@ -87,7 +89,9 @@ protected:
         else if (index == 6) appManager.push(AppId::VolumeSetting);
         else if (index == 7) appManager.push(AppId::AnimSetting);
         else if (index == 8) appManager.push(AppId::CaduceusActionTest);
-        else if (index == 9) appManager.popApp();
+        else if (index == 9) appManager.push(AppId::HumanFrameDriftTest);
+        else if (index == 10) appManager.push(AppId::MagDiagnostics);
+        else if (index == 11) appManager.popApp();
     }
 
     /** 长按退出系统设置页，回到上一级菜单。 */

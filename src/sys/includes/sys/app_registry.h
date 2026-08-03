@@ -58,7 +58,13 @@ enum class AppId : uint8_t
     Caduceus,
 
     // 六动作语义校准页只从系统设置进入；追加在末尾，避免改变此前AppId数值。
-    CaduceusActionTest
+    CaduceusActionTest,
+
+    // 固定入口人体坐标漂移调试页；继续追加，保持此前 AppId 数值稳定。
+    HumanFrameDriftTest,
+
+    // 独立地磁数据、校准和干扰诊断页；继续追加以保持此前AppId数值稳定。
+    MagDiagnostics
 };
 
 /** 根据 AppId 返回对应 App 单例指针，AppManager 的 push/launch/replace 会调用它完成页面跳转。 */

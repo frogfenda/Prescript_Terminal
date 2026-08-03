@@ -49,9 +49,10 @@ void BufferedUSBCDC::flushBufferedLocked()
     while (txCount_ > 0)
     {
         /*
-         * Arduino-ESP32 2.0.14 的 USBCDC::operator bool() 只有在 DTR 和 RTS
-         * 同时置位时才返回 true；不少终端只置 DTR。直接检查 TinyUSB 可写空间，
-         * 既能兼容这些终端，也能避免对一个已满的 USB TX FIFO 阻塞等待。
+         * Arduino-ESP32 2.0.14的availableForWrite()以主机DTR作为“串口已打开”条件。
+         * 这里必须尊重该条件：主机关闭时日志只留在本类环形缓冲，不能继续向TinyUSB FIFO
+         * 投递，否则无人读取的FIFO会填满，并可能影响下一次COM端口重连。PlatformIO、pyserial
+         * 和常用串口工具都会在真正打开端口时置DTR，届时再统一补发积压日志。
          */
         const int available = USBCDC::availableForWrite();
         if (available <= 0)

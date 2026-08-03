@@ -266,10 +266,14 @@ void AppManager::run()
     if (b2_evt == BTN_DOUBLE) {
         resetIdleTimer();
         SYS_SOUND_CONFIRM();
-        if (!isCurrent(AppId::Prescript)) {
+        if (!isCurrent(AppId::Prescript) && !isCurrent(AppId::HumanFrameDriftTest)) {
             launch(AppId::Prescript); // 全局双击拉起都市指令
         } else {
-            currentApp->onBtn2Double(); 
+            /*
+             * 指令页保留原有双击回调；人体坐标漂移测试需要把侧键双击解释为“两次确认重校准”，
+             * 只在这个显式调试页阻止全局跳转，其他页面的全局双击行为完全不变。
+             */
+            currentApp->onBtn2Double();
         }
     } 
     else if (b2_evt == BTN_LONG) {

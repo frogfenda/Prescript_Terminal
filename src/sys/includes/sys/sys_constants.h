@@ -107,6 +107,8 @@ namespace PrescriptConst
     constexpr const char *CONFIG_ZH_FILE = "/zh/config.json";
     constexpr const char *CONFIG_EN_FILE = "/en/config.json";
     constexpr const char *CONFIG_LEGACY_FILE = "/assets/config.json";
+    // 磁力计校准属于单台设备的硬件参数，与语言和普通用户设置分离保存。
+    constexpr const char *MAG_CALIBRATION_FILE = "/common/mag_calibration.json";
     constexpr const char *STANDBY_IMAGE_BIN = "/common/standby.bin";
     constexpr const char *STANDBY_IMAGE_LEGACY_BIN = "/assets/standby.bin";
     /*

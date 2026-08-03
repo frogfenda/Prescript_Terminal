@@ -161,6 +161,93 @@ namespace UIStrings
         return IsZh(lang) ? "角速度峰值: " : "GYRO PEAK: ";
     }
 
+    // 【人体坐标漂移测试】固定入口、运行状态和三页调试信息的双语文本。
+    inline const char *HumanFrameDriftTitle(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "坐标漂移测试" : "FRAME DRIFT TEST";
+    }
+
+    inline const char *HumanFrameCalibratingHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "静止约1秒 / 长按退出" : "STILL 1S / HOLD EXIT";
+    }
+
+    inline const char *HumanFrameDiscontinuous(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "采样已断开，追踪冻结" : "SAMPLE GAP - TRACKING FROZEN";
+    }
+
+    inline const char *HumanFrameDiscontinuousDetail(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "不能安全续接当前姿态" : "CURRENT POSE CANNOT RESUME";
+    }
+
+    inline const char *HumanFrameAttitudePage(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "姿态" : "ATTITUDE";
+    }
+
+    inline const char *HumanFrameAccelerationPage(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "人体坐标去重力加速度" : "HUMAN LINEAR ACCELERATION";
+    }
+
+    inline const char *HumanFrameStatisticsPage(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "统计" : "STATS";
+    }
+
+    inline const char *HumanFrameRunningHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "旋钮换页 / 主键暂停 / 长按退出" : "TURN PAGE / CLICK PAUSE / HOLD EXIT";
+    }
+
+    inline const char *HumanFramePausedHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "显示暂停，积分继续 / 主键恢复" : "DISPLAY PAUSED, TRACKING CONTINUES";
+    }
+
+    inline const char *HumanFrameRecalibrateHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "连续短按两次侧键重新校准" : "SIDE CLICK TWICE TO RECALIBRATE";
+    }
+
+    inline const char *HumanFrameRecalibrateConfirm(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "再按一次侧键清空并重新校准" : "SIDE CLICK AGAIN TO RESET";
+    }
+
+    // 【地磁诊断】独立磁场服务的实时数据、三维校准和操作提示。
+    inline const char *MagDiagnosticsTitle(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "地磁诊断" : "MAG DIAGNOSTICS";
+    }
+
+    inline const char *MagUnavailable(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "QMC5883P不可用，正在低频重试" : "QMC5883P OFFLINE - RETRYING";
+    }
+
+    inline const char *MagLiveHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "旋钮换页 / 串口每0.5秒输出 / 长按退出" : "TURN PAGE / SERIAL 0.5S / HOLD EXIT";
+    }
+
+    inline const char *MagCalibrationReadyHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "主键开始三维校准 / 长按退出" : "CLICK TO START 3D CAL / HOLD EXIT";
+    }
+
+    inline const char *MagCalibrationRunningHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "缓慢覆盖所有方向 / 主键结束拟合" : "ROTATE ALL DIRECTIONS / CLICK FINISH";
+    }
+
+    inline const char *MagCalibrationCancelHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "侧键取消本轮采集" : "SIDE CLICK CANCELS";
+    }
+
     // 【业力】沉浸式木鱼页面的模式、累计次数和清空确认文本；三个模式名称暂时相同。
     inline const char *KarmaModePrefix(SystemLang_t lang)
     {
@@ -263,6 +350,8 @@ namespace UIStrings
             "音量与振动",
             "解码动画配置",
             "动作测试",
+            "坐标漂移测试",
+            "地磁数据与校准",
             "返回上一级"};
         static const char *en_items[] = {
             "",
@@ -274,9 +363,11 @@ namespace UIStrings
             "VOL&HAPTIC",
             "ANIMATION SETUP",
             "ACTION TEST",
+            "FRAME DRIFT TEST",
+            "MAG DATA & CAL",
             "BACK TO MAIN"};
 
-        if (index < 0 || index >= 10)
+        if (index < 0 || index >= 12)
             return "";
         if (index == 4)
             return LanguageBuildItem(lang, TerminalLang::DEFAULT_LANG);
