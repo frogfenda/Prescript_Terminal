@@ -136,9 +136,9 @@ private:
      * 把当前句子的逻辑音频标识交给外部绑定层。全局 String 保证注册回调后能够立即获得当前状态，
      * 回调接收的 c_str() 只在调用期间有效；空字符串统一表示停止上一句对白。
      */
-    void notifyNarrativeAudio(const String &audioBind)
+    void notifyNarrativeAudio(const char *audioBind)
     {
-        g_sea_narrative_audio_bind = audioBind;
+        g_sea_narrative_audio_bind = audioBind ? audioBind : "";
         if (g_sea_audio_binding.onNarrativeLineChanged)
             g_sea_audio_binding.onNarrativeLineChanged(g_sea_narrative_audio_bind.c_str());
     }
@@ -202,7 +202,7 @@ private:
         if (!beginNarrativePage())
             return false;
         if (notifyAudio)
-            notifyNarrativeAudio(line->audioBind);
+            notifyNarrativeAudio(line->audioBind.c_str());
         return true;
     }
 

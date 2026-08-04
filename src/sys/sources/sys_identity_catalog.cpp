@@ -5,12 +5,26 @@
 #include "sys/sys_identity_catalog.h"
 
 #include "sys/sys_resource_io.h"
+#include "sys/sys_psram_json.h"
+#include "sys/sys_psram_text.h"
 #include <ArduinoJson.h>
 #include <new>
 
 namespace
 {
-    IdentityData *g_pool = nullptr;
+    /*
+     * 目录内部记录与App对外的IdentityData分离：数百条常驻名称使用PSRAM字符串，
+     * 只有真正抽中的最多十条结果才复制到App现有String接口，避免破坏结算页生命周期。
+     */
+    struct IdentityRecord
+    {
+        SysPsramString sinner;
+        SysPsramString idName;
+        int star = 0;
+        int walp = 0;
+    };
+
+    IdentityRecord *g_pool = nullptr;
     int g_total = 0;
     int *g_starIndexes[3] = {nullptr, nullptr, nullptr};
     int g_starCounts[3] = {0, 0, 0};
@@ -22,7 +36,7 @@ namespace
         if (g_pool)
         {
             for (int i = 0; i < g_total; ++i)
-                g_pool[i].~IdentityData();
+                g_pool[i].~IdentityRecord();
             free(g_pool);
         }
         for (uint8_t i = 0; i < 3; ++i)
@@ -56,7 +70,7 @@ bool SysIdentityCatalog::Load(SystemLang_t lang)
         return false;
     }
 
-    JsonDocument document;
+    JsonDocument document(SysPsramJsonAllocator::Instance());
     const DeserializationError error = deserializeJson(document, file);
     file.close();
     if (error || !document.is<JsonArray>() || document.size() == 0)
@@ -68,7 +82,7 @@ bool SysIdentityCatalog::Load(SystemLang_t lang)
     }
 
     const int total = (int)document.size();
-    IdentityData *newPool = (IdentityData *)ps_malloc(sizeof(IdentityData) * total);
+    IdentityRecord *newPool = (IdentityRecord *)ps_malloc(sizeof(IdentityRecord) * total);
     int *newIndexes[3] = {
         (int *)ps_malloc(sizeof(int) * total),
         (int *)ps_malloc(sizeof(int) * total),
@@ -86,9 +100,9 @@ bool SysIdentityCatalog::Load(SystemLang_t lang)
     int newCounts[3] = {0, 0, 0};
     for (int i = 0; i < total; ++i)
     {
-        new (&newPool[i]) IdentityData();
-        newPool[i].sinner = document[i]["sinner"].as<String>();
-        newPool[i].id_name = document[i]["id"].as<String>();
+        new (&newPool[i]) IdentityRecord();
+        newPool[i].sinner = document[i]["sinner"] | "";
+        newPool[i].idName = document[i]["id"] | "";
         newPool[i].star = document[i]["star"].as<int>();
         newPool[i].walp = document[i]["walp"].as<int>();
         const int slot = StarSlot((uint8_t)newPool[i].star);
@@ -125,7 +139,11 @@ bool SysIdentityCatalog::DrawByStar(uint8_t star, IdentityData &out)
     const int poolIndex = g_starIndexes[slot][random(g_starCounts[slot])];
     if (poolIndex < 0 || poolIndex >= g_total)
         return false;
-    out = g_pool[poolIndex];
+    /* 对外仍返回值副本；仅复制本次抽中的两段短文本，不让App持有目录重载后会失效的PSRAM指针。 */
+    out.sinner = g_pool[poolIndex].sinner.c_str();
+    out.id_name = g_pool[poolIndex].idName.c_str();
+    out.star = g_pool[poolIndex].star;
+    out.walp = g_pool[poolIndex].walp;
     return true;
 }
 

@@ -17,7 +17,8 @@
 class BufferedUSBCDC final : public USBCDC
 {
 public:
-    static constexpr size_t TX_BUFFER_SIZE = 16384;
+    // 8KB足以容纳开机阶段尚未打开CDC时的关键日志，并直接归还8KB常驻内部RAM。
+    static constexpr size_t TX_BUFFER_SIZE = 8192;
 
     explicit BufferedUSBCDC(uint8_t interfaceNumber = 0);
 

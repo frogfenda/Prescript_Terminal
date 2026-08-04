@@ -125,3 +125,17 @@ bool SysAudioAssets::PreloadCaduceusStep(bool &complete)
     complete = g_nextCaduceusRecord >= AUDIO_RECORD_COUNT;
     return ready;
 }
+
+void SysAudioAssets::ReleaseCaduceus()
+{
+    /*
+     * 先撤销AudioAssetId到PCM的公开映射，再释放资源域持有的PSRAM。
+     * App已经用SysAudio::stopAndWait建立跨核心边界，这里不再反向管理播放实例。
+     */
+    for (size_t index = CADUCEUS_FIRST_RECORD; index < AUDIO_RECORD_COUNT; ++index)
+    {
+        (void)sysAudio.unregisterAsset(g_records[index].id);
+        g_records[index].loaded.reset();
+    }
+    g_nextCaduceusRecord = CADUCEUS_FIRST_RECORD;
+}

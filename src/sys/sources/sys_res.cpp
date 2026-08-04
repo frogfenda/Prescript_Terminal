@@ -31,7 +31,6 @@ namespace
         Blocked,
     };
 
-    constexpr uint32_t CADUCEUS_PRELOAD_DELAY_MS = 5000;
     constexpr uint32_t PRELOAD_GUARD_MAGIC = 0x43414455UL; // ASCII "CADU"
     constexpr uint32_t PRELOAD_GUARD_XOR = 0xA55AC33CUL;
     constexpr uint32_t CADUCEUS_PRELOAD_STEP_COUNT = 28; // 18段音频 + 10张图片。
@@ -47,7 +46,6 @@ namespace
 
     bool g_initialized = false;
     bool g_caduceusAllReady = true;
-    uint32_t g_caduceusStartMs = 0;
     uint32_t g_caduceusStep = 0;
     CaduceusPreloadState g_caduceusState = CaduceusPreloadState::NotScheduled;
 
@@ -111,8 +109,12 @@ void SysRes_Init()
     }
     else
     {
+        /*
+         * 双蛇杖的18段PCM和10张全屏图合计约2.67 MiB。它们只服务一个App，
+         * 不应在普通系统启动后无条件常驻PSRAM并改变USB上传时的运行态资源条件。
+         * 保持Waiting直到App显式请求；现有Loading页面负责覆盖首次进入的加载窗口。
+         */
         g_caduceusState = CaduceusPreloadState::Waiting;
-        g_caduceusStartMs = millis() + CADUCEUS_PRELOAD_DELAY_MS;
     }
 
     g_initialized = true;
@@ -126,12 +128,7 @@ void SysRes_Update()
         return;
 
     if (g_caduceusState == CaduceusPreloadState::Waiting)
-    {
-        if ((int32_t)(millis() - g_caduceusStartMs) < 0)
-            return;
-        g_caduceusState = CaduceusPreloadState::Audio;
-        Serial.println("[资源系统] 开始后台逐份预热双蛇杖资源。");
-    }
+        return;
 
     bool groupComplete = false;
     bool stepReady = true;
@@ -166,7 +163,28 @@ void SysRes_Update()
 void SysRes_RequestCaduceusPreload()
 {
     if (g_caduceusState == CaduceusPreloadState::Waiting)
-        g_caduceusStartMs = millis();
+    {
+        g_caduceusState = CaduceusPreloadState::Audio;
+        Serial.println("[资源系统] 已按应用请求开始逐份预热双蛇杖资源。");
+    }
+}
+
+void SysRes_ReleaseCaduceus()
+{
+    /*
+     * SysRes_Update与App生命周期都运行在Arduino主线程，不会与正在执行的单份FAT读取并发。
+     * 无论资源已完成、失败还是只加载到一半，都统一释放并把下一次会话恢复到第一步。
+     */
+    SysAudioAssets::ReleaseCaduceus();
+    SysCaduceusResources::Release();
+    ClearPreloadGuard();
+    g_caduceusAllReady = true;
+    g_caduceusStep = 0;
+
+    // Blocked表示本次启动曾在加载中复位，必须保持到下次重启，不能由开关App绕过保护。
+    if (g_caduceusState != CaduceusPreloadState::Blocked)
+        g_caduceusState = g_initialized ? CaduceusPreloadState::Waiting
+                                        : CaduceusPreloadState::NotScheduled;
 }
 
 bool SysRes_IsCaduceusReady()

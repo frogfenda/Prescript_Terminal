@@ -91,7 +91,7 @@ namespace SysResourceIO
 
     /**
      * 【接口说明】扫描 RIFF/WAV 的 fmt 与 data 段，把支持的纯 PCM 数据加载到 PSRAM。
-     * 【格式约束】只接受 PCM、44100Hz、16bit、单声道或双声道；trimLoopSilence 仅供明确的循环环境音使用。
+     * 【格式约束】只接受PCM、44100Hz、16bit、单声道；trimLoopSilence仅供明确的循环环境音使用。
      * 【所有权】成功后 out 独占PCM；若 out 已有效则直接复用，避免重复初始化造成泄漏。
      */
     bool LoadWav(const SysResourcePath &resourcePath,

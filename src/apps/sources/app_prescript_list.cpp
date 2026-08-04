@@ -29,7 +29,7 @@
 // ========================================================
 void DBArchive_SaveToFile(SystemLang_t lang)
 {
-    std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    SysPsramTextList *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
     const char *path = TerminalLang::PrescriptPath(lang);
 
     File f = LittleFS.open(path, "w");
@@ -41,7 +41,7 @@ void DBArchive_SaveToFile(SystemLang_t lang)
 
     for (size_t i = 0; i < p->size(); i++)
     {
-        f.println((*p)[i]);
+        f.println((*p)[i].c_str());
     }
     f.close();
 
@@ -71,18 +71,18 @@ void _Cb_PreAdd(void *payload)
 // 【外部接口】添加一条指令并立即写回 LittleFS。
 void DBArchive_AddRecord(SystemLang_t lang, const String &text)
 {
-    std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    p->push_back(text);
+    SysPsramTextList *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    p->emplace_back(text);
     DBArchive_SaveToFile(lang);
 }
 
 // 【外部接口】按索引删除指令；删除成功后立即写回 LittleFS。
 bool DBArchive_DeleteRecord(SystemLang_t lang, int index)
 {
-    std::vector<String> *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    SysPsramTextList *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
     if (index >= 0 && index < (int)p->size())
     {
-        String removed = (*p)[index];
+        String removed = (*p)[index].c_str();
         p->erase(p->begin() + index);
         DBArchive_SaveToFile(lang);
         Serial.printf("[指令档案] 已删除记录：%s\n", removed.c_str());
@@ -103,7 +103,7 @@ void _Cb_PreDel(void* payload)
     String target = String(p->text);
     SystemLang_t target_lang = (SystemLang_t)p->lang;
 
-    std::vector<String> *target_pool = (target_lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    SysPsramTextList *target_pool = (target_lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
 
     for (int i = 0; i < (int)target_pool->size(); i++)
     {
@@ -121,7 +121,7 @@ void _Cb_PreDel(void* payload)
 class AppPrescriptList : public AppBase
 {
 private:
-    std::vector<String> *pool = nullptr;
+    SysPsramTextList *pool = nullptr;
     const char *file_path = nullptr;
 
     int current_idx = 0;
@@ -200,7 +200,7 @@ private:
         if (!pool || pool->empty())
             return;
 
-        const String text = (*pool)[current_idx];
+        const String text = (*pool)[current_idx].c_str();
         const int max_px = contentMaxWidth();
         String line = "";
 

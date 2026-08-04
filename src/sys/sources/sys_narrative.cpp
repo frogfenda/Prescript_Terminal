@@ -6,6 +6,7 @@
 #include "sys/sys_narrative.h"
 
 #include <ArduinoJson.h>
+#include "sys/sys_psram_json.h"
 #include "sys/sys_resource_io.h"
 #include <string.h>
 #include <utility>
@@ -62,7 +63,7 @@ bool SysNarrativeCatalog::load(const char *path)
     if (!SysResourceIO::OpenRead({path}, file, "叙事素材", &resolvedPath))
         return false;
 
-    JsonDocument document;
+    JsonDocument document(SysPsramJsonAllocator::Instance());
     const DeserializationError error = deserializeJson(document, file);
     file.close();
     if (error)

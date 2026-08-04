@@ -37,7 +37,10 @@ namespace SysCaduceusResources
 
     /**
      * 返回指定资源的只读视图。ID越界或对应文件加载失败时返回无效视图；
-     * 返回指针由资源域持有到设备重启，调用者不得释放或修改。
+     * 返回指针只在当前双蛇杖应用会话内有效，调用者不得缓存、释放或修改。
      */
     SysRgb565View GetImage(CaduceusImageId id);
+
+    /** 释放全部已加载图片并复位逐份加载游标；加载中途退出时同样可以调用。 */
+    void Release();
 }

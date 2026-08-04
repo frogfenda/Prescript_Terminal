@@ -6,8 +6,7 @@
 
 #include <FFat.h>
 #include <cstring>
-#include <memory>
-#include <new>
+#include <esp_heap_caps.h>
 
 extern "C"
 {
@@ -21,6 +20,19 @@ namespace
     wl_handle_t s_wlHandle = WL_INVALID_HANDLE;
     const esp_partition_t *s_partition = nullptr;
     HAL::FatStorage::Geometry s_geometry;
+    uint8_t *s_writeCache = nullptr;
+    size_t s_writeCacheBytes = 0;
+
+    /**
+     * 【函数说明】释放MSC会话专用的整扇区读改写缓存，并把容量状态一并复位。
+     * 【内存约束】缓存由heap_caps_malloc从内部RAM申请，必须使用heap_caps_free配对释放。
+     */
+    void releaseWriteCache()
+    {
+        heap_caps_free(s_writeCache);
+        s_writeCache = nullptr;
+        s_writeCacheBytes = 0;
+    }
 
     bool rangeIsValid(size_t address, size_t length)
     {
@@ -39,11 +51,7 @@ namespace
             return false;
 
         const size_t eraseSize = wl_sector_size(s_wlHandle);
-        if (eraseSize == 0)
-            return false;
-
-        std::unique_ptr<uint8_t[]> cache(new (std::nothrow) uint8_t[eraseSize]);
-        if (!cache)
+        if (eraseSize == 0 || !s_writeCache || s_writeCacheBytes < eraseSize)
             return false;
 
         while (length > 0)
@@ -54,14 +62,14 @@ namespace
             if (chunk > length)
                 chunk = length;
 
-            if (wl_read(s_wlHandle, sectorBase, cache.get(), eraseSize) != ESP_OK)
+            if (wl_read(s_wlHandle, sectorBase, s_writeCache, eraseSize) != ESP_OK)
                 return false;
 
-            memcpy(cache.get() + offsetInSector, source, chunk);
+            memcpy(s_writeCache + offsetInSector, source, chunk);
 
             if (wl_erase_range(s_wlHandle, sectorBase, eraseSize) != ESP_OK)
                 return false;
-            if (wl_write(s_wlHandle, sectorBase, cache.get(), eraseSize) != ESP_OK)
+            if (wl_write(s_wlHandle, sectorBase, s_writeCache, eraseSize) != ESP_OK)
                 return false;
 
             address += chunk;
@@ -135,6 +143,23 @@ namespace HAL::FatStorage
             return false;
         }
 
+        /*
+         * Flash擦除/写入期间ESP-IDF会暂时关闭外部存储缓存，此时PSRAM不可访问。
+         * 项目配置的普通malloc阈值恰好也是4096字节，使用普通new申请一个WL扇区时可能落入PSRAM。
+         * 因此MSC会话开始时一次性从内部8位RAM申请缓存，并在整个会话内复用，既避免非法缓存访问，
+         * 也避免Windows连续写块时反复申请和释放内部堆造成碎片。
+         */
+        s_writeCache = static_cast<uint8_t *>(
+            heap_caps_malloc(blockSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        if (!s_writeCache)
+        {
+            wl_unmount(s_wlHandle);
+            s_partition = nullptr;
+            s_wlHandle = WL_INVALID_HANDLE;
+            return false;
+        }
+        s_writeCacheBytes = blockSize;
+
         s_geometry.usableBytes = usableBytes;
         s_geometry.blockCount = static_cast<uint32_t>(blockCount);
         s_geometry.blockSize = static_cast<uint16_t>(blockSize);
@@ -150,6 +175,7 @@ namespace HAL::FatStorage
         if (s_wlHandle != WL_INVALID_HANDLE)
             wl_unmount(s_wlHandle);
 
+        releaseWriteCache();
         s_wlHandle = WL_INVALID_HANDLE;
         s_partition = nullptr;
         s_geometry = Geometry{};

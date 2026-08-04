@@ -10,8 +10,9 @@
 #include "sys/sys_oracle.h"
 #include "sys/app_manager.h"
 #include "sys/sys_resource_io.h"
+#include "sys/sys_psram_json.h"
+#include "sys/sys_psram_text.h"
 #include <ArduinoJson.h>
-#include <vector>
 
 SysOracle sysOracle;
 
@@ -19,9 +20,9 @@ namespace {
 
 struct OracleEntry
 {
-    String id;
-    String type;
-    String text;
+    SysPsramString id;
+    SysPsramString type;
+    SysPsramString text;
     int weight;
 
     // ESP32 当前工具链的 C++11 模式下，带默认成员初始化的结构体
@@ -35,11 +36,11 @@ struct OracleEntry
     }
 };
 
-std::vector<OracleEntry> g_oracle_pool;
+SysPsramVector<OracleEntry> g_oracle_pool;
 SystemLang_t g_loaded_lang = LANG_ZH;
 bool g_loaded = false;
-String g_last_weaver_id;
-String g_last_food_id;
+SysPsramString g_last_weaver_id;
+SysPsramString g_last_food_id;
 
 const char* oraclePath(SystemLang_t lang)
 {
@@ -80,7 +81,7 @@ bool loadOracleJson(SystemLang_t lang)
         return false;
     }
 
-    JsonDocument doc;
+    JsonDocument doc(SysPsramJsonAllocator::Instance());
     DeserializationError err = deserializeJson(doc, file);
     file.close();
 
@@ -96,9 +97,9 @@ bool loadOracleJson(SystemLang_t lang)
     for (JsonObject obj : arr)
     {
         OracleEntry e;
-        e.id = obj["id"].as<String>();
-        e.type = obj["type"].as<String>();
-        e.text = obj["text"].as<String>();
+        e.id = obj["id"] | "";
+        e.type = obj["type"] | "";
+        e.text = obj["text"] | "";
         e.weight = obj["weight"] | 10;
 
         e.id.trim();
@@ -123,7 +124,7 @@ bool loadOracleJson(SystemLang_t lang)
     return true;
 }
 
-String& lastIdForType(const char* type)
+SysPsramString& lastIdForType(const char* type)
 {
     if (type && strcmp(type, "food") == 0)
         return g_last_food_id;
@@ -157,7 +158,7 @@ bool SysOracle::drawByType(const char* type, SystemLang_t lang, OracleAnswer& ou
 
     int total = 0;
     int match_count = 0;
-    String& last_id = lastIdForType(type);
+    SysPsramString& last_id = lastIdForType(type);
 
     for (const auto& e : g_oracle_pool)
     {
@@ -204,9 +205,9 @@ bool SysOracle::drawByType(const char* type, SystemLang_t lang, OracleAnswer& ou
         acc += max(1, e.weight);
         if (roll < acc)
         {
-            out.id = e.id;
-            out.type = e.type;
-            out.text = e.text;
+            out.id = e.id.c_str();
+            out.type = e.type.c_str();
+            out.text = e.text.c_str();
             last_id = e.id;
             return true;
         }

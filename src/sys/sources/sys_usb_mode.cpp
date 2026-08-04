@@ -11,6 +11,7 @@
 
 #include <USB.h>
 #include <esp32-hal-tinyusb.h>
+#include <esp_attr.h>
 #include <algorithm>
 #include <cstring>
 
@@ -36,6 +37,50 @@ namespace
     char s_mscVendorId[9] = "FOGFENDA";
     char s_mscProductId[17] = "ESP32S3 FAT";
     char s_mscRevision[5] = "1.0";
+    /*
+     * Windows 对本设备存在实测怪癖：GET_MAX_LUN 必须返回 1（即宣称 LUN 0/1 两个逻辑单元），
+     * 否则 Windows 要花很长时间才把 U 盘识别出来。这是提交 1ae3a00“修复u盘识别时间较长问题”
+     * 验证过的行为，不能按“单卷应返回 0”的协议常理改回去。
+     * LUN 1 与 LUN 0 指向同一个 FAT 卷，等价于旧固件忽略 lun 参数直接服务同一后端。
+     */
+    constexpr uint8_t MSC_MAX_LUN = 1;
+
+    /**
+     * 【函数说明】确认主机请求的 LUN 在本设备声明范围内（0～MSC_MAX_LUN）。
+     * 【调用约束】配合 tud_msc_get_maxlun_cb 返回 MSC_MAX_LUN 使用；LUN 1 是 Windows 快速识别
+     * 所需的别名，与 LUN 0 共用同一个 FAT 后端，不能再按“单卷只允许 LUN 0”拒绝。
+     */
+    constexpr bool isSupportedMscLun(uint8_t lun)
+    {
+        return lun <= MSC_MAX_LUN;
+    }
+
+    /**
+     * 【函数说明】为越界LUN写入SCSI“逻辑单元不受支持”状态，防止未来描述符或主机异常请求
+     * 被静默映射到同一个FAT wear-levelling后端。
+     */
+    void setUnsupportedLunSense(uint8_t lun)
+    {
+        tud_msc_set_sense(lun, SCSI_SENSE_ILLEGAL_REQUEST, 0x25, 0x00);
+    }
+
+    /*
+     * 1200bps上传请求不能在完整应用已经加载大量PSRAM资源后直接切换USB PHY。
+     * RTC_NOINIT内存可跨普通软件重启保留，因此先记录一次性中继请求，再让下一次
+     * 最小启动在业务模块初始化前调用Arduino Core官方的ROM下载器切换入口。
+     * 三字段同时校验，避免上电时未初始化的RTC内存被误认成有效上传请求。
+     */
+    struct BootloaderRelayGuard
+    {
+        uint32_t magic;
+        uint32_t command;
+        uint32_t check;
+    };
+
+    constexpr uint32_t BOOTLOADER_RELAY_MAGIC = 0x55534252UL; // ASCII "USBR"。
+    constexpr uint32_t BOOTLOADER_RELAY_COMMAND = 0x00000001UL;
+    constexpr uint32_t BOOTLOADER_RELAY_XOR = 0xA55A3CC3UL;
+    RTC_NOINIT_ATTR BootloaderRelayGuard s_bootloaderRelay;
 
     enum EventBits : uint32_t
     {
@@ -52,6 +97,33 @@ namespace
     };
 
     constexpr uint32_t USB_UNMOUNT_TIMEOUT_MS = 1000;
+
+    bool hasBootloaderRelayRequest()
+    {
+        return s_bootloaderRelay.magic == BOOTLOADER_RELAY_MAGIC &&
+               s_bootloaderRelay.command == BOOTLOADER_RELAY_COMMAND &&
+               s_bootloaderRelay.check ==
+                   (BOOTLOADER_RELAY_COMMAND ^ BOOTLOADER_RELAY_XOR);
+    }
+
+    void storeBootloaderRelayRequest()
+    {
+        // magic最后写入，防止复位恰好发生在字段更新中途时留下半有效请求。
+        s_bootloaderRelay.magic = 0;
+        s_bootloaderRelay.command = BOOTLOADER_RELAY_COMMAND;
+        s_bootloaderRelay.check = BOOTLOADER_RELAY_COMMAND ^ BOOTLOADER_RELAY_XOR;
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+        s_bootloaderRelay.magic = BOOTLOADER_RELAY_MAGIC;
+    }
+
+    void clearBootloaderRelayRequest()
+    {
+        // 先清magic保证官方入口即使异常返回或再次复位，也不会形成重启循环。
+        s_bootloaderRelay.magic = 0;
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+        s_bootloaderRelay.command = 0;
+        s_bootloaderRelay.check = 0;
+    }
 
     void queueEvent(uint32_t event)
     {
@@ -196,25 +268,41 @@ namespace
     }
 
     /*
-     * 【函数说明】通过Arduino Core的ESP32-S3官方入口完成1200bps下载器切换。
-     * 【调用约束】只由SysUsbMode::Service()在主循环调用；MSC活跃时回调不会提交请求。
-     * 【关键原因】ESP32-S3的同一组USB引脚由TinyUSB OTG与ROM USB-Serial/JTAG复用。
-     * 仅设置FORCE_DOWNLOAD_BOOT再esp_restart()不会交还PHY，实机会停在“应用COM消失、
-     * ROM COM不枚举”的下载态。usb_persist_restart()会先完成PHY切换和主机BUS_RESET握手，
-     * 再由其关机处理器写入ROM下载标志并复位；这里不再复制或拆分Core内部时序。
+     * 【函数说明】消费一次性中继请求，并通过Arduino Core官方入口切换到ROM下载器。
+     * 【调用约束】只允许在USB.begin()成功后、任何业务模块初始化前调用。
+     * 【关键原因】ESP32-S3的同一组USB引脚由TinyUSB OTG与ROM USB-Serial/JTAG复用；
+     * usb_persist_restart()负责完整的PHY交接、BUS_RESET握手和ROM下载标志写入。
      */
-    void restartIntoRomBootloader()
+    void enterPendingRomBootloader()
     {
+        if (!hasBootloaderRelayRequest())
+            return;
+
         /*
-         * 此时PlatformIO已经撤销DTR，任何日志都会进入环形缓冲，既无法帮助当前上传，
-         * 还可能让复位路径等待发送锁。因此这里不打印、不flush、不先tud_disconnect()。
-         * 正常情况下下列函数不会返回；若Core无法注册关机处理器而返回，则保持应用运行，
-         * 让用户仍可操作设备和重新打开串口，而不是留下无法恢复的半断开状态。
+         * 必须在调用前清除标记。正常情况下官方函数不会返回；如果内部资源申请失败而
+         * 异常返回，本次启动仍继续运行应用，也不会因RTC标记残留形成无限重启。
          */
+        clearBootloaderRelayRequest();
         __atomic_store_n(&s_bootloaderAllowed, 0U, __ATOMIC_RELEASE);
         usb_persist_restart(RESTART_BOOTLOADER);
         __atomic_store_n(&s_bootloaderAllowed, 1U, __ATOMIC_RELEASE);
         Serial.println("[USB] 进入ROM下载器失败，设备已保持在应用模式，可重新尝试上传。");
+    }
+
+    /*
+     * 【函数说明】把1200bps请求转成一次普通软件重启，由下一次最小启动进入ROM下载器。
+     * 【资源隔离】这里只写RTC标记并撤销当前TinyUSB，不再让完整应用的堆状态参与PHY切换。
+     */
+    [[noreturn]] void restartForBootloaderRelay()
+    {
+        __atomic_store_n(&s_bootloaderAllowed, 0U, __ATOMIC_RELEASE);
+        storeBootloaderRelayRequest();
+        disconnectTinyUsb(0);
+        ESP.restart();
+
+        // ESP.restart()按约定不返回；保留循环满足编译器和异常平台实现的noreturn约束。
+        while (true)
+            delay(1000);
     }
 
     template <size_t N>
@@ -258,16 +346,21 @@ extern "C" uint16_t fogfendaMscLoadDescriptor(uint8_t *destination, uint8_t *int
 
 extern "C" uint8_t tud_msc_get_maxlun_cb(void)
 {
-    return 1;
+    // 实测必须返回 1 才能被 Windows 快速识别（提交 1ae3a00）；协议常理上的 0 会触发慢识别。
+    return MSC_MAX_LUN;
 }
 
 extern "C" void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendorId[8],
                                    uint8_t productId[16], uint8_t productRevision[4])
 {
-    (void)lun;
     std::memset(vendorId, ' ', 8);
     std::memset(productId, ' ', 16);
     std::memset(productRevision, ' ', 4);
+    if (!isSupportedMscLun(lun))
+    {
+        setUnsupportedLunSense(lun);
+        return;
+    }
     std::memcpy(vendorId, s_mscVendorId, std::min<size_t>(std::strlen(s_mscVendorId), 8));
     std::memcpy(productId, s_mscProductId, std::min<size_t>(std::strlen(s_mscProductId), 16));
     std::memcpy(productRevision, s_mscRevision, std::min<size_t>(std::strlen(s_mscRevision), 4));
@@ -275,10 +368,14 @@ extern "C" void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendorId[8],
 
 extern "C" bool tud_msc_test_unit_ready_cb(uint8_t lun)
 {
-    (void)lun;
+    if (!isSupportedMscLun(lun))
+    {
+        setUnsupportedLunSense(lun);
+        return false;
+    }
     if (!s_mscMediaPresent)
     {
-        tud_msc_set_sense(0, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
+        tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
         return false;
     }
     return true;
@@ -286,30 +383,48 @@ extern "C" bool tud_msc_test_unit_ready_cb(uint8_t lun)
 
 extern "C" void tud_msc_capacity_cb(uint8_t lun, uint32_t *blockCount, uint16_t *blockSize)
 {
-    (void)lun;
     if (!blockCount || !blockSize)
         return;
+    if (!isSupportedMscLun(lun))
+    {
+        *blockCount = 0;
+        *blockSize = 0;
+        setUnsupportedLunSense(lun);
+        return;
+    }
     *blockCount = s_mscMediaPresent ? s_mscGeometry.blockCount : 0;
     *blockSize = s_mscMediaPresent ? s_mscGeometry.blockSize : 0;
 }
 
 extern "C" bool tud_msc_start_stop_cb(uint8_t lun, uint8_t powerCondition, bool start, bool loadEject)
 {
-    (void)lun;
+    if (!isSupportedMscLun(lun))
+    {
+        setUnsupportedLunSense(lun);
+        return false;
+    }
     return onMscStartStop(powerCondition, start, loadEject);
 }
 
 extern "C" int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                                      void *buffer, uint32_t bufferSize)
 {
-    (void)lun;
+    if (!isSupportedMscLun(lun))
+    {
+        setUnsupportedLunSense(lun);
+        return -1;
+    }
     return s_mscMediaPresent ? onMscRead(lba, offset, buffer, bufferSize) : -1;
 }
 
 extern "C" int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                                       uint8_t *buffer, uint32_t bufferSize)
 {
-    (void)lun;
+    if (!isSupportedMscLun(lun))
+    {
+        setUnsupportedLunSense(lun);
+        return -1;
+    }
     return s_mscMediaPresent ? onMscWrite(lba, offset, buffer, bufferSize) : -1;
 }
 
@@ -318,6 +433,11 @@ extern "C" int32_t tud_msc_scsi_cb(uint8_t lun, const uint8_t scsiCommand[16],
 {
     (void)buffer;
     (void)bufferSize;
+    if (!isSupportedMscLun(lun))
+    {
+        setUnsupportedLunSense(lun);
+        return -1;
+    }
     if (!s_mscMediaPresent || !scsiCommand)
         return -1;
     if (scsiCommand[0] == SCSI_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL)
@@ -365,6 +485,14 @@ namespace SysUsbMode
         s_error = Error::AutomaticUsbStartupEnabled;
         return false;
 #else
+        /*
+         * 中继启动只需要CDC为官方PHY切换建立当前TinyUSB上下文。即使侧键仍被按住，
+         * 也不打开FAT原始块后端、不注册MSC，确保进入ROM前保持最小资源状态。
+         */
+        const bool bootloaderRelayPending = hasBootloaderRelayRequest();
+        if (bootloaderRelayPending)
+            mode = Mode::CdcOnly;
+
         if (s_started)
         {
             if (s_mode == mode)
@@ -465,6 +593,8 @@ namespace SysUsbMode
 
         s_started = true;
         s_ejectRequested = false;
+        if (bootloaderRelayPending)
+            enterPendingRomBootloader();
         return true;
 #endif
     }
@@ -503,7 +633,7 @@ namespace SysUsbMode
          */
         if (__atomic_exchange_n(&s_bootloaderRequested, 0U, __ATOMIC_ACQ_REL) != 0 &&
             __atomic_load_n(&s_bootloaderAllowed, __ATOMIC_ACQUIRE) != 0)
-            restartIntoRomBootloader();
+            restartForBootloaderRelay();
 
         CDCSerial.Service();
         (void)__atomic_exchange_n(&s_pendingEvents, 0U, __ATOMIC_ACQ_REL);

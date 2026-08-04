@@ -132,7 +132,7 @@ namespace
     /** 只调整循环元数据，不裁掉PCM，从而保留资源所有权和样本地址稳定性。 */
     void TrimAmbientLoopSilence(AudioClip &clip)
     {
-        if (!clip.samples || clip.frameCount < 4096 || (clip.channels != 1 && clip.channels != 2))
+        if (!clip.samples || clip.frameCount < 4096)
             return;
 
         constexpr int16_t ACTIVE_THRESHOLD = 96;
@@ -140,16 +140,10 @@ namespace
         uint32_t lastActive = clip.frameCount;
         auto frameIsActive = [&clip](uint32_t frame) -> bool
         {
-            const uint32_t sampleOffset = frame * clip.channels;
-            for (uint8_t channel = 0; channel < clip.channels; ++channel)
-            {
-                int32_t value = clip.samples[sampleOffset + channel];
-                if (value < 0)
-                    value = -value;
-                if (value >= ACTIVE_THRESHOLD)
-                    return true;
-            }
-            return false;
+            int32_t value = clip.samples[frame];
+            if (value < 0)
+                value = -value;
+            return value >= ACTIVE_THRESHOLD;
         };
 
         while (firstActive < clip.frameCount && !frameIsActive(firstActive))
@@ -290,7 +284,7 @@ bool SysResourceIO::LoadWav(const SysResourcePath &resourcePath,
         return false;
     }
     if (info.format != 1 || info.sampleRate != 44100 || info.bitsPerSample != 16 ||
-        (info.channels != 1 && info.channels != 2))
+        info.channels != 1)
     {
         Serial.printf("[资源IO] WAV格式不支持：%s，format=%u，rate=%lu，bits=%u，channels=%u。\n",
                       resolvedPath.c_str(), (unsigned)info.format, (unsigned long)info.sampleRate,
@@ -299,7 +293,7 @@ bool SysResourceIO::LoadWav(const SysResourcePath &resourcePath,
         return false;
     }
 
-    const uint32_t frameBytes = (uint32_t)info.channels * sizeof(int16_t);
+    const uint32_t frameBytes = sizeof(int16_t);
     const uint32_t alignedBytes = info.dataBytes - (info.dataBytes % frameBytes);
     if (alignedBytes < frameBytes)
     {
@@ -334,14 +328,13 @@ bool SysResourceIO::LoadWav(const SysResourcePath &resourcePath,
     out.clip.samples = reinterpret_cast<const int16_t *>(buffer);
     out.clip.frameCount = alignedBytes / frameBytes;
     out.clip.sampleRate = info.sampleRate;
-    out.clip.channels = (uint8_t)info.channels;
     out.clip.loopStartFrame = 0;
     out.clip.loopEndFrame = out.clip.frameCount;
     if (trimLoopSilence)
         TrimAmbientLoopSilence(out.clip);
 
-    Serial.printf("[资源IO] WAV已预加载：%s，PCM=%lu字节，声道=%u。\n",
-                  resolvedPath.c_str(), (unsigned long)alignedBytes, (unsigned)info.channels);
+    Serial.printf("[资源IO] 单声道WAV已预加载：%s，PCM=%lu字节。\n",
+                  resolvedPath.c_str(), (unsigned long)alignedBytes);
     return true;
 }
 

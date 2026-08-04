@@ -5,6 +5,7 @@
 // 文件：src/sys/sys_config.cpp
 #include "sys/sys_config.h"
 #include "sys/sys_fs.h"      // 引入我们上一版的 LittleFS 中枢
+#include "sys/sys_psram_json.h"
 #include <ArduinoJson.h> // 引入 JSON 引擎
 
 SysConfig sysConfig;
@@ -45,8 +46,9 @@ SystemLang_t DetectProfileLanguage(JsonDocument *common_doc, JsonDocument *legac
 // 正常出厂默认值应写在 data/common/config_common.json 与 data/zh|en/config_*.json 里。
 void ApplyEmergencyDefaults(SysConfig &cfg)
 {
-    cfg.wifi_ssid = "Your_WiFi_Name";
-    cfg.wifi_pass = "12345678";
+    // 默认不带 WiFi 配置，避免未配置时开机自动同步连接占位 AP 耗尽内部堆。
+    cfg.wifi_ssid = "";
+    cfg.wifi_pass = "";
     cfg.language = (uint8_t)TerminalLang::DEFAULT_LANG;
     cfg.sleep_time_ms = PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
     cfg.true_sleep_time_ms = PrescriptConst::NEVER_SLEEP_MS;
@@ -100,12 +102,13 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
 // 【函数说明】读取 common/profile 双层配置；缺失时先用实体默认配置，最后才使用代码内急救默认。
 void SysConfig::load()
 {
-    JsonDocument doc;
-    JsonDocument legacy_doc;
-    JsonDocument common_doc;
-    JsonDocument common_default_doc;
-    JsonDocument profile_doc;
-    JsonDocument profile_default_doc;
+    // 六份配置树在合并完成前会同时存在；显式使用PSRAM分配器，避免启动阶段形成多个内部1KiB小池。
+    JsonDocument doc(SysPsramJsonAllocator::Instance());
+    JsonDocument legacy_doc(SysPsramJsonAllocator::Instance());
+    JsonDocument common_doc(SysPsramJsonAllocator::Instance());
+    JsonDocument common_default_doc(SysPsramJsonAllocator::Instance());
+    JsonDocument profile_doc(SysPsramJsonAllocator::Instance());
+    JsonDocument profile_default_doc(SysPsramJsonAllocator::Instance());
 
     String legacy_json = SysFS_Read_File(PrescriptConst::CONFIG_LEGACY_FILE);
     String common_json = SysFS_Read_File(PrescriptConst::CONFIG_COMMON_FILE);
@@ -361,7 +364,7 @@ void SysConfig::save()
 
 void SysConfig::saveCommon()
 {
-    JsonDocument doc;
+    JsonDocument doc(SysPsramJsonAllocator::Instance());
 
     // ==========================================
     // 将设备级公共数据打包成 JSON 树。
@@ -422,7 +425,7 @@ void SysConfig::loadLanguageProfile(SystemLang_t lang)
 
 void SysConfig::saveLanguageProfile(SystemLang_t lang)
 {
-    JsonDocument doc;
+    JsonDocument doc(SysPsramJsonAllocator::Instance());
 
     // 语言 profile 保存带文本语境或世界观进度的内容，使用者 ID 也按语言隔离。
     doc["pom_idx"] = pomodoro_current_idx;

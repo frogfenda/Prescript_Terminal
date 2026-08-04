@@ -79,14 +79,13 @@ enum class AudioLoopMode : uint8_t
 /**
  * 已解码 PCM 资源描述。
  * samples 指向由资源层长期持有的 16bit PCM；播放期间这段内存绝不能释放或移动。
- * 当前 I2S 输出固定为 44100Hz/16bit，混音器接受 mono 或 stereo，并把 mono 复制到双声道。
+ * 资源与混音核心固定为44100Hz/16bit单声道；BSP输出边界会复制到左右I2S时隙以兼容现有MAX98357接线。
  */
 struct AudioClip
 {
     const int16_t *samples = nullptr;
     uint32_t frameCount = 0;
     uint32_t sampleRate = 44100;
-    uint8_t channels = 2;
     uint32_t loopStartFrame = 0;
     uint32_t loopEndFrame = 0; // 0 表示使用 frameCount。
 };
@@ -113,6 +112,11 @@ public:
      * 最长 63 字节，注册表会复制内容，不要求调用方永久保留原字符串。
      */
     bool registerAsset(AudioAssetId id, const char *binding, const AudioClip &clip);
+    /**
+     * 【接口说明】撤销一份资源ID与PCM地址的绑定；不会自行停止已经创建的播放实例。
+     * 【调用约束】释放PCM前，资源所有者必须先用stopAndWait确认所有相关实例已经退出后台混音。
+     */
+    bool unregisterAsset(AudioAssetId id);
     bool hasAsset(AudioAssetId id) const;
 
     /**
@@ -132,6 +136,12 @@ public:
 
     /** 只控制指定实例；fadeMs 为 0 时立即停止，否则在指定时间内淡出。 */
     void stop(AudioHandle handle, uint16_t fadeMs = 0);
+    /**
+     * 【接口说明】立即停止一组播放实例，并等待Core 0音频任务确认不再访问对应PCM。
+     * 【用途】仅供动态资源所有者在释放PCM前建立跨核心安全边界；普通页面停止音效仍使用stop。
+     * 【返回值】全部句柄已停止返回true；队列阻塞或超过timeoutMs返回false，此时调用方不得释放PCM。
+     */
+    bool stopAndWait(const AudioHandle *handles, size_t count, uint32_t timeoutMs = 500);
     void setGain(AudioHandle handle, float gain, uint16_t fadeMs = 0);
 
     /** 按功能总线统一控制；不会影响其他总线中的播放实例。 */

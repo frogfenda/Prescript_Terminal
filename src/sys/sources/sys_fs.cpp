@@ -6,12 +6,17 @@
 #include "sys/sys_fs.h"
 #include "lang/terminal_lang.h"
 
-std::vector<String> sys_prescripts_zh;
-std::vector<String> sys_prescripts_en;
+SysPsramTextList sys_prescripts_zh;
+SysPsramTextList sys_prescripts_en;
 
 void SysFS_Init() {
-    if (!LittleFS.begin(true)) { 
-        Serial.println("[SYS_FS] ERROR: LittleFS 挂载失败！");
+    /*
+     * LittleFS保存配置、待机图和普通指令，挂载失败不等于分区内容可以丢弃。
+     * formatOnFail=false保证分区异常、分区表迁移或瞬时Flash错误时保留现场；
+     * 后续只能通过明确的维护/重刷流程恢复，不能在普通启动过程中静默格式化用户数据。
+     */
+    if (!LittleFS.begin(false)) {
+        Serial.println("[文件系统] LittleFS挂载失败，已保留原始分区，未自动格式化。");
         return;
     }
     if (!LittleFS.exists("/common")) LittleFS.mkdir("/common");
@@ -21,7 +26,7 @@ void SysFS_Init() {
 }
 
 // 通用读取函数
-void load_pool_from_path(const char* path, std::vector<String>& pool, bool clear_first) {
+void load_pool_from_path(const char* path, SysPsramTextList& pool, bool clear_first) {
     if (clear_first)
         pool.clear();
     File file = LittleFS.open(path, "r");
@@ -30,13 +35,14 @@ void load_pool_from_path(const char* path, std::vector<String>& pool, bool clear
     while(file.available()) {
         String line = file.readStringUntil('\n');
         line.trim();
-        if (line.length() > 0) pool.push_back(line);
+        if (line.length() > 0)
+            pool.emplace_back(line);
     }
     file.close();
 }
 
 // 【函数说明】按新路径优先加载指令池；旧 /assets 路径只作过渡兜底，方便尚未重刷 LittleFS 的开发板启动。
-void load_pool(SystemLang_t lang, std::vector<String>& pool) {
+void load_pool(SystemLang_t lang, SysPsramTextList& pool) {
     pool.clear();
     load_pool_from_path(TerminalLang::PrescriptPath(lang), pool, false);
     if (pool.empty())

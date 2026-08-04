@@ -18,7 +18,7 @@ namespace
 {
 constexpr uint32_t AUDIO_SAMPLE_RATE = 44100;
 constexpr int AUDIO_CHUNK_FRAMES = 128;
-constexpr int AUDIO_CHUNK_SAMPLES = AUDIO_CHUNK_FRAMES * 2;
+constexpr int AUDIO_I2S_SAMPLES = AUDIO_CHUNK_FRAMES * 2;
 constexpr int AUDIO_PCM_VOICE_COUNT = 6;
 constexpr int AUDIO_TONE_VOICE_COUNT = 4;
 constexpr int AUDIO_COMMAND_QUEUE_LEN = 24;
@@ -142,8 +142,7 @@ bool validClip(const AudioClip &clip)
 {
     return clip.samples != nullptr &&
            clip.frameCount > 0 &&
-           clip.sampleRate == AUDIO_SAMPLE_RATE &&
-           (clip.channels == 1 || clip.channels == 2);
+           clip.sampleRate == AUDIO_SAMPLE_RATE;
 }
 
 float currentMasterGain()
@@ -257,18 +256,9 @@ void advanceRamp(GainRamp &ramp)
     }
 }
 
-void readPcmFrame(const AudioClip &clip, uint32_t frame, int32_t &left, int32_t &right)
+int32_t readPcmFrame(const AudioClip &clip, uint32_t frame)
 {
-    if (clip.channels == 1)
-    {
-        left = clip.samples[frame];
-        right = left;
-        return;
-    }
-
-    uint32_t sampleIndex = frame * 2U;
-    left = clip.samples[sampleIndex];
-    right = clip.samples[sampleIndex + 1U];
+    return clip.samples[frame];
 }
 
 void releasePcmVoice(PcmVoice &voice)
@@ -327,7 +317,7 @@ void stopPcmVoice(PcmVoice &voice, uint16_t fadeMs)
     configureRamp(voice.gain, 0.0f, fadeMs);
 }
 
-bool mixPcmVoice(PcmVoice &voice, const GainRamp &busGain, int32_t &mixLeft, int32_t &mixRight)
+bool mixPcmVoice(PcmVoice &voice, const GainRamp &busGain, int32_t &mixSample)
 {
     if (!voice.active)
         return false;
@@ -343,9 +333,7 @@ bool mixPcmVoice(PcmVoice &voice, const GainRamp &busGain, int32_t &mixLeft, int
         voice.frameIndex = voice.loopStart;
     }
 
-    int32_t left = 0;
-    int32_t right = 0;
-    readPcmFrame(voice.clip, voice.frameIndex, left, right);
+    int32_t sample = readPcmFrame(voice.clip, voice.frameIndex);
 
     // 交叉淡化只发生在循环边界附近。混完尾部和头部后直接跳过已经混入的开头帧，
     // 因而不会重复播放交叉区，也不会像旧实现那样每轮制造一次音量凹口。
@@ -356,18 +344,14 @@ bool mixPcmVoice(PcmVoice &voice, const GainRamp &busGain, int32_t &mixLeft, int
         {
             uint32_t offset = voice.frameIndex - crossfadeStart;
             uint32_t headFrame = voice.loopStart + offset;
-            int32_t headLeft = 0;
-            int32_t headRight = 0;
-            readPcmFrame(voice.clip, headFrame, headLeft, headRight);
+            const int32_t headSample = readPcmFrame(voice.clip, headFrame);
             float blend = (float)(offset + 1U) / (float)voice.crossfadeFrames;
-            left = (int32_t)((float)left * (1.0f - blend) + (float)headLeft * blend);
-            right = (int32_t)((float)right * (1.0f - blend) + (float)headRight * blend);
+            sample = (int32_t)((float)sample * (1.0f - blend) + (float)headSample * blend);
         }
     }
 
     float voiceGain = voice.gain.current * busGain.current;
-    mixLeft += (int32_t)((float)left * voiceGain);
-    mixRight += (int32_t)((float)right * voiceGain);
+    mixSample += (int32_t)((float)sample * voiceGain);
 
     voice.frameIndex++;
     if (voice.frameIndex >= playbackEnd)
@@ -548,8 +532,9 @@ void audioTask(void *)
     PcmVoice pcmVoices[AUDIO_PCM_VOICE_COUNT];
     ToneVoice toneVoices[AUDIO_TONE_VOICE_COUNT];
     GainRamp busGains[(size_t)AudioBus::Count];
-    int32_t mixBuffer[AUDIO_CHUNK_SAMPLES];
-    int16_t outputBuffer[AUDIO_CHUNK_SAMPLES];
+    // 业务混音只保留单声道；最终写I2S前再复制到左右时隙，避免双份32位累加缓冲占用任务栈。
+    int32_t mixBuffer[AUDIO_CHUNK_FRAMES];
+    int16_t outputBuffer[AUDIO_I2S_SAMPLES];
     bool suspended = false;
 
     busGains[(uint8_t)AudioBus::Ambient].current = 0.50f;
@@ -576,15 +561,14 @@ void audioTask(void *)
 
         for (int frame = 0; frame < AUDIO_CHUNK_FRAMES; ++frame)
         {
-            int32_t left = 0;
-            int32_t right = 0;
+            int32_t sample = 0;
 
             for (int i = 0; i < AUDIO_PCM_VOICE_COUNT; ++i)
             {
                 if (!pcmVoices[i].active)
                     continue;
                 const GainRamp &busGain = busGains[(uint8_t)pcmVoices[i].bus];
-                mixPcmVoice(pcmVoices[i], busGain, left, right);
+                mixPcmVoice(pcmVoices[i], busGain, sample);
                 anyActive = true;
             }
 
@@ -592,15 +576,14 @@ void audioTask(void *)
             {
                 if (!toneVoices[i].active)
                     continue;
-                int32_t sample = nextToneSample(toneVoices[i]);
-                float uiGain = busGains[(uint8_t)AudioBus::Ui].current;
-                left += (int32_t)((float)sample * uiGain);
-                right += (int32_t)((float)sample * uiGain);
+                // 每个Tone Voice在每帧只能推进一次；重复调用会令相位和持续时间加速一倍。
+                const int32_t toneSample = nextToneSample(toneVoices[i]);
+                const float uiGain = busGains[(uint8_t)AudioBus::Ui].current;
+                sample += (int32_t)((float)toneSample * uiGain);
                 anyActive = true;
             }
 
-            mixBuffer[frame * 2] = left;
-            mixBuffer[frame * 2 + 1] = right;
+            mixBuffer[frame] = sample;
             for (size_t bus = 0; bus < (size_t)AudioBus::Count; ++bus)
                 advanceRamp(busGains[bus]);
         }
@@ -613,7 +596,7 @@ void audioTask(void *)
 
         float masterGain = currentMasterGain();
         float peak = 0.0f;
-        for (int i = 0; i < AUDIO_CHUNK_SAMPLES; ++i)
+        for (int i = 0; i < AUDIO_CHUNK_FRAMES; ++i)
         {
             float value = fabsf((float)mixBuffer[i] * masterGain);
             if (value > peak)
@@ -621,14 +604,16 @@ void audioTask(void *)
         }
 
         float limiter = peak > AUDIO_OUTPUT_PEAK ? AUDIO_OUTPUT_PEAK / peak : 1.0f;
-        for (int i = 0; i < AUDIO_CHUNK_SAMPLES; ++i)
+        for (int i = 0; i < AUDIO_CHUNK_FRAMES; ++i)
         {
             float value = (float)mixBuffer[i] * masterGain * limiter;
             if (value > 32767.0f)
                 value = 32767.0f;
             else if (value < -32768.0f)
                 value = -32768.0f;
-            outputBuffer[i] = (int16_t)value;
+            const int16_t mono = (int16_t)value;
+            outputBuffer[i * 2] = mono;
+            outputBuffer[i * 2 + 1] = mono;
         }
 
         if (masterGain <= 0.0f)
@@ -636,7 +621,7 @@ void audioTask(void *)
             // 静音时仍按真实时间推进 Voice，但不向 DMA 连续灌入全零块。
             vTaskDelay(pdMS_TO_TICKS(3));
         }
-        else if (!BSP::AudioI2S::Write(outputBuffer, AUDIO_CHUNK_SAMPLES, portMAX_DELAY))
+        else if (!BSP::AudioI2S::Write(outputBuffer, AUDIO_I2S_SAMPLES, portMAX_DELAY))
         {
             vTaskDelay(pdMS_TO_TICKS(2));
         }
@@ -735,6 +720,22 @@ bool SysAudio::registerAsset(AudioAssetId id, const char *binding, const AudioCl
     return true;
 }
 
+bool SysAudio::unregisterAsset(AudioAssetId id)
+{
+    const size_t index = (size_t)id;
+    if (index == 0 || index >= (size_t)AudioAssetId::Count)
+        return false;
+
+    /*
+     * 注册表只保存PCM只读视图，不拥有内存。资源域会在本函数返回后释放PCM，
+     * 因此调用方必须事先通过stopAndWait确认后台Voice已经清除自己的视图副本。
+     */
+    portENTER_CRITICAL(&g_assetMux);
+    g_assets[index] = AssetEntry{};
+    portEXIT_CRITICAL(&g_assetMux);
+    return true;
+}
+
 bool SysAudio::hasAsset(AudioAssetId id) const
 {
     AudioClip clip;
@@ -804,6 +805,55 @@ void SysAudio::stop(AudioHandle handle, uint16_t fadeMs)
     enqueueCommand(command, pdMS_TO_TICKS(10));
 }
 
+bool SysAudio::stopAndWait(const AudioHandle *handles, size_t count, uint32_t timeoutMs)
+{
+    if (!handles || count == 0)
+        return true;
+    if (xTaskGetCurrentTaskHandle() == g_audioTask)
+        return false;
+
+    const uint32_t startedAt = millis();
+    for (size_t index = 0; index < count; ++index)
+    {
+        const AudioHandle handle = handles[index];
+        if (handle == AUDIO_HANDLE_INVALID || !handleIsPlaying(handle))
+            continue;
+
+        AudioCommand command;
+        command.type = AudioCommandType::StopHandle;
+        command.handle = handle;
+        command.fadeMs = 0;
+
+        const uint32_t elapsed = millis() - startedAt;
+        if (elapsed >= timeoutMs)
+            return false;
+        const TickType_t waitTicks = pdMS_TO_TICKS(timeoutMs - elapsed);
+        if (!enqueueCommand(command, waitTicks > 0 ? waitTicks : 1))
+            return false;
+    }
+
+    /*
+     * stop命令与此前的play命令进入同一个FIFO队列；句柄只有在Voice清空后才会从
+     * g_playingHandles移除。因此轮询全部句柄消失，就能证明Core 0不再解引用这些PCM。
+     */
+    while (millis() - startedAt < timeoutMs)
+    {
+        bool anyPlaying = false;
+        for (size_t index = 0; index < count; ++index)
+        {
+            if (handles[index] != AUDIO_HANDLE_INVALID && handleIsPlaying(handles[index]))
+            {
+                anyPlaying = true;
+                break;
+            }
+        }
+        if (!anyPlaying)
+            return true;
+        delay(1);
+    }
+    return false;
+}
+
 void SysAudio::setGain(AudioHandle handle, float gain, uint16_t fadeMs)
 {
     if (handle == AUDIO_HANDLE_INVALID)
@@ -871,12 +921,11 @@ void SysAudio::playWAV(const uint8_t *data, uint32_t len, bool loop)
         return;
     }
 
-    uint32_t alignedLen = len & ~0x03UL;
+    uint32_t alignedLen = len & ~0x01UL;
     AudioClip clip;
     clip.samples = reinterpret_cast<const int16_t *>(data);
-    clip.frameCount = alignedLen / 4U;
+    clip.frameCount = alignedLen / sizeof(int16_t);
     clip.sampleRate = AUDIO_SAMPLE_RATE;
-    clip.channels = 2;
     clip.loopEndFrame = clip.frameCount;
 
     AudioPlayOptions options;

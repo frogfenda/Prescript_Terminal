@@ -62,3 +62,10 @@ SysRgb565View SysCaduceusResources::GetImage(CaduceusImageId id)
         return SysRgb565View{};
     return g_images[index].loaded.view();
 }
+
+void SysCaduceusResources::Release()
+{
+    for (CaduceusImageRecord &record : g_images)
+        record.loaded.reset();
+    g_nextImage = 0;
+}

@@ -142,7 +142,11 @@ namespace SysUsbSession
         else
             Serial.printf("[系统] TinyUSB 启动失败：%s。\n", SysUsbMode::LastErrorText());
 
-        if (mode != SysUsbMode::Mode::CdcWithMsc)
+        /*
+         * 1200bps中继启动会由SysUsbMode强制降为最小CDC模式。官方ROM入口若异常返回，
+         * 这里必须以实际启动模式为准，不能误入原先由侧键选择的MSC独占会话。
+         */
+        if (SysUsbMode::CurrentMode() != SysUsbMode::Mode::CdcWithMsc)
             return;
 
         if (!usbStarted || !SysUsbMode::IsMscActive())

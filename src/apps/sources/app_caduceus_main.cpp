@@ -261,21 +261,36 @@ private:
         next_audio_slot_ = (uint8_t)((next_audio_slot_ + 1U) % OWNED_AUDIO_HANDLE_COUNT);
     }
 
-    void stopOwnedAudio()
+    bool stopOwnedAudio(bool waitForRelease = false)
     {
-        // 只停止本页创建的实例，不停止共享Effect/Voice总线，避免打断其他系统提示。
-        for (AudioHandle &handle : owned_audio_)
+        bool stopped = true;
+        if (waitForRelease)
         {
-            if (handle != AUDIO_HANDLE_INVALID)
-                sysAudio.stop(handle, 40);
-            handle = AUDIO_HANDLE_INVALID;
+            /*
+             * onDestroy随后会释放PCM，必须等待Core 0确认所有本页Voice已经清空；
+             * onBackground只暂停页面，不释放资源，仍保留原有40ms淡出体验。
+             */
+            stopped = sysAudio.stopAndWait(owned_audio_, OWNED_AUDIO_HANDLE_COUNT);
         }
+        else
+        {
+            // 只停止本页创建的实例，不停止共享Effect/Voice总线，避免打断其他系统提示。
+            for (const AudioHandle handle : owned_audio_)
+            {
+                if (handle != AUDIO_HANDLE_INVALID)
+                    sysAudio.stop(handle, 40);
+            }
+        }
+
+        for (AudioHandle &handle : owned_audio_)
+            handle = AUDIO_HANDLE_INVALID;
         next_audio_slot_ = 0;
         completion_voice_head_ = 0;
         completion_voice_count_ = 0;
         active_completion_voice_ = AUDIO_HANDLE_INVALID;
         for (CompletionVoiceEntry &entry : completion_voice_queue_)
             entry = CompletionVoiceEntry{};
+        return stopped;
     }
 
     AudioHandle playAsset(AudioAssetId asset, AudioBus bus)
@@ -642,7 +657,7 @@ public:
         }
         else
         {
-            // 请求只缩短后台等待时间；真实文件读取仍由主循环中的SysRes_Update逐份执行。
+            // 首次进入才启动按需预热；真实文件读取仍由主循环中的SysRes_Update逐份执行。
             SysGesture_SetProfile(SysGestureProfile::Default);
             SysRes_RequestCaduceusPreload();
             state_ = CaduceusPageState::Loading;
@@ -757,10 +772,20 @@ public:
 
     void onDestroy() override
     {
-        stopOwnedAudio();
+        const bool audioStopped = stopOwnedAudio(true);
         releaseStartAnimator();
         feedback_animator_.reset();
         SysGesture_SetProfile(SysGestureProfile::Default);
+        if (audioStopped)
+        {
+            // 会话资源只服务本App；关闭后统一释放，下次进入重新从FAT逐份加载。
+            SysRes_ReleaseCaduceus();
+        }
+        else
+        {
+            // 安全优先：后台音频未确认停止时绝不能释放其PCM，避免Core 0悬空访问。
+            Serial.println("[双蛇杖] 音频停止确认超时，本次保留会话资源以避免释放仍在播放的PCM。");
+        }
     }
 
     void onKnob(int delta) override

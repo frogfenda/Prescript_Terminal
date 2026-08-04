@@ -295,6 +295,19 @@ static void _Network_FetchHiddenPrescripts()
  * 参数 state 用来区分 WiFi 连接失败和 NTP/API 同步失败。
  * 失败后设置 5 分钟退避窗口，避免无网环境下周期校时频繁唤醒 WiFi。
  */
+/**
+ * 【函数说明】判断是否配置了真实 WiFi。
+ * 【关键原因】默认配置/急救默认使用占位符 SSID，若按“非空即连接”处理，
+ * 每次开机都会尝试连接不存在的 AP，WiFi 驱动会占用约 60 KiB 内部堆，
+ * 且 Arduino 的 WiFi.mode(WIFI_OFF) 不保证完全回收，导致后续 LittleFS
+ * （待机图、配置保存）因内存不足而失败。
+ */
+static bool isWifiConfigured()
+{
+    return !sysConfig.wifi_ssid.isEmpty() &&
+           sysConfig.wifi_ssid != "Your_WiFi_Name";
+}
+
 static void _Network_FailAndShutdown(NetworkState state)
 {
     NetworkSetState(state);
@@ -325,9 +338,11 @@ static void network_daemon_task(void *pvParameters)
 
         bool fetch_api = g_fetch_api_this_round;
 
-        if (sysConfig.wifi_ssid.isEmpty())
+        if (!isWifiConfigured())
         {
-            _Network_FailAndShutdown(NET_CONNECT_FAILED);
+            Serial.println("[网络] 未配置真实 WiFi，跳过自动同步。");
+            g_next_time_resync_allowed_ms = millis() + TIME_RESYNC_RETRY_AFTER_FAIL_MS;
+            NetworkSetState(NET_DISCONNECTED);
             continue;
         }
 

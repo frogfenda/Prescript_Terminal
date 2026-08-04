@@ -6,13 +6,13 @@
 #pragma once
 #include <Arduino.h>
 #include <LittleFS.h>
-#include <vector>
+#include "sys/sys_psram_text.h"
 
-// 【独立双语内存池】
-extern std::vector<String> sys_prescripts_zh;
-extern std::vector<String> sys_prescripts_en;
+// 【独立双语内存池】正文和容器元素数组均优先常驻PSRAM，编辑与按语言索引语义保持不变。
+extern SysPsramTextList sys_prescripts_zh;
+extern SysPsramTextList sys_prescripts_en;
 
-// 【接口说明】挂载 LittleFS，失败时串口输出错误，后续资源和配置读取都依赖挂载成功。
+// 【接口说明】挂载 LittleFS但绝不在失败时自动格式化；失败时保留原始分区并输出中文错误，后续资源和配置读取依赖挂载成功。
 void SysFS_Init();
 void SysFS_Load_Prescripts(); // 运行时版加载双语；锁定版只加载当前语言库
 

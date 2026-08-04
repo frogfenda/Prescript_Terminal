@@ -6,8 +6,10 @@
 #include "sys/sys_config.h"
 #include "sys/app_manager.h"
 #include "sys/sys_resource_io.h"
+#include "sys/sys_fs.h"
+#include "sys/sys_psram_json.h"
+#include "sys/sys_psram_text.h"
 #include <ArduinoJson.h> // 必须引入 JSON 引擎
-#include <vector>
 #include "sys/sys_ble.h" // 确保引入了蓝牙接口
 #include "sys/sys_event.h"
 #include "lang/terminal_lang.h"
@@ -26,32 +28,28 @@ static void _Cb_Spc_Sync_Req(void *payload)
 // --- PSRAM 数据结构定义 ---
 struct PureSpecial
 {
-    String id;
+    SysPsramString id;
     uint16_t color;
     int prob;
-    String popup_title;
-    String text;
-    String audio_bind; // 【新增】
+    SysPsramString popup_title;
+    SysPsramString text;
+    SysPsramString audio_bind;
 };
 
 struct CharChain
 {
-    String char_id;
-    String name;
+    SysPsramString char_id;
+    SysPsramString name;
     uint16_t color;
     int prob;
-    String popup_title;
-    std::vector<String> texts;
-    String audio_bind; // 【新增】
+    SysPsramString popup_title;
+    SysPsramTextList texts;
+    SysPsramString audio_bind;
 };
 
-// --- 常驻内存池 ---
-std::vector<PureSpecial> pool_pure_specials;
-std::vector<CharChain> pool_char_chains;
-
-// 引用外部普通指令库
-extern std::vector<String> sys_prescripts_zh;
-extern std::vector<String> sys_prescripts_en;
+// 两层容器和全部字符串都优先位于PSRAM，语言切换时clear()统一释放旧目录。
+SysPsramVector<PureSpecial> pool_pure_specials;
+SysPsramVector<CharChain> pool_char_chains;
 
 // 【函数说明】按当前语言读取 FATFS 中的 specials.json，解析人物链条和纯特殊指令。
 // 运行时语言切换会再次调用本函数，因此 BLE 同步事件只允许订阅一次，避免切换多次后重复回传 SPC_META。
@@ -68,7 +66,7 @@ void SysSpecials::begin()
         return;
 
     // 使用 ArduinoJson 7 的自动内存管理
-    JsonDocument doc;
+    JsonDocument doc(SysPsramJsonAllocator::Instance());
     DeserializationError err = deserializeJson(doc, f);
     f.close();
 
@@ -83,11 +81,11 @@ void SysSpecials::begin()
     for (JsonObject obj : pure_arr)
     {
         PureSpecial ps;
-        ps.id = obj["id"].as<String>();
+        ps.id = obj["id"] | "";
         ps.color = (uint16_t)strtol(obj["color"].as<const char *>(), NULL, 16);
         ps.prob = obj["prob"].as<int>();
-        ps.popup_title = obj["popup_title"].as<String>();
-        ps.text = obj["text"].as<String>();
+        ps.popup_title = obj["popup_title"] | "";
+        ps.text = obj["text"] | "";
         ps.audio_bind = obj["audio"] | ""; // 【新增】：如果没有配置，默认为空
         pool_pure_specials.push_back(ps);
     }
@@ -97,17 +95,17 @@ void SysSpecials::begin()
     for (JsonObject obj : char_arr)
     {
         CharChain cc;
-        cc.char_id = obj["char_id"].as<String>();
-        cc.name = obj["name"].as<String>();
+        cc.char_id = obj["char_id"] | "";
+        cc.name = obj["name"] | "";
         cc.color = (uint16_t)strtol(obj["color"].as<const char *>(), NULL, 16);
         cc.prob = obj["prob"].as<int>();
-        cc.popup_title = obj["popup_title"].as<String>();
+        cc.popup_title = obj["popup_title"] | "";
         cc.audio_bind = obj["audio"] | ""; // 【新增】
 
         JsonArray texts_arr = obj["texts"];
         for (const char *txt : texts_arr)
         {
-            cc.texts.push_back(String(txt));
+            cc.texts.emplace_back(txt);
         }
         pool_char_chains.push_back(cc);
     }
@@ -172,9 +170,9 @@ void SysSpecials::rollRandom()
                 // 【命中！】
                 current_draw.is_special = true;
                 current_draw.color = pool_char_chains[i].color;
-                current_draw.title = pool_char_chains[i].popup_title;
-                current_draw.text = pool_char_chains[i].texts[sysConfig.char_progress[i]];
-                current_draw.audio_bind = pool_char_chains[i].audio_bind; // <--- 【补上这句】
+                current_draw.title = pool_char_chains[i].popup_title.c_str();
+                current_draw.text = pool_char_chains[i].texts[sysConfig.char_progress[i]].c_str();
+                current_draw.audio_bind = pool_char_chains[i].audio_bind.c_str();
                 sysConfig.char_progress[i]++;
                 sysConfig.save();
                 return;
@@ -193,9 +191,9 @@ void SysSpecials::rollRandom()
             // 【命中！】
             current_draw.is_special = true;
             current_draw.color = pool_pure_specials[i].color;
-            current_draw.title = pool_pure_specials[i].popup_title;
-            current_draw.text = pool_pure_specials[i].text;
-            current_draw.audio_bind = pool_pure_specials[i].audio_bind; // <--- 【补上这句】
+            current_draw.title = pool_pure_specials[i].popup_title.c_str();
+            current_draw.text = pool_pure_specials[i].text.c_str();
+            current_draw.audio_bind = pool_pure_specials[i].audio_bind.c_str();
             return;
         }
     }
@@ -207,12 +205,12 @@ void SysSpecials::rollRandom()
     if (current_lang == LANG_ZH)
     {
         int sz = sys_prescripts_zh.size();
-        current_draw.text = (sz > 0) ? sys_prescripts_zh[random(sz)] : "错误：中文指令库为空";
+        current_draw.text = (sz > 0) ? sys_prescripts_zh[random(sz)].c_str() : "错误：中文指令库为空";
     }
     else
     {
         int sz = sys_prescripts_en.size();
-        current_draw.text = (sz > 0) ? sys_prescripts_en[random(sz)] : "ERR: EN DB EMPTY";
+        current_draw.text = (sz > 0) ? sys_prescripts_en[random(sz)].c_str() : "ERR: EN DB EMPTY";
     }
 }
 
@@ -241,9 +239,9 @@ void SysSpecials::forceDrawByID(const String &id)
         {
             current_draw.is_special = true;
             current_draw.color = ps.color;
-            current_draw.title = ps.popup_title;
-            current_draw.text = ps.text;
-            current_draw.audio_bind = ps.audio_bind;
+            current_draw.title = ps.popup_title.c_str();
+            current_draw.text = ps.text.c_str();
+            current_draw.audio_bind = ps.audio_bind.c_str();
             return;
         }
     }
@@ -258,9 +256,9 @@ void SysSpecials::forceDrawByID(const String &id)
 
             current_draw.is_special = true;
             current_draw.color = pool_char_chains[i].color;
-            current_draw.title = pool_char_chains[i].popup_title;
-            current_draw.text = pool_char_chains[i].texts[0]; // 强行触发第一条
-            current_draw.audio_bind = pool_char_chains[i].audio_bind;
+            current_draw.title = pool_char_chains[i].popup_title.c_str();
+            current_draw.text = pool_char_chains[i].texts[0].c_str(); // 强行触发第一条
+            current_draw.audio_bind = pool_char_chains[i].audio_bind.c_str();
             // 推进进度到 1，这样后续通过 rollRandom 随机抽取的“意志共鸣”就能接上后面的剧情
             sysConfig.char_progress[i] = 1;
             sysConfig.save();
@@ -329,7 +327,7 @@ void SysSpecials::syncTextByID(const String &id)
             String target_text;
             if (prog < pool_char_chains[i].texts.size())
             {
-                target_text = pool_char_chains[i].texts[prog]; // 返回当前进度对应的下一条文本
+                target_text = pool_char_chains[i].texts[prog].c_str(); // 返回当前进度对应的下一条文本
             }
             else
             {
@@ -347,7 +345,7 @@ void SysSpecials::syncTextByID(const String &id)
     {
         if (ps.id == id)
         {
-            String msg = "SPC_TXT:" + id + "|" + ps.text;
+            String msg = "SPC_TXT:" + id + "|" + ps.text.c_str();
             SysBLE_Notify(msg.c_str());
             return;
         }

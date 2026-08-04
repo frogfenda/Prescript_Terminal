@@ -1,6 +1,6 @@
 {
-  "wifi_ssid": "Your_WiFi_Name",
-  "wifi_pass": "12345678",
+  "wifi_ssid": "",
+  "wifi_pass": "",
   "language": 1,
   "sleep_time_ms": 30000,
   "true_sleep_time_ms": 4294967295,

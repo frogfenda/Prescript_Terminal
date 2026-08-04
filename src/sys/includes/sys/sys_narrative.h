@@ -6,25 +6,25 @@
 #pragma once
 
 #include <Arduino.h>
-#include <vector>
+#include "sys/sys_psram_text.h"
 
 struct SysNarrativeLine
 {
-    String text;
-    String audioBind;
+    SysPsramString text;
+    SysPsramString audioBind;
 };
 
 struct SysNarrativeParagraph
 {
     uint16_t color = 0xFFFF;
-    std::vector<SysNarrativeLine> lines;
+    SysPsramVector<SysNarrativeLine> lines;
 };
 
 struct SysNarrativeScene
 {
-    String id;
+    SysPsramString id;
     uint16_t weight = 1;
-    std::vector<SysNarrativeParagraph> paragraphs;
+    SysPsramVector<SysNarrativeParagraph> paragraphs;
 };
 
 class SysNarrativeCatalog
@@ -52,6 +52,6 @@ public:
     bool empty() const { return scenes_.empty(); }
 
 private:
-    String loaded_path_;
-    std::vector<SysNarrativeScene> scenes_;
+    SysPsramString loaded_path_;
+    SysPsramVector<SysNarrativeScene> scenes_;
 };

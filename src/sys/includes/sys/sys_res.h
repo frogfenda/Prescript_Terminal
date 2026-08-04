@@ -9,7 +9,7 @@
 /**
  * 【接口说明】在FATFS挂载、语言确定且SysAudio启动后，同步预加载启动必需资源。
  * 【重复调用】初始化完成后再次调用会直接返回，不重复申请PSRAM。
- * 【失败策略】双蛇杖的大批量资源不在这里读取，而由SysRes_Update进入主循环后逐份加载。
+ * 【失败策略】双蛇杖的大批量资源不在这里读取；首次进入对应App后才由SysRes_Update逐份加载。
  */
 void SysRes_Init();
 
@@ -20,8 +20,14 @@ void SysRes_Init();
  */
 void SysRes_Update();
 
-/** 用户进入双蛇杖时取消后台等待时间，下一次SysRes_Update立即开始或继续预热。 */
+/** 用户首次进入双蛇杖时启动按需预热；资源已加载或正在加载时重复调用不会重置进度。 */
 void SysRes_RequestCaduceusPreload();
+
+/**
+ * 【接口说明】释放当前会话已经加载的双蛇杖音频和图片，并复位下次进入的加载进度。
+ * 【调用约束】App必须先停止并确认全部自有音频实例，防止Core 0继续读取已释放PCM。
+ */
+void SysRes_ReleaseCaduceus();
 
 /** 全部双蛇杖音频和图片均加载成功后返回true。 */
 bool SysRes_IsCaduceusReady();
