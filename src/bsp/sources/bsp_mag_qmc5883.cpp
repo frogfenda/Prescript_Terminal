@@ -214,7 +214,7 @@ namespace
         s_diagnostics.ctrl2Valid = true;
         s_diagnostics.ctrl2 = verify_ctrl2;
         s_diagnostics.ctrl2Matches = verify_ctrl2 == ctrl2;
-        if (!s_diagnostics.ctrl1Matches)
+        if (!s_diagnostics.ctrl1Matches || !s_diagnostics.ctrl2Matches)
             return Fail(BSP::Qmc5883::Error::RegisterVerifyFailed, true);
 
         /*
@@ -394,15 +394,9 @@ namespace BSP::Qmc5883
 
     bool RangeConfigurationVerified()
     {
-        /*
-         * 2026-08-03 V4B实测：QMC5883P在CTRL2写0x08后固定回读0x00，但原始模长约
-         * 1339 LSB；按±8G的3750 LSB/G换算为35.7uT，按默认±30G则为134uT。
-         * 设备远离磁性物体且旋转响应正常，证明量程写入已经生效、CTRL2回读不反映工作值。
-         * 因此P型以“写事务成功且CTRL1模式回读一致”作为当前V4B的量程配置确认条件，
-         * 同时继续在Diagnostics保留CTRL2实际值，便于未来不同批次芯片复核。
-         */
         return s_type == Type::Qmc5883l ||
-               (s_type == Type::Qmc5883p && s_ready && s_diagnostics.ctrl1Matches);
+               (s_type == Type::Qmc5883p && s_ready &&
+                s_diagnostics.ctrl1Matches && s_diagnostics.ctrl2Matches);
     }
 
     bool IsPresent(uint8_t address)

@@ -51,7 +51,7 @@ namespace BSP::Qmc5883
 
     struct Config
     {
-        Range range = Range::G8;
+        Range range = Range::G30;
         OutputDataRate outputRate = OutputDataRate::Hz50;
         Oversampling oversampling1 = Oversampling::X8;
         Oversampling oversampling2 = Oversampling::X8;
@@ -130,7 +130,7 @@ namespace BSP::Qmc5883
     bool IsPoweredDown();
 
     bool IsReady();
-    /** CTRL2量程位是否在当前芯片上成功回读一致；false时上层不得把uT换算用于融合/校准。 */
+    /** CTRL2量程位是否成功回读一致；false时上层不得把uT换算用于融合/校准。 */
     bool RangeConfigurationVerified();
     bool IsPresent(uint8_t address = 0);
     uint8_t Address();

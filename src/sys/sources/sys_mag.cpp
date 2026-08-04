@@ -1,8 +1,8 @@
 /*
 【模块职责】实现独立磁场采样、校准文件、质量门控和诊断日志。
 【恢复策略】正常轮询不重试I2C；失败后每5秒在现有Wire1上Reset或重新探测，绝不周期性重建总线。
-【实板门槛】QMC封装相对机身的轴映射尚无PCB坐标证据，因此先保留恒等映射并显式标记未验证；
-调试数据确认后只修改本文件的SensorToBody和BOARD_AXIS_MAPPING_VERIFIED。
+【实板轴向】V4B三轴有序旋转与北半球地磁倾角共同确认：BodyX=+SensorX、BodyY=-SensorY、
+BodyZ=-SensorZ。该安装变换只作用于校准后的磁场，不改变BSP寄存器事实或校准文件的传感器坐标契约。
 */
 #include "sys/sys_mag.h"
 
@@ -19,13 +19,14 @@ namespace
     static constexpr uint32_t RECOVERY_INTERVAL_MS = 5000;
     static constexpr uint32_t DIAGNOSTIC_INTERVAL_MS = 500;
     static constexpr uint32_t CALIBRATION_CAPACITY = 1200;
-    static constexpr uint16_t CALIBRATION_SCHEMA_VERSION = 1;
+    // schema 2切换到实板可回读确认的±30G量程；旧±8G假设下的偏置/矩阵量纲不可复用。
+    static constexpr uint16_t CALIBRATION_SCHEMA_VERSION = 2;
     static constexpr float FIELD_WARNING_RATIO = 0.15f;
     static constexpr float FIELD_REJECT_RATIO = 0.25f;
     static constexpr float FIELD_STEP_REJECT_UT = 10.0f;
 
-    // TODO(实板轴向)：完成三轴双方向旋转采集后改为true，并冻结实际带符号轴交换。
-    static constexpr bool BOARD_AXIS_MAPPING_VERIFIED = false;
+    // 2026-08-05 V4B实机用Body X/Y/Z三个有序90°旋转确认；数值证据记录在任务台账中。
+    static constexpr bool BOARD_AXIS_MAPPING_VERIFIED = true;
 
     bool s_started = false;
     bool s_available = false;
@@ -47,7 +48,7 @@ namespace
     BSP::Qmc5883::Config RuntimeConfig()
     {
         BSP::Qmc5883::Config config;
-        config.range = BSP::Qmc5883::Range::G8;
+        config.range = BSP::Qmc5883::Range::G30;
         config.outputRate = BSP::Qmc5883::OutputDataRate::Hz50;
         config.oversampling1 = BSP::Qmc5883::Oversampling::X8;
         config.oversampling2 = BSP::Qmc5883::Oversampling::X8;
@@ -57,10 +58,11 @@ namespace
     SysMagVector3 SensorToBody(const SysMagVector3 &sensor)
     {
         /*
-         * 这是刻意保守的临时恒等映射，不代表实板结论。AxisMappingVerified=false 会阻止它进入融合，
-         * 但调试App仍能同时显示sensor/body，便于用户做三轴旋转并冻结真实映射。
+         * V4B实测安装关系等价于绕Sensor X旋转180°：X同向，Y/Z同时反向，行列式为+1。
+         * 三轴旋转先分别确认对应轴不交换，再用正向Body Z旋转和北半球向下的地磁倾角消除
+         * “整体反号”歧义。输入必须是椭球校准后的传感器坐标，输出供独立质量门和未来融合使用。
          */
-        return sensor;
+        return {sensor.x, -sensor.y, -sensor.z};
     }
 
     float Magnitude(const SysMagVector3 &value)
@@ -275,13 +277,17 @@ namespace
             return;
         s_last_diagnostic_ms = now;
         Serial.printf("[地磁-数据] 序号=%lu 原始=[%d,%d,%d] 传感器=[%.2f,%.2f,%.2f]uT "
-                      "校准=[%.2f,%.2f,%.2f]uT 场强=%.2fuT 置信=%.2f 原因=0x%02lX。\n",
+                      "校准=[%.2f,%.2f,%.2f]uT 机身=[%.2f,%.2f,%.2f]uT "
+                      "场强=%.2fuT 置信=%.2f 原因=0x%02lX。\n",
                       static_cast<unsigned long>(sample.sequence),
                       sample.raw_x, sample.raw_y, sample.raw_z,
                       sample.sensor_uT.x, sample.sensor_uT.y, sample.sensor_uT.z,
                       sample.calibrated_sensor_uT.x,
                       sample.calibrated_sensor_uT.y,
                       sample.calibrated_sensor_uT.z,
+                      sample.body_uT.x,
+                      sample.body_uT.y,
+                      sample.body_uT.z,
                       sample.field_strength_uT,
                       sample.confidence,
                       static_cast<unsigned long>(sample.disturbance_reasons));
@@ -339,17 +345,9 @@ bool SysMag_Init()
 
     s_available = true;
     ScheduleNextPoll();
-    Serial.printf("[地磁] %s已初始化：地址=0x%02X，Normal 50Hz，±8G，OSR1/2=8；轴映射=%s。\n",
+    Serial.printf("[地磁] %s已初始化：地址=0x%02X，Normal 50Hz，±30G，OSR1/2=8；轴映射=%s。\n",
                   BSP::Qmc5883::TypeName(), BSP::Qmc5883::Address(),
                   BOARD_AXIS_MAPPING_VERIFIED ? "已验证" : "待实板验证");
-    BSP::Qmc5883::Diagnostics diagnostics = {};
-    if (BSP::Qmc5883::GetDiagnostics(&diagnostics) && diagnostics.ctrl2Valid &&
-        !diagnostics.ctrl2Matches)
-    {
-        Serial.printf("[地磁-提示] CTRL2写入=0x%02X、回读=0x%02X；当前V4B已用场强实测确认±8G，"
-                      "该回读差异仅保留诊断。\n",
-                      diagnostics.expectedCtrl2, diagnostics.ctrl2);
-    }
     return true;
 }
 
