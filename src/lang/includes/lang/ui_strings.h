@@ -161,7 +161,7 @@ namespace UIStrings
         return IsZh(lang) ? "角速度峰值: " : "GYRO PEAK: ";
     }
 
-    // 【人体坐标漂移测试】固定入口、运行状态和三页调试信息的双语文本。
+    // 【人体坐标测试】入口对齐、正式姿态/加速度观察和必要操作状态的双语文本。
     inline const char *HumanFrameDriftTitle(SystemLang_t lang)
     {
         return IsZh(lang) ? "坐标漂移测试" : "FRAME DRIFT TEST";
@@ -189,7 +189,7 @@ namespace UIStrings
 
     inline const char *HumanFrameAccelerationPage(SystemLang_t lang)
     {
-        return IsZh(lang) ? "人体坐标去重力加速度" : "HUMAN LINEAR ACCELERATION";
+        return IsZh(lang) ? "绝对人体坐标去重力加速度" : "ABS HUMAN LINEAR ACCEL";
     }
 
     inline const char *HumanFrameStatisticsPage(SystemLang_t lang)

@@ -17,6 +17,7 @@
 #include "sys/sys_prescript_target.h"
 #include "sys/sys_motion.h"
 #include "sys/sys_mag.h"
+#include "sys/sys_human_motion.h"
 #include "sys/sys_gesture.h"
 #include "sys/sys_usb_mode.h"
 #include "sys/sys_usb_session.h"
@@ -65,6 +66,8 @@ void setup()
     SysMotion_Init();
     // 地磁与IMU共用Wire1，但拥有独立采样/校准服务；初始化失败不阻止其他系统启动。
     SysMag_Init();
+    // 只初始化统一人体运动服务，不在任意开机姿态自动建立人体方向；业务页会显式请求入口对齐。
+    SysHumanMotion::Init();
     SysGesture_Init();
 
     sysAudio.begin();
@@ -118,6 +121,8 @@ void loop()
     SysTime_Update();
     SysMotion_Update();
     SysMag_Update();
+    // 只读取上面两项的缓存；不采样I2C，也不改变SysGesture/Caduceus的动作窗口与坐标锚点。
+    SysHumanMotion::Update();
     SysGesture_Update();
     SysRes_Update();
 
