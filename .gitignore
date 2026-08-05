@@ -10,3 +10,4 @@ logs/
 .imu_captures/
 tools/
 docs/
+.claude/

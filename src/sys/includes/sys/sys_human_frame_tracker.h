@@ -97,7 +97,8 @@ namespace SysHumanFrame
         Snapshot GetSnapshot() const { return snapshot_; }
 
     private:
-        static constexpr uint16_t CALIBRATION_SAMPLE_CAPACITY = 32;
+        /* 64帧约覆盖0.6秒实板样本，用于确认零偏窗口稳定；该固定数组只属于追踪器实例，不分配堆。 */
+        static constexpr uint16_t CALIBRATION_SAMPLE_CAPACITY = 64;
 
         SysPose::MahonySolver gyro_solver_;
         SysPose::MahonySolver aided_solver_;

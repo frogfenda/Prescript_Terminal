@@ -12,9 +12,18 @@ namespace SysHumanFrame
 {
     namespace
     {
-        constexpr float CALIBRATION_GYRO_DPS = 120.0f;
-        constexpr float CALIBRATION_ACCEL_DELTA_G = 0.25f;
-        constexpr uint32_t CALIBRATION_QUIET_US = 70000;
+        /*
+         * 入口对齐是在测量“陀螺零偏”，不能复用动作识别器允许120dps的宽松静止锚点。此前设备
+         * 摆放过程中的转速会被当成零偏；真正放稳后再扣掉该假零偏，模型就沿当时随机转动的轴狂转。
+         * 这里使用实板静态约2.3dps模长之上的窄门，并用长窗口/波动检查确认最近样本确实稳定。
+         */
+        constexpr float CALIBRATION_GYRO_DPS = 8.0f;
+        constexpr float CALIBRATION_ACCEL_DELTA_G = 0.10f;
+        constexpr float CALIBRATION_MAX_BIAS_DPS = 5.0f;
+        constexpr float CALIBRATION_GYRO_RMS_DPS = 0.50f;
+        constexpr float CALIBRATION_ACCEL_RMS_G = 0.04f;
+        constexpr uint16_t CALIBRATION_MIN_SAMPLES = 48;
+        constexpr uint32_t CALIBRATION_QUIET_US = 1000000;
         constexpr uint32_t CALIBRATION_MIN_US = 1000000;
         constexpr uint32_t MAX_GAP_US = 100000;
         constexpr uint32_t QUALITY_GAP_US = 30000;
@@ -150,7 +159,7 @@ namespace SysHumanFrame
 
     bool Tracker::FinishCalibration(const InputSample &sample)
     {
-        if (quiet_sample_count_ < 3)
+        if (quiet_sample_count_ < CALIBRATION_MIN_SAMPLES)
             return false;
         const float inverse = 1.0f / static_cast<float>(quiet_sample_count_);
         const Vector3 gravity = {accel_sum_.x * inverse,
@@ -159,6 +168,47 @@ namespace SysHumanFrame
         if (!EntryGravityMatchesScreenUp(gravity))
             return false;
 
+        const Vector3 gyro_bias = {gyro_sum_.x * inverse,
+                                   gyro_sum_.y * inverse,
+                                   gyro_sum_.z * inverse};
+        if (Norm(gyro_bias) >= CALIBRATION_MAX_BIAS_DPS)
+            return false;
+
+        /*
+         * 单帧门只能拒绝明显动作，不能区分轻微晃动和稳定零偏。这里检查当前环形窗口围绕均值的
+         * 三轴合成RMS；若用户刚把设备放下，旧动作样本会随新静止帧逐步被覆盖，窗口稳定后自然
+         * 通过，不需要自动重启姿态或伪造采样时间。
+         */
+        double gyro_deviation_square_sum = 0.0;
+        double accel_deviation_square_sum = 0.0;
+        for (uint16_t index = 0; index < quiet_sample_count_; ++index)
+        {
+            const Vector3 &gyro = gyro_samples_[index];
+            const Vector3 &accel = accel_samples_[index];
+            const float gyro_dx = gyro.x - gyro_bias.x;
+            const float gyro_dy = gyro.y - gyro_bias.y;
+            const float gyro_dz = gyro.z - gyro_bias.z;
+            const float accel_dx = accel.x - gravity.x;
+            const float accel_dy = accel.y - gravity.y;
+            const float accel_dz = accel.z - gravity.z;
+            gyro_deviation_square_sum += static_cast<double>(gyro_dx * gyro_dx +
+                                                               gyro_dy * gyro_dy +
+                                                               gyro_dz * gyro_dz);
+            accel_deviation_square_sum += static_cast<double>(accel_dx * accel_dx +
+                                                                accel_dy * accel_dy +
+                                                                accel_dz * accel_dz);
+        }
+        const float gyro_rms = sqrtf(static_cast<float>(
+            gyro_deviation_square_sum / static_cast<double>(quiet_sample_count_)));
+        const float accel_rms = sqrtf(static_cast<float>(
+            accel_deviation_square_sum / static_cast<double>(quiet_sample_count_)));
+        if (!isfinite(gyro_rms) || !isfinite(accel_rms) ||
+            gyro_rms >= CALIBRATION_GYRO_RMS_DPS ||
+            accel_rms >= CALIBRATION_ACCEL_RMS_G)
+        {
+            return false;
+        }
+
         SysPose::ImuSample anchor = {};
         anchor.axG = gravity.x;
         anchor.ayG = gravity.y;
@@ -166,9 +216,7 @@ namespace SysHumanFrame
         if (!gyro_solver_.ResetFromAccel(anchor) || !aided_solver_.ResetFromAccel(anchor))
             return false;
 
-        snapshot_.gyro_bias_dps = {gyro_sum_.x * inverse,
-                                   gyro_sum_.y * inverse,
-                                   gyro_sum_.z * inverse};
+        snapshot_.gyro_bias_dps = gyro_bias;
         gravity_magnitude_g_ = Norm(gravity);
         const SysPose::EulerAngles gyro_euler = gyro_solver_.GetResult(false).euler;
         const SysPose::EulerAngles aided_euler = aided_solver_.GetResult(false).euler;

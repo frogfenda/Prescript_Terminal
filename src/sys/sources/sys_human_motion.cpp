@@ -95,8 +95,20 @@ namespace SysHumanMotion
         input.accel_fresh = motion.accel_fresh;
         input.gyro_fresh = motion.gyro_fresh;
         input.body_imu = motion.body_imu;
+        const SysHumanFrame::Status previous_status = s_snapshot.base.status;
         const bool base_updated = s_base_tracker.Update(input);
         s_snapshot.base = s_base_tracker.GetSnapshot();
+
+        if (previous_status != SysHumanFrame::Status::Tracking &&
+            s_snapshot.base.status == SysHumanFrame::Status::Tracking)
+        {
+            /* 每轮入口只输出一次，既能确认严格静止门已经通过，也能从三轴数值快速识别是否仍把
+             * 摆放动作误当零偏；这是可长期保留的状态转换日志，不在正常采样循环持续刷屏。 */
+            Serial.printf("[人体姿态] 入口对齐完成：陀螺零偏=[%+.3f,%+.3f,%+.3f]dps。\n",
+                          s_snapshot.base.gyro_bias_dps.x,
+                          s_snapshot.base.gyro_bias_dps.y,
+                          s_snapshot.base.gyro_bias_dps.z);
+        }
 
         if (s_snapshot.base.status != SysHumanFrame::Status::Tracking)
         {

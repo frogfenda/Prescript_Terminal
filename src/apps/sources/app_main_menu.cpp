@@ -8,7 +8,37 @@
 
 class AppMainMenu : public AppMenuBase
 {
+private:
+    // 【函数说明】记住主菜单退出时的选中项；onCreate 重建时恢复，避免每次回主菜单都停在首项。
+    int saved_selection = 0;
+
 protected:
+    // 【函数说明】主菜单被压栈进子页或切换去其他页面前，记录当前位置。
+    void onBackground() override
+    {
+        saved_selection = current_selection;
+        AppMenuBase::onBackground();
+    }
+
+    // 【函数说明】主菜单被销毁重建前记录当前位置，供下次 onCreate 恢复。
+    void onDestroy() override
+    {
+        saved_selection = current_selection;
+        AppMenuBase::onDestroy();
+    }
+
+    // 【函数说明】先按基类归零，再用记忆的选项恢复位置并重绘首帧。
+    void onCreate() override
+    {
+        AppMenuBase::onCreate();
+        int count = getMenuCount();
+        if (saved_selection > 0 && saved_selection < count)
+        {
+            current_selection = saved_selection;
+            onResume();
+        }
+    }
+
     // 【函数说明】返回16个主菜单入口，数量必须与UIStrings和下方路由保持一致。
     int getMenuCount() override { return 16; }
 
@@ -59,7 +89,7 @@ void onItemClicked(int index) override
             appManager.launch(AppId::Standby);
     }
 
-    // 【函数说明】主菜单长按直接进入待机页，等同于手动让终端休眠。
+    // 【函数说明】主菜单长按直接进入待机页，等同于手动让终端休眠。销毁前由 onDestroy 记录选中项。
     void onLongPressed() override { appManager.launch(AppId::Standby); }
 };
 
