@@ -10,11 +10,59 @@
 #include <esp_heap_caps.h>
 
 #include "sys/sys_caduceus_core.h"
+#include "sys/sys_human_motion.h"
 
 namespace
 {
     SysCaduceusCore::Recognizer *s_recognizer = nullptr;
     bool s_allocation_failed = false;
+    constexpr uint8_t SHADOW_EVENT_CAPACITY = 4;
+    SysCaduceusShadowDiagnostics s_pending_shadow[SHADOW_EVENT_CAPACITY] = {};
+    uint8_t s_pending_shadow_write = 0;
+    SysCaduceusShadowDiagnostics s_latest_shadow = {};
+
+    void ClearShadowDiagnostics()
+    {
+        for (auto &item : s_pending_shadow)
+            item = {};
+        s_pending_shadow_write = 0;
+        s_latest_shadow = {};
+    }
+
+    void StoreAcceptedShadow(const SysCaduceusCore::CandidateOutcome &outcome)
+    {
+        if (outcome.classification.gesture == SysCaduceusCore::Gesture::None)
+            return;
+        SysCaduceusShadowDiagnostics diagnostics = {};
+        diagnostics.valid = outcome.human_shadow.valid;
+        diagnostics.candidate_id = outcome.candidate_id;
+        diagnostics.trajectory_direction = {
+            outcome.human_shadow.trajectory_x,
+            outcome.human_shadow.trajectory_y,
+            outcome.human_shadow.trajectory_z,
+        };
+        diagnostics.trajectory_speed_gs = outcome.human_shadow.trajectory_peak_speed_gs;
+        diagnostics.coverage = outcome.human_shadow.coverage;
+        diagnostics.heading_coverage = outcome.human_shadow.heading_coverage;
+        s_pending_shadow[s_pending_shadow_write] = diagnostics;
+        s_pending_shadow_write = static_cast<uint8_t>(
+            (s_pending_shadow_write + 1) % SHADOW_EVENT_CAPACITY);
+    }
+
+    void SelectDeliveredShadow(uint32_t candidate_id)
+    {
+        s_latest_shadow = {};
+        /* 核心可能同一帧结算两个候选，而事件按小队列逐个交付。按candidate_id查找可保证
+         * 动作测试页永远不会把第二候选轨迹误配给第一候选动作名。 */
+        for (const auto &item : s_pending_shadow)
+        {
+            if (item.candidate_id == candidate_id)
+            {
+                s_latest_shadow = item;
+                return;
+            }
+        }
+    }
 
     bool EnsureRecognizer()
     {
@@ -88,12 +136,14 @@ namespace
 
 void SysCaduceusRecognizer_Reset()
 {
+    ClearShadowDiagnostics();
     if (EnsureRecognizer())
         s_recognizer->Reset();
 }
 
 void SysCaduceusRecognizer_BeginEntryCalibration()
 {
+    ClearShadowDiagnostics();
     if (EnsureRecognizer())
         s_recognizer->BeginEntryCalibration();
 }
@@ -105,6 +155,7 @@ bool SysCaduceusRecognizer_IsEntryCalibrationComplete()
 
 void SysCaduceusRecognizer_CancelEntryCalibration()
 {
+    ClearShadowDiagnostics();
     if (EnsureRecognizer())
         s_recognizer->CancelEntryCalibration();
 }
@@ -122,6 +173,33 @@ bool SysCaduceusRecognizer_Update(const SysMotionSample &sample, SysGestureEvent
     input.body_imu = sample.body_imu;
     input.quality_flags = BuildQualityFlags(sample);
 
+    SysHumanMotion::Snapshot human = {};
+    if (SysHumanMotion::GetSnapshot(&human) &&
+        human.motion_sequence == sample.sequence &&
+        human.motion_timestamp_us == sample.timestamp_us &&
+        human.base.status == SysHumanFrame::Status::Tracking &&
+        human.absolute_linear_accel_valid &&
+        human.absolute_linear_accel_fresh &&
+        human.angular_velocity_valid)
+    {
+        /* 只接受同序号、同时间戳的只读人体快照；任何调度错位都保持默认false并完整回退旧分类。 */
+        input.human_frame_valid = true;
+        input.human_heading_stabilized =
+            human.magnetic_orientation.orientation_valid &&
+            human.magnetic_heading.reference_valid &&
+            human.magnetic_heading.accepted;
+        input.human_linear_accel_g = {
+            human.absolute_linear_accel_human_g.x,
+            human.absolute_linear_accel_human_g.y,
+            human.absolute_linear_accel_human_g.z,
+        };
+        input.human_gyro_dps = {
+            human.angular_velocity_human_dps.x,
+            human.angular_velocity_human_dps.y,
+            human.angular_velocity_human_dps.z,
+        };
+    }
+
     SysCaduceusCore::GestureResult result = {};
     const bool recognized = s_recognizer->Update(input, &result);
 
@@ -129,13 +207,15 @@ bool SysCaduceusRecognizer_Update(const SysMotionSample &sample, SysGestureEvent
      * 固件不输出每个拒识候选的高频日志；仍要及时弹空共享核心诊断队列，避免旧记录在固定
      * 容量中积压。PC宿主会消费这些记录生成召回、误触、延迟和采样质量报告。
      */
-    SysCaduceusCore::CandidateOutcome discarded = {};
-    while (s_recognizer->PopCandidateOutcome(&discarded))
+    SysCaduceusCore::CandidateOutcome outcome = {};
+    while (s_recognizer->PopCandidateOutcome(&outcome))
     {
+        StoreAcceptedShadow(outcome);
     }
 
     if (!recognized)
         return false;
+    SelectDeliveredShadow(result.candidate_id);
     out_event->type = MapGesture(result.gesture);
     out_event->timestamp_us = result.timestamp_us;
     out_event->strength_dps = result.strength_dps;
@@ -146,4 +226,13 @@ bool SysCaduceusRecognizer_Update(const SysMotionSample &sample, SysGestureEvent
     out_event->class_margin = result.class_margin;
     out_event->quality_flags = result.quality_flags;
     return out_event->type != SysGestureType::None;
+}
+
+bool SysCaduceusRecognizer_GetLatestShadowDiagnostics(
+    SysCaduceusShadowDiagnostics *out)
+{
+    if (!out || s_latest_shadow.candidate_id == 0)
+        return false;
+    *out = s_latest_shadow;
+    return true;
 }

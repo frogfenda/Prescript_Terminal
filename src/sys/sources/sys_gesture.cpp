@@ -9,6 +9,7 @@
 #include <math.h>
 
 #include "sys/sys_caduceus_recognizer.h"
+#include "sys/sys_human_motion.h"
 #include "sys/sys_motion.h"
 
 namespace
@@ -441,13 +442,24 @@ void SysGesture_BeginCaduceusEntryCalibration()
 {
     if (s_profile != SysGestureProfile::Caduceus)
         return;
+    /* 一个入口动作同时重建旧局部动作锚点和人体绝对坐标；App仍只依赖SysGesture生命周期，
+     * 不直接控制人体姿态服务或传感器。 */
+    SysHumanMotion::BeginAlignment();
     SysCaduceusRecognizer_BeginEntryCalibration();
 }
 
 bool SysGesture_IsCaduceusEntryCalibrationComplete()
 {
-    return s_profile == SysGestureProfile::Caduceus &&
-           SysCaduceusRecognizer_IsEntryCalibrationComplete();
+    if (s_profile != SysGestureProfile::Caduceus ||
+        !SysCaduceusRecognizer_IsEntryCalibrationComplete())
+    {
+        return false;
+    }
+
+    SysHumanMotion::Snapshot human = {};
+    return SysHumanMotion::GetSnapshot(&human) &&
+           human.alignment_active &&
+           human.base.status == SysHumanFrame::Status::Tracking;
 }
 
 bool SysGesture_PopEvent(SysGestureEvent *out)

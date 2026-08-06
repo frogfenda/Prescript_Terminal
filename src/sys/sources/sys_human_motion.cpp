@@ -48,6 +48,24 @@ namespace SysHumanMotion
             };
         }
 
+        /**
+         * 用“机身坐标→入口人体坐标”四元数执行q*v*q^-1。这里专门服务角速度坐标变换，不做
+         * 积分、滤波或地磁采样；调用前必须先扣除入口静止校准得到的三轴陀螺零偏。
+         */
+        SysHumanFrame::Vector3 RotateBodyToHuman(
+            const SysPose::Quaternion &rotation,
+            const SysHumanFrame::Vector3 &value)
+        {
+            const float tx = 2.0f * (rotation.y * value.z - rotation.z * value.y);
+            const float ty = 2.0f * (rotation.z * value.x - rotation.x * value.z);
+            const float tz = 2.0f * (rotation.x * value.y - rotation.y * value.x);
+            return {
+                value.x + rotation.w * tx + rotation.y * tz - rotation.z * ty,
+                value.y + rotation.w * ty + rotation.z * tx - rotation.x * tz,
+                value.z + rotation.w * tz + rotation.x * ty - rotation.y * tx,
+            };
+        }
+
         void ResetOwnedState(bool alignment_active)
         {
             s_base_tracker.Begin();
@@ -87,7 +105,11 @@ namespace SysHumanMotion
         s_last_motion_sequence = motion.sequence;
         s_snapshot.motion_sequence = motion.sequence;
         s_snapshot.motion_timestamp_us = motion.timestamp_us;
+        /* 每个新序号先撤销逐帧有效性，只有本序号真的完成姿态更新后才重新发布，防止消费者
+         * 把上一帧向量误配给当前SysMotionSample。 */
+        s_snapshot.absolute_linear_accel_valid = false;
         s_snapshot.absolute_linear_accel_fresh = false;
+        s_snapshot.angular_velocity_valid = false;
 
         SysHumanFrame::InputSample input = {};
         input.sequence = motion.sequence;
@@ -112,7 +134,6 @@ namespace SysHumanMotion
 
         if (s_snapshot.base.status != SysHumanFrame::Status::Tracking)
         {
-            s_snapshot.absolute_linear_accel_valid = false;
             return true;
         }
 
@@ -155,6 +176,16 @@ namespace SysHumanMotion
 
         if (s_snapshot.magnetic_orientation.orientation_valid)
         {
+            const SysHumanFrame::Vector3 corrected_gyro_body = {
+                corrected_gx,
+                corrected_gy,
+                corrected_gz,
+            };
+            s_snapshot.angular_velocity_human_dps = RotateBodyToHuman(
+                s_snapshot.magnetic_orientation.orientation,
+                corrected_gyro_body);
+            s_snapshot.angular_velocity_valid = motion.gyro_fresh;
+
             s_snapshot.absolute_linear_accel_human_g = ApplyMagneticYaw(
                 s_snapshot.base.linear_accel_human_g,
                 s_snapshot.magnetic_orientation.correction_deg);
@@ -164,6 +195,7 @@ namespace SysHumanMotion
         else
         {
             s_snapshot.absolute_linear_accel_valid = false;
+            s_snapshot.angular_velocity_valid = false;
         }
         return true;
     }

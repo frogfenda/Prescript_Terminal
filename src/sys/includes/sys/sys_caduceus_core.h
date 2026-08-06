@@ -58,6 +58,37 @@ namespace SysCaduceusCore
         bool gyro_fresh = false;
         SysPose::ImuSample body_imu;
         uint16_t quality_flags = QualityNone;
+
+        /*
+         * 可选的人体绝对坐标影子输入。默认false保证PC旧回放、六轴降级和未完成入口对齐时继续
+         * 完整执行原BodyY翻面不变量分类；分类器禁止读取这些字段。
+         */
+        bool human_frame_valid = false;
+        bool human_heading_stabilized = false;
+        SysActionFrame::Vector3 human_linear_accel_g;
+        SysActionFrame::Vector3 human_gyro_dps;
+    };
+
+    /**
+     * 人体绝对坐标的候选级影子特征。它与旧Features分开，明确保证不参与当前六分类；轨迹速度
+     * 单位为g*s，角面积单位为deg，coverage用于判断逐帧人体快照是否和候选完整对齐。
+     */
+    struct HumanShadowFeatures
+    {
+        bool valid = false;
+        float coverage = 0.0f;
+        float heading_coverage = 0.0f;
+        float linear_peak_g = 0.0f;
+        float linear_impulse_x_gs = 0.0f;
+        float linear_impulse_y_gs = 0.0f;
+        float linear_impulse_z_gs = 0.0f;
+        float trajectory_peak_speed_gs = 0.0f;
+        float trajectory_x = 0.0f;
+        float trajectory_y = 0.0f;
+        float trajectory_z = 0.0f;
+        float gyro_area_x_deg = 0.0f;
+        float gyro_area_y_deg = 0.0f;
+        float gyro_area_z_deg = 0.0f;
     };
 
     /**
@@ -124,6 +155,7 @@ namespace SysCaduceusCore
         bool adaptive_finished = false;
         bool features_valid = false;
         Features features;
+        HumanShadowFeatures human_shadow;
         Classification classification;
     };
 
@@ -171,9 +203,19 @@ namespace SysCaduceusCore
 
         struct Candidate
         {
+            struct HumanFrameSample
+            {
+                uint32_t timestamp_us = 0;
+                bool valid = false;
+                bool heading_stabilized = false;
+                SysActionFrame::Vector3 linear_accel_human_g;
+                SysActionFrame::Vector3 gyro_human_dps;
+            };
+
             SysActionFrame::Integrator integrator;
             SysActionFrame::FrameSample samples[RING_CAPACITY] = {};
             SysActionFrame::FrameSample linear[RING_CAPACITY] = {};
+            HumanFrameSample human[RING_CAPACITY] = {};
             uint8_t head = 0;
             uint8_t count = 0;
             bool ready = false;
@@ -220,6 +262,7 @@ namespace SysCaduceusCore
         bool RebasePrimary(const InputSample &sample, bool collect_now, uint16_t frame_quality);
         bool StartSecondary(const InputSample &sample, uint16_t frame_quality);
         bool Extract(Candidate &candidate, Features *features);
+        bool ExtractHumanShadow(const Candidate &candidate, HumanShadowFeatures *features) const;
         void TrimPreTriggerFrames(Candidate &candidate);
         void StartCollecting(Candidate &candidate, uint32_t timestamp_us);
         void FinishCandidate(Candidate &candidate, bool is_primary,

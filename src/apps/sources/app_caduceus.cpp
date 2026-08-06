@@ -9,6 +9,7 @@
 
 #include "lang/ui_strings.h"
 #include "sys/app_manager.h"
+#include "sys/sys_caduceus_recognizer.h"
 #include "sys/sys_gesture.h"
 #include "ui/ui_frame.h"
 
@@ -36,6 +37,7 @@ private:
     bool has_event_ = false;
     bool calibrated_ = false;
     SysGestureEvent latest_event_ = {};
+    SysCaduceusShadowDiagnostics latest_shadow_ = {};
 
     void drawFrame()
     {
@@ -65,15 +67,27 @@ private:
             snprintf(line, sizeof(line), "%s%s",
                      UIStrings::CaduceusActionPrefix(lang),
                      UIStrings::CaduceusActionName(lang, action_index));
-            HAL_Screen_ShowChineseLine_Faded_Color(12, 52, line, 0.0f, TFT_CYAN);
+            HAL_Screen_ShowChineseLine_Faded_Color(8, 42, line, 0.0f, TFT_CYAN);
 
-            const int horizontal_direction = latest_event_.type == SysGestureType::HorizontalSlash
-                                                 ? latest_event_.direction
-                                                 : 0;
-            snprintf(line, sizeof(line), "%s%s",
-                     UIStrings::CaduceusDirectionPrefix(lang),
-                     UIStrings::CaduceusDirectionValue(lang, horizontal_direction));
-            HAL_Screen_ShowChineseLine(12, 75, line);
+            if (latest_shadow_.valid &&
+                latest_shadow_.candidate_id == latest_event_.candidate_id)
+            {
+                snprintf(line, sizeof(line), "ABS X%+.2f Y%+.2f Z%+.2f",
+                         latest_shadow_.trajectory_direction.x,
+                         latest_shadow_.trajectory_direction.y,
+                         latest_shadow_.trajectory_direction.z);
+            }
+            else
+            {
+                snprintf(line, sizeof(line), "ABS unavailable");
+            }
+            HAL_Screen_ShowChineseLine(8, 62, line);
+
+            snprintf(line, sizeof(line), "SPD %.2fgs COV %.0f%% H %.0f%%",
+                     latest_shadow_.trajectory_speed_gs,
+                     latest_shadow_.coverage * 100.0f,
+                     latest_shadow_.heading_coverage * 100.0f);
+            HAL_Screen_ShowChineseLine(8, 82, line);
 
             /*
              * 动作测试页同时显示共享核心的边界分数和触发到交付延迟，便于实机确认提前收窗
@@ -83,7 +97,7 @@ private:
                      UIStrings::CaduceusStrengthPrefix(lang), latest_event_.strength_dps,
                      latest_event_.confidence * 100.0f,
                      static_cast<unsigned long>(latest_event_.recognition_latency_us / 1000));
-            HAL_Screen_ShowChineseLine(12, 98, line);
+            HAL_Screen_ShowChineseLine(8, 102, line);
         }
 
         UIFrame::DrawTip(UIStrings::HoldBackHint(lang));
@@ -99,6 +113,7 @@ public:
         has_event_ = false;
         calibrated_ = false;
         latest_event_ = {};
+        latest_shadow_ = {};
         drawFrame();
     }
 
@@ -109,6 +124,7 @@ public:
         SysGesture_BeginCaduceusEntryCalibration();
         calibrated_ = false;
         has_event_ = false;
+        latest_shadow_ = {};
         drawFrame();
     }
 
@@ -145,6 +161,18 @@ public:
         if (CaduceusActionIndex(event.type) < 0)
             return;
         latest_event_ = event;
+        SysCaduceusShadowDiagnostics diagnostics = {};
+        if (SysCaduceusRecognizer_GetLatestShadowDiagnostics(&diagnostics) &&
+            diagnostics.candidate_id == event.candidate_id)
+        {
+            latest_shadow_ = diagnostics;
+        }
+        else
+        {
+            /* candidate_id不一致时宁可明确显示不可用，也不复用上一动作的绝对轨迹。 */
+            latest_shadow_ = {};
+            latest_shadow_.candidate_id = event.candidate_id;
+        }
         has_event_ = true;
         drawFrame();
     }

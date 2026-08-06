@@ -35,6 +35,14 @@ namespace SysHumanMotion
         SysHumanFrame::Vector3 absolute_linear_accel_human_g;
         bool absolute_linear_accel_valid = false;
         bool absolute_linear_accel_fresh = false;
+
+        /*
+         * 与motion_sequence/motion_timestamp_us严格对应的人体坐标角速度，单位为dps。该值先扣除
+         * 本轮入口静止校准得到的陀螺零偏，再使用磁辅助Body→Human四元数旋转；地磁只通过已经
+         * 质量门控、限速并可冻结的姿态间接改变坐标轴，原始磁向量不会出现在这里。
+         */
+        SysHumanFrame::Vector3 angular_velocity_human_dps;
+        bool angular_velocity_valid = false;
     };
 
     /** 初始化为“尚未入口对齐”；可安全重复调用，但正常启动只调用一次。 */

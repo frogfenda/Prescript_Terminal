@@ -245,10 +245,107 @@ namespace SysCaduceusCore
             candidate.head = static_cast<uint8_t>((candidate.head + 1) % RING_CAPACITY);
         }
         candidate.samples[target] = frame;
+        Candidate::HumanFrameSample &human = candidate.human[target];
+        human.timestamp_us = sample.timestamp_us;
+        human.valid = sample.human_frame_valid;
+        human.heading_stabilized = sample.human_frame_valid && sample.human_heading_stabilized;
+        human.linear_accel_human_g = sample.human_linear_accel_g;
+        human.gyro_human_dps = sample.human_gyro_dps;
         candidate.quality_flags = static_cast<uint16_t>(candidate.quality_flags | frame_quality);
         if (sample.accel_fresh)
             candidate.accel_peak_g = fmaxf(candidate.accel_peak_g, AccelMagnitude(sample.body_imu));
         return true;
+    }
+
+    bool Recognizer::ExtractHumanShadow(const Candidate &candidate,
+                                        HumanShadowFeatures *features) const
+    {
+        if (!features || candidate.count == 0)
+            return false;
+
+        *features = {};
+        uint16_t valid_count = 0;
+        uint16_t heading_count = 0;
+        uint16_t integrated_intervals = 0;
+        bool previous_valid = false;
+        Candidate::HumanFrameSample previous = {};
+        Vector3 velocity = {};
+        Vector3 peak_velocity = {};
+
+        for (uint8_t index = 0; index < candidate.count; ++index)
+        {
+            const uint8_t ring_index = static_cast<uint8_t>(
+                (candidate.head + index) % RING_CAPACITY);
+            const Candidate::HumanFrameSample &current = candidate.human[ring_index];
+            if (!current.valid)
+            {
+                /* 无效帧会打断梯形积分，不能跨过未知姿态或序号错配继续累计并伪造连续轨迹。 */
+                previous_valid = false;
+                continue;
+            }
+
+            ++valid_count;
+            if (current.heading_stabilized)
+                ++heading_count;
+            features->linear_peak_g = fmaxf(
+                features->linear_peak_g,
+                SysActionFrame::Norm(current.linear_accel_human_g));
+
+            if (previous_valid)
+            {
+                const uint32_t delta_us = current.timestamp_us - previous.timestamp_us;
+                if (delta_us > 0 && delta_us <= 100000)
+                {
+                    const float half_dt = static_cast<float>(delta_us) * 0.5e-6f;
+                    const Vector3 accel_step = {
+                        (previous.linear_accel_human_g.x + current.linear_accel_human_g.x) * half_dt,
+                        (previous.linear_accel_human_g.y + current.linear_accel_human_g.y) * half_dt,
+                        (previous.linear_accel_human_g.z + current.linear_accel_human_g.z) * half_dt,
+                    };
+                    velocity.x += accel_step.x;
+                    velocity.y += accel_step.y;
+                    velocity.z += accel_step.z;
+                    features->linear_impulse_x_gs += accel_step.x;
+                    features->linear_impulse_y_gs += accel_step.y;
+                    features->linear_impulse_z_gs += accel_step.z;
+                    features->gyro_area_x_deg +=
+                        (previous.gyro_human_dps.x + current.gyro_human_dps.x) * half_dt;
+                    features->gyro_area_y_deg +=
+                        (previous.gyro_human_dps.y + current.gyro_human_dps.y) * half_dt;
+                    features->gyro_area_z_deg +=
+                        (previous.gyro_human_dps.z + current.gyro_human_dps.z) * half_dt;
+                    ++integrated_intervals;
+
+                    const float speed = SysActionFrame::Norm(velocity);
+                    if (speed > features->trajectory_peak_speed_gs)
+                    {
+                        features->trajectory_peak_speed_gs = speed;
+                        peak_velocity = velocity;
+                    }
+                }
+                else
+                {
+                    /* 超过100ms的真实断点不积分；后续可以从新的连续片段重新开始累计覆盖率。 */
+                    velocity = {};
+                }
+            }
+            previous = current;
+            previous_valid = true;
+        }
+
+        features->coverage = static_cast<float>(valid_count) /
+                             static_cast<float>(candidate.count);
+        features->heading_coverage = static_cast<float>(heading_count) /
+                                     static_cast<float>(candidate.count);
+        if (features->trajectory_peak_speed_gs > 1.0e-6f)
+        {
+            const float inverse = 1.0f / features->trajectory_peak_speed_gs;
+            features->trajectory_x = peak_velocity.x * inverse;
+            features->trajectory_y = peak_velocity.y * inverse;
+            features->trajectory_z = peak_velocity.z * inverse;
+        }
+        features->valid = integrated_intervals > 0;
+        return features->valid;
     }
 
     bool Recognizer::AnchorPrimary(const InputSample &sample)
@@ -666,6 +763,8 @@ namespace SysCaduceusCore
         outcome.quality_flags = candidate.quality_flags;
         outcome.adaptive_finished = adaptive_finished;
         outcome.features_valid = Extract(candidate, &outcome.features);
+        /* 影子提取无论成功与否都不会改变features_valid、分类、收窗或事件队列。 */
+        (void)ExtractHumanShadow(candidate, &outcome.human_shadow);
         outcome.classification = outcome.features_valid
                                      ? ClassifyFeatures(outcome.features)
                                      : Classification();
