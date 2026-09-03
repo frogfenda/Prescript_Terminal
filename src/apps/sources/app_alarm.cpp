@@ -1,5 +1,6 @@
 ﻿/*
-【模块职责】闹钟业务。支持网页/协议添加删除、菜单浏览、编辑器修改小时分钟、后台到点触发 PushNotify，并把结果写入 sysConfig。
+【模块职责】闹钟配置与 UI。支持网页/协议添加删除、菜单浏览和编辑器修改小时分钟，并把事实数据写入 sysConfig。
+【边界】到点判断、日程优先级、派生触发表和 RTC/ESP 下一唤醒统一由 SysCalendar 维护。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/apps/app_alarm.cpp
@@ -11,9 +12,6 @@
 #include "sys/sys_event.h"
 #include "sys/sys_ble.h"
 #include "sys/sys_command_result.h"
-#include "sys/sys_reminder.h"
-#include "sys/sys_sleep_scheduler.h"
-#include "sys/sys_time.h"
 #include "lang/ui_strings.h"
 
 int g_alarm_edit_idx = -1;
@@ -25,9 +23,6 @@ void _Cb_AlmSync(void* payload);
 
 namespace
 {
-    time_t s_last_checked_minute_epoch = (time_t)-1;
-    time_t s_last_triggered_minute_epoch = (time_t)-1;
-
     /** 同一分钟只允许一个闹钟；exclude_index 让编辑现有闹钟时忽略自身。 */
     bool Alarm_IsMinuteOccupied(int hour, int minute, int exclude_index = -1)
     {
@@ -41,83 +36,6 @@ namespace
         return false;
     }
 
-    /**
-     * 根据当前东八区日期计算所有活动闹钟中最近的一次 UTC epoch，并提交给统一休眠调度器。
-     * 已在本分钟触发过的闹钟按明天计算，避免定时唤醒后立刻重复唤醒。
-     */
-    void Alarm_UpdateNextWake(time_t now = time(nullptr))
-    {
-        if (now < 1000000000)
-        {
-            SysSleep_Cancel(SysSleepSource::Alarm);
-            return;
-        }
-
-        struct tm local_now = {};
-        localtime_r(&now, &local_now);
-        time_t current_minute = now / 60;
-        time_t earliest = 0;
-
-        for (int i = 0; i < sysConfig.alarm_count; ++i)
-        {
-            const AlarmPreset &alarm = sysConfig.alarms[i];
-            if (!alarm.is_active)
-                continue;
-
-            time_t candidate = 0;
-            if (!SysTime_LocalDateTimeToEpoch(
-                    (uint16_t)(local_now.tm_year + 1900),
-                    (uint8_t)(local_now.tm_mon + 1),
-                    (uint8_t)local_now.tm_mday,
-                    (uint8_t)alarm.hour,
-                    (uint8_t)alarm.min,
-                    0,
-                    &candidate))
-                continue;
-
-            time_t candidate_minute = candidate / 60;
-            if (candidate_minute < current_minute ||
-                (candidate_minute == current_minute &&
-                 (s_last_triggered_minute_epoch == current_minute ||
-                  s_last_checked_minute_epoch == current_minute)))
-                candidate += 24 * 60 * 60;
-
-            if (earliest == 0 || candidate < earliest)
-                earliest = candidate;
-        }
-
-        if (earliest > 0)
-            SysSleep_ScheduleEpoch(SysSleepSource::Alarm, earliest, SysSleepWakeAction::Foreground);
-        else
-            SysSleep_Cancel(SysSleepSource::Alarm);
-    }
-
-    /** 旧配置若已有多个活动的同分钟闹钟，只停用后出现的项目，不删除用户内容。 */
-    void Alarm_DisableLegacyActiveDuplicates()
-    {
-        bool changed = false;
-        for (int i = 0; i < sysConfig.alarm_count; ++i)
-        {
-            if (!sysConfig.alarms[i].is_active)
-                continue;
-            for (int j = 0; j < i; ++j)
-            {
-                if (sysConfig.alarms[j].is_active &&
-                    sysConfig.alarms[j].hour == sysConfig.alarms[i].hour &&
-                    sysConfig.alarms[j].min == sysConfig.alarms[i].min)
-                {
-                    sysConfig.alarms[i].is_active = false;
-                    changed = true;
-                    Serial.printf("[闹钟-警告] 检测到旧配置中的同分钟冲突，已停用闹钟：%s。\n",
-                                  sysConfig.alarms[i].name.c_str());
-                    break;
-                }
-            }
-        }
-
-        if (changed)
-            sysConfig.saveLanguageProfile(appManager.getLanguage());
-    }
 }
 
 void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text)
@@ -169,7 +87,6 @@ void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text
     sysConfig.alarms[idx].name = safeName;
     sysConfig.alarms[idx].prescript = text ? text : "";
     sysConfig.save();
-    Alarm_UpdateNextWake();
 
     if (updated)
         SysCmdResult_Warn("UPDATED", safeName);
@@ -206,7 +123,6 @@ void Alarm_DeleteMobile(const char *name)
     if (deletedCount > 0)
     {
         sysConfig.save();
-        Alarm_UpdateNextWake();
         SysCmdResult_Ok("DELETED", target);
     }
     else
@@ -390,7 +306,6 @@ public:
             }
             // 记得保留原有的这行保存代码
             sysConfig.save();
-            Alarm_UpdateNextWake();
             appManager.popApp();
         }
     }
@@ -405,7 +320,6 @@ public:
                 sysConfig.alarms[i] = sysConfig.alarms[i + 1];
             sysConfig.alarm_count--;
             sysConfig.save();
-            Alarm_UpdateNextWake();
             appManager.popApp();
         }
         else if (phase == 1)
@@ -479,7 +393,6 @@ protected:
             }
             sysConfig.alarms[index].is_active = enable;
             sysConfig.save();
-            Alarm_UpdateNextWake();
             drawMenuUI(visual_selection);
         }
     }
@@ -505,54 +418,12 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
-    // 【函数说明】每秒更新下一唤醒时间，但每个完整日期分钟只执行一次闹钟匹配。
-    void onBackgroundTick() override 
-    {
-        static uint32_t last_check = 0;
-        if (millis() - last_check < 1000) return;
-        last_check = millis();
-
-        /* 运行时切换语言会载入另一份 profile；这里也做一次幂等清理，覆盖旧 profile 冲突。 */
-        Alarm_DisableLegacyActiveDuplicates();
-
-        time_t now; time(&now);
-        if (now < 1000000000) return;
-
-        struct tm timeinfo = {};
-        localtime_r(&now, &timeinfo);
-
-        time_t current_minute = now / 60;
-        if (current_minute != s_last_checked_minute_epoch)
-        {
-            s_last_checked_minute_epoch = current_minute;
-            for (int i = 0; i < sysConfig.alarm_count; i++)
-            {
-                if (sysConfig.alarms[i].is_active && 
-                    sysConfig.alarms[i].hour == timeinfo.tm_hour && 
-                    sysConfig.alarms[i].min == timeinfo.tm_min &&
-                    s_last_triggered_minute_epoch != current_minute)
-                {
-                    if (SysReminder_Submit(
-                            SysReminderKind::Custom,
-                            sysConfig.alarms[i].prescript.c_str(),
-                            false))
-                        s_last_triggered_minute_epoch = current_minute;
-                    break;
-                }
-            }
-        }
-
-        Alarm_UpdateNextWake(now);
-    }
-    // 【函数说明】系统启动时注册闹钟后台 tick，并订阅 ALM 添加、删除、同步事件。
+    // 【函数说明】系统启动时订阅 ALM 添加、删除、同步事件；旧冲突清理与到点业务由 SysCalendar 负责。
     void onSystemInit() override {
-        Alarm_DisableLegacyActiveDuplicates();
         SysEvent_Subscribe(EVT_ALARM_ADD, _Cb_AlmAdd);
         SysEvent_Subscribe(EVT_ALARM_DEL, _Cb_AlmDel);
         SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_AlmSync);
         
-        appManager.registerBackgroundApp(this);
-        Alarm_UpdateNextWake();
     }
 };
 // === 闹钟专用的邮局拆包回调 ===

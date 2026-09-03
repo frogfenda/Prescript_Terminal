@@ -27,14 +27,14 @@ static SysHudStatus s_last_status = {false, -1, false, -1, 255};
  * 原来这里间接调用 SysTime_GetTimeString()，在 NTP 未同步时可能触发 getLocalTime 等待，
  * 导致开机联网失败后，所有继承 AppMenuBase 的滚轮菜单明显变慢。
  *
- * 现在直接使用 time(nullptr)：
+ * 现在通过唯一时间服务读取 epoch：
  * - 不阻塞；
  * - 每分钟变化一次；
  * - 即使未联网，也会按本地系统时钟推进。
  */
 static uint8_t _currentMinuteBucket()
 {
-    time_t now = time(nullptr);
+    time_t now = SysTime_NowEpoch();
 
     /*
      * 只关心分钟变化，用 now / 60 即可。

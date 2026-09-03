@@ -3,6 +3,7 @@
 【线程约束】所有共享表访问都经过 ESP32 临界区；临界区内只复制或写入简单值，不调用 time()、millis() 或业务代码。
 */
 #include "sys/sys_sleep_scheduler.h"
+#include "sys/sys_time.h"
 #include <limits.h>
 
 namespace
@@ -115,7 +116,8 @@ bool SysSleep_GetPlan(SysSleepPlan *out_plan)
     portEXIT_CRITICAL(&s_lock);
 
     uint32_t now_ms = millis();
-    time_t now_epoch = time(nullptr);
+    /* 当前墙上时间只从 SysTime 读取；调度器不再直接拥有第二条 time() 读取路径。 */
+    time_t now_epoch = SysTime_NowEpoch();
     bool found = false;
     uint64_t earliest_delay_ms = 0;
     SysSleepWakeAction earliest_action = SysSleepWakeAction::SilentMaintenance;
@@ -162,4 +164,3 @@ bool SysSleep_GetPlan(SysSleepPlan *out_plan)
     out_plan->action = earliest_action;
     return true;
 }
-

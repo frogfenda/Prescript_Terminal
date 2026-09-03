@@ -562,23 +562,24 @@ ButtonEngine engineBtn2(PrescriptConst::BUTTON_LONG_MS,
                         PrescriptConst::BUTTON_SIDE_DEBOUNCE_MS);
 
 /**
- * 【函数说明】把两个实体按键统一恢复为普通轮询输入，并明确清除 Light Sleep 遗留的电平中断类型。
+ * 【函数说明】把两个实体按键和 RTC INT# 恢复为普通输入，并明确清除 Light Sleep 遗留的电平中断类型。
  * 【调用时机】每次 Light Sleep 返回、关闭 GPIO 唤醒源之后调用。
  * 【实现原因】当前 Arduino-ESP32 框架的 pinMode() 会沿用 GPIO 寄存器中原有的 intr_type；
  * gpio_wakeup_enable(..., GPIO_INTR_LOW_LEVEL) 设置过的低电平类型不能只靠再次 pinMode(INPUT_PULLUP) 清除。
  * 如果残留低电平中断配置，唤醒后的普通 digitalRead 轮询可能持续受到该配置干扰，表现为两个按键都不再产生事件。
  * 【返回值】返回 ESP-IDF 的 GPIO 配置结果，调用者必须在失败时打印错误，但不阻塞设备继续运行。
  */
-static esp_err_t HAL_RestoreButtonInputs()
+static esp_err_t HAL_RestoreWakeInputs()
 {
-    gpio_config_t button_config = {};
-    button_config.pin_bit_mask = (1ULL << BSP::Pins::BTN_MAIN) |
-                                 (1ULL << BSP::Pins::BTN_SIDE);
-    button_config.mode = GPIO_MODE_INPUT;
-    button_config.pull_up_en = GPIO_PULLUP_ENABLE;
-    button_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    button_config.intr_type = GPIO_INTR_DISABLE;
-    return gpio_config(&button_config);
+    gpio_config_t wake_config = {};
+    wake_config.pin_bit_mask = (1ULL << BSP::Pins::BTN_MAIN) |
+                               (1ULL << BSP::Pins::BTN_SIDE) |
+                               (1ULL << BSP::Pins::RTC_INT);
+    wake_config.mode = GPIO_MODE_INPUT;
+    wake_config.pull_up_en = GPIO_PULLUP_ENABLE;
+    wake_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    wake_config.intr_type = GPIO_INTR_DISABLE;
+    return gpio_config(&wake_config);
 }
 
 // ==========================================
@@ -597,52 +598,72 @@ void HAL_Sleep_Enter_Prepare()
 }
 
 /*
- * 【函数说明】把两个实体按键和可选定时器配置为 Light Sleep 唤醒源，然后进入浅睡眠。
- * 【实现约束】两个按键都是 INPUT_PULLUP、低电平按下，因此统一使用 GPIO_INTR_LOW_LEVEL。
+ * 【函数说明】把两个实体按键、RTC INT# 和可选定时器配置为 Light Sleep 唤醒源，然后进入浅睡眠。
+ * 【实现约束】两个按键与 RTC 开漏 INT# 都是上拉、低电平有效，因此统一使用 GPIO_INTR_LOW_LEVEL。
  * 这里使用 ESP-IDF 的 Light Sleep GPIO 唤醒接口，不再使用只能绑定单个 RTC IO 的 EXT0：
- * - 主按键 GPIO21 和侧键 GPIO15 都可以唤醒；
+ * - 主按键 GPIO21、侧键 GPIO15 和 RTC GPIO2 都可以唤醒；
  * - 唤醒后按键仍由普通数字 GPIO 管理，避免主按键留在 RTC IO 状态而无法继续轮询。
  */
 HALSleepWakeReason HAL_Sleep_Start(uint64_t timer_wakeup_us)
 {
     const gpio_num_t main_button = (gpio_num_t)BSP::Pins::BTN_MAIN;
     const gpio_num_t side_button = (gpio_num_t)BSP::Pins::BTN_SIDE;
+    const gpio_num_t rtc_interrupt = (gpio_num_t)BSP::Pins::RTC_INT;
 
     // 1. 休眠前先从确定的普通输入状态开始，避免上一次异常退出遗留 GPIO 中断类型。
-    esp_err_t input_config_err = HAL_RestoreButtonInputs();
+    esp_err_t input_config_err = HAL_RestoreWakeInputs();
     if (input_config_err != ESP_OK)
     {
-        Serial.printf("[休眠] 休眠前按键 GPIO 配置失败：错误码=%d，本次不进入休眠。\n",
+        Serial.printf("[休眠] 休眠前唤醒 GPIO 配置失败：错误码=%d，本次不进入休眠。\n",
                       (int)input_config_err);
         return HALSleepWakeReason::Error;
     }
 
-    // 2. Light Sleep 的 GPIO 唤醒接口支持多个 RTC/普通数字 GPIO，正好覆盖两个实体按键。
+    // 2. Light Sleep 的 GPIO 唤醒接口同时覆盖两个实体按键和 PCF8563 的低电平 INT#。
+    // RTC 线若在入睡前仍低，登记电平唤醒会立即返回并形成死循环；此时跳过 RTC GPIO，
+    // 仍保留同一日历事件的 ESP 定时器兜底以及两个实体按键出口。
+    static bool rtc_low_warning_reported = false;
+    bool rtc_wake_available = digitalRead(BSP::Pins::RTC_INT) == HIGH;
+    if (!rtc_wake_available && !rtc_low_warning_reported)
+    {
+        Serial.println("[休眠-警告] RTC INT# 入睡前仍为低电平，本轮跳过 RTC GPIO 唤醒并使用 ESP 定时器兜底。");
+        rtc_low_warning_reported = true;
+    }
+    else if (rtc_wake_available)
+    {
+        rtc_low_warning_reported = false;
+    }
+
     esp_err_t main_wakeup_err = gpio_wakeup_enable(main_button, GPIO_INTR_LOW_LEVEL);
     esp_err_t side_wakeup_err = gpio_wakeup_enable(side_button, GPIO_INTR_LOW_LEVEL);
+    esp_err_t rtc_wakeup_err = rtc_wake_available
+        ? gpio_wakeup_enable(rtc_interrupt, GPIO_INTR_LOW_LEVEL)
+        : ESP_OK;
     esp_err_t source_err = esp_sleep_enable_gpio_wakeup();
     esp_err_t timer_err = ESP_OK;
     if (timer_wakeup_us > 0)
         timer_err = esp_sleep_enable_timer_wakeup(timer_wakeup_us);
 
-    if (main_wakeup_err != ESP_OK || side_wakeup_err != ESP_OK ||
+    if (main_wakeup_err != ESP_OK || side_wakeup_err != ESP_OK || rtc_wakeup_err != ESP_OK ||
         source_err != ESP_OK || timer_err != ESP_OK)
     {
-        Serial.printf("[休眠-错误] 唤醒源配置失败：主键=%d，侧键=%d，GPIO=%d，定时器=%d。\n",
+        Serial.printf("[休眠-错误] 唤醒源配置失败：主键=%d，侧键=%d，RTC=%d，GPIO=%d，定时器=%d。\n",
                       (int)main_wakeup_err,
                       (int)side_wakeup_err,
+                      (int)rtc_wakeup_err,
                       (int)source_err,
                       (int)timer_err);
 
         // 唤醒源不完整时不能冒险进入无可靠出口的睡眠；清理本轮配置并恢复普通输入。
         gpio_wakeup_disable(main_button);
         gpio_wakeup_disable(side_button);
+        gpio_wakeup_disable(rtc_interrupt);
         if (source_err == ESP_OK)
             esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
         if (timer_wakeup_us > 0 && timer_err == ESP_OK)
             esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 
-        esp_err_t cleanup_err = HAL_RestoreButtonInputs();
+        esp_err_t cleanup_err = HAL_RestoreWakeInputs();
         if (cleanup_err != ESP_OK)
         {
             Serial.printf("[休眠-错误] 唤醒源清理后 GPIO 恢复失败：错误码=%d。\n",
@@ -654,6 +675,7 @@ HALSleepWakeReason HAL_Sleep_Start(uint64_t timer_wakeup_us)
     // 3. CPU 在这里暂停，直到任一按键被按下或休眠请求被底层拒绝。
     esp_err_t sleep_err = esp_light_sleep_start();
     esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
+    bool rtc_asserted = digitalRead(BSP::Pins::RTC_INT) == LOW;
 
     /*
      * 4. 唤醒源只服务本次 Light Sleep，返回后立即解除。
@@ -662,14 +684,15 @@ HALSleepWakeReason HAL_Sleep_Start(uint64_t timer_wakeup_us)
      */
     gpio_wakeup_disable(main_button);
     gpio_wakeup_disable(side_button);
+    gpio_wakeup_disable(rtc_interrupt);
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
     if (timer_wakeup_us > 0)
         esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 
-    esp_err_t restore_err = HAL_RestoreButtonInputs();
+    esp_err_t restore_err = HAL_RestoreWakeInputs();
     if (restore_err != ESP_OK)
     {
-        Serial.printf("[休眠] 按键 GPIO 普通输入模式恢复失败：错误码=%d。\n", (int)restore_err);
+        Serial.printf("[休眠] 唤醒 GPIO 普通输入模式恢复失败：错误码=%d。\n", (int)restore_err);
     }
 
     if (sleep_err != ESP_OK)
@@ -681,7 +704,7 @@ HALSleepWakeReason HAL_Sleep_Start(uint64_t timer_wakeup_us)
     if (wakeup_cause == ESP_SLEEP_WAKEUP_TIMER)
         return HALSleepWakeReason::Timer;
     if (wakeup_cause == ESP_SLEEP_WAKEUP_GPIO)
-        return HALSleepWakeReason::Button;
+        return rtc_asserted ? HALSleepWakeReason::Rtc : HALSleepWakeReason::Button;
 
     Serial.printf("[休眠-警告] Light Sleep 返回了未处理的唤醒原因：%d。\n", (int)wakeup_cause);
     return HALSleepWakeReason::Error;
@@ -722,8 +745,8 @@ void HAL_Sleep_Wakeup_Post()
      * 屏幕虽然已经显示待机图，AppManager 却永远无法继续运行，后续两个按键都会失效。
      * 新逻辑不再等待：仍处于低电平的唤醒按键由 ButtonEngine 在主循环中静默吞掉释放事件，
      * 释放后的下一次完整按压才会正常产生 BTN_SHORT/BTN_LONG/BTN_DOUBLE。
-     * 两个 GPIO 的输入、上拉和中断类型已经在 HAL_Sleep_Start() 返回前由
-     * HAL_RestoreButtonInputs() 原子恢复，这里不能再用会保留中断类型的 pinMode() 覆盖。
+     * 按键与 RTC GPIO 的输入、上拉和中断类型已经在 HAL_Sleep_Start() 返回前由
+     * HAL_RestoreWakeInputs() 原子恢复，这里不能再用会保留中断类型的 pinMode() 覆盖。
      */
     bool main_still_pressed = digitalRead(BSP::Pins::BTN_MAIN) == LOW;
     bool side_still_pressed = digitalRead(BSP::Pins::BTN_SIDE) == LOW;

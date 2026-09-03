@@ -8,18 +8,20 @@
 本文件的关键设计：
 1. 开机不立刻启动 WiFi，而是通过 Network_RequestBootSync() 延迟触发，避免首屏卡顿；
 2. 普通同步执行 NTP + API，周期校时只执行 NTP；
-3. 只在 SNTP 明确报告完成后，把网络 epoch 排队交给主循环统一写入 RTC；
+3. 网络任务只用 UDP NTP 获取 UTC epoch，不直接修改 ESP32 时钟；结果排队交给主循环统一应用并写入 RTC；
 4. 失败后设置退避窗口，避免无网环境下反复打开 WiFi。
 */
 #include "sys/sys_network.h"
 #include "sys/sys_config.h"
 #include "sys/sys_time.h"
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <time.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <esp_sntp.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
+#include <cstring>
 #include "sys/sys_router.h"
 #include "sys/sys_event.h"
 #include "sys/sys_constants.h"
@@ -70,6 +72,21 @@ static constexpr uint32_t NETWORK_TOTAL_TIMEOUT_MS = 25000;
 /* 周期轻量校时失败后的退避时间。无网时不要连续反复打开 WiFi。 */
 static constexpr uint32_t TIME_RESYNC_RETRY_AFTER_FAIL_MS = 5UL * 60UL * 1000UL;
 static uint32_t g_next_time_resync_allowed_ms = 0;
+
+/*
+ * 不能使用 configTime()/configTzTime()：Arduino-ESP32 的 SNTP 客户端会在后台直接修改
+ * 系统时钟，破坏“SysTime 是唯一写时钟入口”的所有权。这里发送最小 NTPv4 UDP 请求，
+ * 网络任务只返回 UTC epoch，时区换算、settimeofday() 和 RTC 写回全部留给 SysTime。
+ */
+static constexpr uint16_t NTP_SERVER_PORT = 123;
+static constexpr uint32_t NTP_RESPONSE_TIMEOUT_MS = 3200;
+static constexpr uint64_t NTP_UNIX_EPOCH_OFFSET = 2208988800ULL;
+static constexpr size_t NTP_PACKET_SIZE = 48;
+static const char *const NTP_SERVERS[] = {
+    "pool.ntp.org",
+    "time.nist.gov",
+    "ntp1.aliyun.com",
+};
 
 /*
  * V4B实测BLE与NFC完成后最大内部连续块约为7.6 KiB，旧10 KiB任务栈必然创建失败。
@@ -188,36 +205,118 @@ static bool _Network_ConnectWifi()
  * 执行 NTP 对时。
  *
  * 关键步骤：
- * - 使用 configTzTime 统一东八区 TZ 与 NTP 服务器；
- * - 轮询 SNTP 自身的同步状态，而不是把 RTC 已建立的年份误判成网络成功；
- * - 成功后只把 UTC epoch 投递给 SysTime，RTC 写入和状态更新都留在主循环。
+ * - 逐个向三个服务器发送最小 NTPv4 UDP 请求，不启动会改系统时钟的 Arduino SNTP 服务；
+ * - 校验响应来源、模式、层级和请求回显，拒绝旧包或无效服务器响应；
+ * - 成功后只把 UTC epoch 投递给 SysTime，settimeofday、RTC 写入和状态更新都留在主循环。
  */
 static bool _Network_SyncNtp()
 {
     NetworkSetState(NET_SYNCING_NTP);
     Serial.println("[网络] WiFi 已连接，开始 NTP 对时...");
 
-    /* 清掉上一轮状态后重新启动 SNTP，确保 COMPLETED 一定属于本轮网络响应。 */
-    sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
-    configTzTime("CST-8", "pool.ntp.org", "time.nist.gov", "ntp1.aliyun.com");
-
-    for (int timeout_ticks = 0; timeout_ticks < 100; ++timeout_ticks)
+    WiFiUDP udp;
+    const uint16_t local_port = (uint16_t)(49152U + (esp_random() & 0x3FFFU));
+    if (!udp.begin(local_port))
     {
-        if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)
+        Serial.println("[网络] NTP UDP 本地端口创建失败。");
+        return false;
+    }
+
+    for (const char *server_name : NTP_SERVERS)
+    {
+        IPAddress server_ip;
+        if (WiFi.hostByName(server_name, server_ip) != 1)
         {
-            time_t network_epoch = time(nullptr);
+            Serial.printf("[网络] NTP 服务器域名解析失败：%s。\n", server_name);
+            continue;
+        }
+
+        uint8_t request[NTP_PACKET_SIZE] = {};
+        request[0] = 0x23; // LI=0、VN=4、Mode=3（客户端）。
+
+        /*
+         * 服务端会把客户端发送时间原样复制到 Originate Timestamp。ESP32 此时可能尚未校时，
+         * 因此这里使用随机挑战值而不伪造时间；回包必须匹配，避免误收上一轮残留 UDP 包。
+         */
+        const uint32_t nonce_high = esp_random();
+        const uint32_t nonce_low = esp_random();
+        request[40] = (uint8_t)(nonce_high >> 24);
+        request[41] = (uint8_t)(nonce_high >> 16);
+        request[42] = (uint8_t)(nonce_high >> 8);
+        request[43] = (uint8_t)nonce_high;
+        request[44] = (uint8_t)(nonce_low >> 24);
+        request[45] = (uint8_t)(nonce_low >> 16);
+        request[46] = (uint8_t)(nonce_low >> 8);
+        request[47] = (uint8_t)nonce_low;
+
+        while (udp.parsePacket() > 0)
+            udp.flush();
+
+        if (!udp.beginPacket(server_ip, NTP_SERVER_PORT) ||
+            udp.write(request, sizeof(request)) != sizeof(request) ||
+            !udp.endPacket())
+        {
+            Serial.printf("[网络] NTP 请求发送失败：%s。\n", server_name);
+            continue;
+        }
+
+        const uint32_t wait_started_ms = millis();
+        while ((uint32_t)(millis() - wait_started_ms) < NTP_RESPONSE_TIMEOUT_MS)
+        {
+            const int packet_size = udp.parsePacket();
+            if (packet_size < (int)NTP_PACKET_SIZE)
+            {
+                if (packet_size > 0)
+                    udp.flush();
+                vTaskDelay(pdMS_TO_TICKS(20));
+                continue;
+            }
+
+            uint8_t response[NTP_PACKET_SIZE] = {};
+            const int read_length = udp.read(response, sizeof(response));
+            const IPAddress response_ip = udp.remoteIP();
+            const uint16_t response_port = udp.remotePort();
+            udp.flush();
+            if (read_length != (int)sizeof(response) ||
+                response_ip != server_ip ||
+                response_port != NTP_SERVER_PORT)
+                continue;
+
+            const uint8_t leap_indicator = response[0] >> 6;
+            const uint8_t mode = response[0] & 0x07;
+            const uint8_t stratum = response[1];
+            if (leap_indicator == 3 || mode != 4 || stratum == 0 || stratum > 15 ||
+                memcmp(&response[24], &request[40], 8) != 0)
+                continue;
+
+            const uint32_t seconds32 =
+                ((uint32_t)response[40] << 24) |
+                ((uint32_t)response[41] << 16) |
+                ((uint32_t)response[42] << 8) |
+                (uint32_t)response[43];
+
+            /* NTP 32 位秒数在 2036 年回绕；小于 1900→1970 偏移时按 era 1 解释。 */
+            uint64_t ntp_seconds = seconds32;
+            if (ntp_seconds < NTP_UNIX_EPOCH_OFFSET)
+                ntp_seconds += (1ULL << 32);
+            const time_t network_epoch = (time_t)(ntp_seconds - NTP_UNIX_EPOCH_OFFSET);
+
             if (!SysTime_SubmitNetworkTime(network_epoch))
             {
-                Serial.println("[网络] NTP 已完成，但网络时间无法提交给主循环。");
+                Serial.println("[网络] NTP 已返回，但 UTC 时间无法提交给主循环。");
+                udp.stop();
                 return false;
             }
 
-            Serial.println("[网络] 已收到真实 NTP 响应，时间结果已交给主循环。");
+            Serial.printf("[网络] 已收到 NTP 响应并交给主循环：服务器=%s。\n", server_name);
+            udp.stop();
             return true;
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+
+        Serial.printf("[网络] NTP 服务器响应超时：%s。\n", server_name);
     }
 
+    udp.stop();
     return false;
 }
 

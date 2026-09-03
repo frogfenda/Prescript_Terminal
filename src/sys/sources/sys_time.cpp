@@ -23,13 +23,14 @@ namespace
     constexpr uint8_t MANUAL_TIME_FALLBACK_MONTH = 1;
     constexpr uint8_t MANUAL_TIME_FALLBACK_DAY = 1;
     constexpr time_t NETWORK_TIME_MIN_EPOCH = 1577836800; // 2020-01-01 00:00:00 UTC
-    constexpr time_t NETWORK_TIME_MAX_EPOCH = 4102444799; // 2099-12-31 23:59:59 UTC
+    constexpr time_t NETWORK_TIME_MAX_EPOCH = 2147483647; // 2038-01-19 23:59:59 UTC
 
     uint32_t s_last_network_sync_millis = 0;
     uint32_t s_last_rtc_refresh_millis = 0;
     bool s_has_network_sync = false;
     bool s_rtc_write_failed = false;
     QueueHandle_t s_network_time_queue = nullptr;
+    uint32_t s_time_revision = 0;
 
     /** 每次 RTC 读写维护完成后重新登记下一次静默唤醒；失败同样推迟一小时，避免离线时频繁唤醒。 */
     void ScheduleNextRtcMaintenance()
@@ -83,6 +84,14 @@ namespace
                           result);
             return false;
         }
+
+        /*
+         * 修订号只表达“当前时间基准可能发生了跳变”，不表达秒级走时。
+         * 日历服务据此重算下一触发点，避免网络/手动校时后仍沿用旧计划。
+         */
+        ++s_time_revision;
+        if (s_time_revision == 0)
+            s_time_revision = 1;
         return true;
     }
 
@@ -125,19 +134,25 @@ namespace
     {
         switch (reason)
         {
-        case SysTimeRefreshReason::Startup: return "开机";
-        case SysTimeRefreshReason::Wakeup: return "休眠唤醒";
-        case SysTimeRefreshReason::Hourly: return "每小时维护";
-        default: return "未知";
+        case SysTimeRefreshReason::Startup:
+            return "开机";
+        case SysTimeRefreshReason::Wakeup:
+            return "休眠唤醒";
+        case SysTimeRefreshReason::Hourly:
+            return "每小时维护";
+        default:
+            return "未知";
         }
     }
 }
 
 uint8_t SysTime_DaysInMonth(uint16_t year, uint8_t month)
 {
-    if (month < 1) month = 1;
-    if (month > 12) month = 12;
-    static const uint8_t DAYS_NORMAL[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (month < 1)
+        month = 1;
+    if (month > 12)
+        month = 12;
+    static const uint8_t DAYS_NORMAL[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     if (month == 2 && IsLeapYear(year))
         return 29;
     return DAYS_NORMAL[month - 1];
@@ -178,6 +193,7 @@ void SysTime_Init()
     s_last_rtc_refresh_millis = millis();
     s_has_network_sync = false;
     s_rtc_write_failed = false;
+    s_time_revision = 0;
     s_time_status = {SysTimeSource::Uncalibrated, false, false, false, false};
 
     if (!s_network_time_queue)
@@ -400,6 +416,34 @@ bool SysTime_GetInfo(struct tm *out_info)
     time_t now = time(nullptr);
     localtime_r(&now, out_info);
     return true;
+}
+
+bool SysTime_GetSnapshot(SysTimeSnapshot *out_snapshot)
+{
+    if (!out_snapshot)
+        return false;
+
+    time_t now = time(nullptr);
+    struct tm local = {};
+    localtime_r(&now, &local);
+
+    out_snapshot->epoch = now;
+    out_snapshot->local = local;
+    out_snapshot->revision = s_time_revision;
+    out_snapshot->valid =
+        s_time_status.source != SysTimeSource::Uncalibrated &&
+        now >= NETWORK_TIME_MIN_EPOCH && now <= NETWORK_TIME_MAX_EPOCH;
+    return true;
+}
+
+time_t SysTime_NowEpoch()
+{
+    return time(nullptr);
+}
+
+uint32_t SysTime_GetRevision()
+{
+    return s_time_revision;
 }
 
 uint32_t SysTime_GetLastNetworkSyncAgeMs()

@@ -29,6 +29,8 @@ namespace
     uint8_t s_address = BSP::Pcf8563::DEFAULT_ADDRESS;
     bool s_initialized = false;
     bool s_ready = false;
+    bool s_interrupt_pin_initialized = false;
+    uint32_t s_alarm_reset_generation = 0;
 
     uint8_t ToBcd(uint8_t value)
     {
@@ -144,7 +146,7 @@ namespace
     {
         bool ok = true;
 
-        // INT# 未接线且当前没有硬件倒计时用户：清空旧标志并禁用两类中断。
+        // Begin 只建立无历史残留的硬件基线；SysCalendar 随后写入新闹钟，ESP 定时器始终保留兜底。
         ok &= WriteReg(REG_CONTROL_STATUS_2, 0x00);
 
         // CLKOUT 悬空，禁用后可把典型备用电流从约 0.55 uA 降到约 0.25 uA（VDD=3 V）。
@@ -158,12 +160,31 @@ namespace
 
 namespace BSP::Pcf8563
 {
+    void InitializeInterruptPin()
+    {
+        /*
+         * 扩展板已有外部上拉，内部上拉作为扩展板缺席或连接器接触不良时的安全兜底。
+         * 此处故意不 attachInterrupt，也不登记睡眠唤醒：GPIO 电气层与后续中断策略分离。
+         */
+        pinMode(Pins::RTC_INT, INPUT_PULLUP);
+        s_interrupt_pin_initialized = true;
+    }
+
+    bool IsInterruptAsserted()
+    {
+        if (!s_interrupt_pin_initialized)
+            return false;
+        return digitalRead(Pins::RTC_INT) == LOW;
+    }
+
     bool Begin(TwoWire &wire, uint8_t address)
     {
         s_wire = &wire;
         s_address = address == 0 ? DEFAULT_ADDRESS : address;
         s_initialized = false;
         s_ready = false;
+
+        InitializeInterruptPin();
 
         if (s_wire == &Wire1)
         {
@@ -183,12 +204,23 @@ namespace BSP::Pcf8563
         s_ready = ok;
         if (!ok)
             Serial.println("[BSP][RTC] PCF8563 默认寄存器配置失败。");
+        else
+        {
+            ++s_alarm_reset_generation;
+            if (s_alarm_reset_generation == 0)
+                s_alarm_reset_generation = 1;
+        }
         return ok;
     }
 
     bool IsReady()
     {
         return s_initialized && s_ready;
+    }
+
+    uint32_t GetAlarmResetGeneration()
+    {
+        return s_alarm_reset_generation;
     }
 
     bool IsPresent()
@@ -285,16 +317,18 @@ namespace BSP::Pcf8563
         return ok;
     }
 
-    bool ConfigureAlarm(const struct tm &info)
+    bool ConfigureAlarm(const AlarmConfig &config)
     {
-        if (!s_initialized || !IsValidLocalTime(info))
+        if (!s_initialized || config.minute > 59 || config.hour > 23 ||
+            (config.match_day && (config.day < 1 || config.day > 31)) ||
+            (config.match_weekday && config.weekday > 6))
             return false;
 
         uint8_t data[4] = {
-            (uint8_t)(ToBcd((uint8_t)info.tm_min) & 0x7F),
-            (uint8_t)(ToBcd((uint8_t)info.tm_hour) & 0x3F),
-            (uint8_t)(ToBcd((uint8_t)info.tm_mday) & 0x3F),
-            0x80,
+            (uint8_t)(ToBcd(config.minute) & 0x7F),
+            (uint8_t)(ToBcd(config.hour) & 0x3F),
+            config.match_day ? (uint8_t)(ToBcd(config.day) & 0x3F) : (uint8_t)0x80,
+            config.match_weekday ? (uint8_t)(config.weekday & 0x07) : (uint8_t)0x80,
         };
         if (!WriteRegs(REG_MINUTE_ALARM, data, sizeof(data)))
         {
@@ -315,6 +349,28 @@ namespace BSP::Pcf8563
          */
         uint8_t next_status = status2 & (CTRL2_TI_TP | CTRL2_TF | CTRL2_TIE);
         next_status |= CTRL2_AIE;
+        bool ok = WriteReg(REG_CONTROL_STATUS_2, next_status);
+        s_ready = ok;
+        return ok;
+    }
+
+    bool AcknowledgeAlarm()
+    {
+        if (!s_initialized)
+            return false;
+
+        uint8_t status2 = 0;
+        if (!ReadReg(REG_CONTROL_STATUS_2, status2))
+        {
+            s_ready = false;
+            return false;
+        }
+
+        /*
+         * AF 通过写 0 清除；AIE 必须保持原值，让尚未改变的每日条件继续有效。
+         * TF 写回 1 表示保留，不能因为确认闹钟而吞掉未来可能启用的倒计时器事件。
+         */
+        uint8_t next_status = status2 & (CTRL2_TI_TP | CTRL2_TF | CTRL2_AIE | CTRL2_TIE);
         bool ok = WriteReg(REG_CONTROL_STATUS_2, next_status);
         s_ready = ok;
         return ok;

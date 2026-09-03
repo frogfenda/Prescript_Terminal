@@ -22,7 +22,7 @@ namespace PrescriptConst
     constexpr int PIN_I2S_BCLK = BSP::Pins::I2S_BCLK;
     constexpr int PIN_I2S_LRC = BSP::Pins::I2S_LRC;
     constexpr int PIN_I2S_DOUT = BSP::Pins::I2S_DOUT;
-    constexpr int PIN_AUDIO_SD = BSP::Pins::AUDIO_SD;
+    constexpr int PIN_AUDIO_AMP_CTRL = BSP::Pins::AUDIO_AMP_CTRL;
     constexpr int PIN_BACKLIGHT = BSP::Pins::BACKLIGHT;
 
     constexpr int PIN_BAT_ADC = BSP::Pins::BAT_ADC;
@@ -30,12 +30,6 @@ namespace PrescriptConst
 
     constexpr int PIN_I2C_SDA = BSP::Pins::I2C_SDA;
     constexpr int PIN_I2C_SCL = BSP::Pins::I2C_SCL;
-
-    constexpr int PIN_NFC_SCK = BSP::Pins::NFC_SCK;
-    constexpr int PIN_NFC_MISO = BSP::Pins::NFC_MISO;
-    constexpr int PIN_NFC_MOSI = BSP::Pins::NFC_MOSI;
-    constexpr int PIN_NFC_SS = BSP::Pins::NFC_SS;
-    constexpr int PIN_NFC_RESET = BSP::Pins::NFC_RESET;
 
     // -----------------------------------------------------------------------------
     // Display and UI geometry

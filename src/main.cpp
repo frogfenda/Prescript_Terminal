@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include "sys/sys_config.h"
 #include "sys/sys_time.h"
+#include "sys/sys_calendar.h"
 #include "sys/sys_network.h"
 #include "sys/sys_auto_push.h"
 #include "sys/sys_ble.h"
@@ -63,6 +64,11 @@ void setup()
      * 网络对时由 Network_Init + Network_RequestBootSync 延迟完成。
      */
     SysTime_Init();
+    /*
+     * 日历服务必须在配置与时间服务之后建立：它只读取闹钟/日程事实数据，
+     * 后续由主循环统一生成 RTC 单槽闹钟和 ESP 定时器兜底计划。
+     */
+    SysCalendar_Init();
     SysMotion_Init();
     // 地磁与IMU共用Wire1，但拥有独立采样/校准服务；初始化失败不阻止其他系统启动。
     SysMag_Init();
@@ -119,6 +125,8 @@ void loop()
      * 这样 Core 0 网络任务不会直接碰 Wire1、配置文件或 UI 状态。
      */
     SysTime_Update();
+    /* 唯一日历维护点：所有到期判断、优先级和下一唤醒重建都集中在这里。 */
+    SysCalendar_Update();
     SysMotion_Update();
     SysMag_Update();
     // 只读取上面两项的缓存；不采样I2C，也不改变SysGesture/Caduceus的动作窗口与坐标锚点。

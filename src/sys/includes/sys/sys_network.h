@@ -7,7 +7,9 @@
 2. 手动完整同步：系统设置里的“同步网络时间/网络校时”，同样执行 NTP + API；
 3. 周期轻量校时：只执行 WiFi -> NTP，不请求 API，用来修正本地走时漂移。
 
-App 层不要直接调用 WiFi.begin()/WiFi.disconnect()，只通过这里的接口请求动作和查询状态。
+网络任务使用独立 UDP NTP 请求只取得 UTC epoch，不直接设置 ESP32 时钟；结果必须交给
+SysTime 在主循环统一应用并写回 RTC。App 层不要直接调用 WiFi.begin()/WiFi.disconnect()，
+只通过这里的接口请求动作和查询状态。
 */
 #pragma once
 #include <Arduino.h>

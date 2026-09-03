@@ -44,6 +44,19 @@ struct SysTimeStatus
 };
 
 /**
+ * 当前可信时间的一致快照。
+ * epoch 与 local 来自同一次读取，revision 在网络、手动或 RTC 重新建立系统时间后递增，
+ * 供日历调度器判断是否需要重建派生触发表。
+ */
+struct SysTimeSnapshot
+{
+    time_t epoch;
+    struct tm local;
+    uint32_t revision;
+    bool valid;
+};
+
+/**
  * 初始化东八区规则、跨核心网络时间队列和 PCF8563。
  * setup() 在配置加载后调用一次；若 RTC 时间可信，会立即建立 ESP32 系统时间。
  */
@@ -85,6 +98,18 @@ void SysTime_GetTimeString(char *out_str);
 
 /** 非阻塞读取当前本地 struct tm；out_info 为空时返回 false。 */
 bool SysTime_GetInfo(struct tm *out_info);
+
+/**
+ * 读取当前 UTC epoch、东八区本地字段和时间修订号的一致快照；本函数不访问 I2C。
+ * 返回 true 仅表示 out_snapshot 有效；时间是否已经由 RTC/网络/手动来源建立见 snapshot.valid。
+ */
+bool SysTime_GetSnapshot(SysTimeSnapshot *out_snapshot);
+
+/** 返回当前 ESP32 UTC epoch；所有业务模块读取“现在”时应走本接口。 */
+time_t SysTime_NowEpoch();
+
+/** 当前时间修订号；只在系统时间被重新建立或校准后变化，0 保留为未初始化哨兵。 */
+uint32_t SysTime_GetRevision();
 
 /** 返回指定年月的实际天数；月份越界时钳制到 1～12。 */
 uint8_t SysTime_DaysInMonth(uint16_t year, uint8_t month);

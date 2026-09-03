@@ -6,6 +6,7 @@
 #include "sys/sys_config.h"
 #include "sys/sys_fs.h"      // 引入我们上一版的 LittleFS 中枢
 #include "sys/sys_psram_json.h"
+#include "sys/sys_calendar.h"
 #include <ArduinoJson.h> // 引入 JSON 引擎
 
 SysConfig sysConfig;
@@ -500,6 +501,12 @@ void SysConfig::saveLanguageProfile(SystemLang_t lang)
     String json_output;
     serializeJson(doc, json_output);
     SysFS_Write_File(TerminalLang::ConfigPath(lang), json_output.c_str());
+
+    /*
+     * 闹钟与日程同属语言 profile。这里仅递增日历数据代号，不在配置写盘路径里扫描数组或访问 RTC；
+     * 同一轮连续保存会由主循环的 SysCalendar_Update() 合并成一次派生表重建。
+     */
+    SysCalendar_NotifyDataChanged();
 
     Serial.printf("[CONFIG] %s 语言配置已覆写至 %s\n", TerminalLang::Code(lang), TerminalLang::ConfigPath(lang));
 }

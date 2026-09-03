@@ -79,7 +79,8 @@ enum class AudioLoopMode : uint8_t
 /**
  * 已解码 PCM 资源描述。
  * samples 指向由资源层长期持有的 16bit PCM；播放期间这段内存绝不能释放或移动。
- * 资源与混音核心固定为44100Hz/16bit单声道；BSP输出边界会复制到左右I2S时隙以兼容现有MAX98357接线。
+ * 资源与混音核心固定为44100Hz/16bit单声道；BSP输出边界复制到左右I2S时隙，保证NS4168在
+ * GPIO7高电平选择右声道时仍能收到同一份音频。
  */
 struct AudioClip
 {

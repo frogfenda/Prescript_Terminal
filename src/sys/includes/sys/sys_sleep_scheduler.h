@@ -12,8 +12,8 @@
 enum class SysSleepSource : uint8_t
 {
     RtcMaintenance = 0,
-    Alarm,
-    Schedule,
+    // 闹钟与日程已由 SysCalendar 合并为一个最近日历事件，调度器不再区分业务类型。
+    Calendar,
     Countdown,
     Pomodoro,
     AutoPush,

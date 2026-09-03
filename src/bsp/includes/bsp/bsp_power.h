@@ -12,7 +12,7 @@ namespace BSP::Power
     // 【函数说明】直接控制屏幕背光开关；本函数不做亮度调光。
     void SetBacklight(bool on);
 
-    // 【函数说明】直接控制音频功放使能脚；音频播放策略仍由 sys_audio 管理。
+    // 【函数说明】通过 GPIO7 NS4168 CTRL 控制功放工作/关断；音频播放策略仍由 sys_audio 管理。
     void SetAudioAmp(bool on);
 
     // 【函数说明】进入 Light Sleep 前保持背光和功放 GPIO 电平，避免睡眠过程中电平漂移。
@@ -30,6 +30,6 @@ namespace BSP::Power
     // 【函数说明】读取 BAT_ADC 引脚上的毫伏值，这是分压后的 ADC 端电压。
     int ReadBatteryAdcMilliVolts();
 
-    // 【函数说明】换算电池实际毫伏值。当前硬件使用 1:1 分压，所以 ADC 读数乘以 2。
+    // 【函数说明】按当前 1M/1M 分压阻值换算电池实际毫伏值。
     int ReadBatteryMilliVolts();
 }

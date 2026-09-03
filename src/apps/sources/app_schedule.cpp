@@ -1,5 +1,6 @@
 ﻿/*
-【模块职责】日程指令系统。支持普通/隐藏日程添加删除、编辑器选择日期时间、后台到点弹窗、过期日程列表。
+【模块职责】日程配置与 UI。支持普通/隐藏日程添加删除、编辑器选择日期时间和过期日程列表。
+【边界】到点判断、闹钟优先级、派生触发表和 RTC/ESP 下一唤醒统一由 SysCalendar 维护。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/apps/app_schedule.cpp
@@ -12,8 +13,6 @@
 #include "sys/sys_event.h"
 #include "sys/sys_ble.h"
 #include "sys/sys_command_result.h"
-#include "sys/sys_reminder.h"
-#include "sys/sys_sleep_scheduler.h"
 #include "sys/sys_time.h"
 #include "lang/ui_strings.h"
 
@@ -22,26 +21,6 @@ int g_schedule_edit_idx = -1;
 void _Cb_SchAdd(void* payload);
 void _Cb_SchDel(void* payload);
 void _Cb_SchSync(void* payload);
-
-namespace
-{
-    /** 把最早的未过期日程提交给统一休眠调度器；没有活动日程时清空该来源。 */
-    void Schedule_UpdateNextWake()
-    {
-        time_t earliest = 0;
-        for (int i = 0; i < sysConfig.schedule_count; ++i)
-        {
-            const ScheduleItem &item = sysConfig.schedules[i];
-            if (!item.is_expired && item.target_time > 0 &&
-                (earliest == 0 || item.target_time < earliest))
-                earliest = item.target_time;
-        }
-        if (earliest > 0)
-            SysSleep_ScheduleEpoch(SysSleepSource::Schedule, earliest, SysSleepWakeAction::Foreground);
-        else
-            SysSleep_Cancel(SysSleepSource::Schedule);
-    }
-}
 
 void Schedule_DeleteMobile(const char *title)
 {
@@ -71,7 +50,6 @@ void Schedule_DeleteMobile(const char *title)
     if (deletedCount > 0)
     {
         sysConfig.save();
-        Schedule_UpdateNextWake();
         SysCmdResult_Ok("DELETED", target);
     }
     else
@@ -165,7 +143,6 @@ void Schedule_AddMobile(uint32_t target_time, const char *title, const char *tex
     sysConfig.schedule_count++;
     Sort_Schedules();
     sysConfig.save();
-    Schedule_UpdateNextWake();
 
     if (recycledExpired)
         SysCmdResult_Warn("ADDED_RECYCLED_EXPIRED", safeTitle);
@@ -242,8 +219,7 @@ public:
     // 【函数说明】进入日程编辑页：新增时用当前日期时间作为默认值，编辑时载入已有日程时间和类型。
     void onCreate() override
     {
-        time_t now;
-        time(&now);
+        time_t now = SysTime_NowEpoch();
         struct tm t_info;
         localtime_r(&now, &t_info);
         if (g_schedule_edit_idx >= 0)
@@ -369,8 +345,7 @@ public:
         }
         else
         {
-            time_t now;
-            time(&now);
+            time_t now = SysTime_NowEpoch();
             time_t new_target = 0;
             if (!SysTime_LocalDateTimeToEpoch(
                     (uint16_t)y,
@@ -437,7 +412,6 @@ public:
             }
             Sort_Schedules();
             sysConfig.save();
-            Schedule_UpdateNextWake();
             appManager.popApp();
         }
     }
@@ -452,7 +426,6 @@ public:
                 sysConfig.schedules[i] = sysConfig.schedules[i + 1];
             sysConfig.schedule_count--;
             sysConfig.save();
-            Schedule_UpdateNextWake();
             appManager.popApp();
         }
         else if (phase > 0)
@@ -613,76 +586,13 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
-    // 【函数说明】订阅日程添加/删除/同步事件并注册后台 tick，让日程到点能在任意页面触发。
+    // 【函数说明】订阅日程添加/删除/同步事件；到点业务由主循环的 SysCalendar 统一处理。
     void onSystemInit() override {
         // 1. 去邮局订阅自己的频道
         SysEvent_Subscribe(EVT_SCHEDULE_ADD, _Cb_SchAdd);
         SysEvent_Subscribe(EVT_SCHEDULE_DEL, _Cb_SchDel);
         SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_SchSync);
         
-        // 2. 向系统总管申请后台巡逻权限！
-        appManager.registerBackgroundApp(this);
-        Schedule_UpdateNextWake();
-    }
-       void onBackgroundTick() override
-    {
-        static uint32_t last_check = 0;
-        if (millis() - last_check < 1000)
-            return; // 1秒检查一次
-        last_check = millis();
-
-        time_t now;
-        time(&now);
-        if (now < 1000000000)
-            return; // 时间没对准时不查
-
-        bool need_save = false;
-        for (int i = 0; i < sysConfig.schedule_count; i++)
-        {
-            ScheduleItem &s = sysConfig.schedules[i];
-
-            // ==========================================
-            // 【核心修复 3：隐秘炸弹阅后即焚！】
-            // ==========================================
-            bool should_destroy = false;
-            if (s.is_expired) {
-                if (s.is_hidden) {
-                    // 隐秘日程：一旦引爆变成 expired，下一秒立刻彻底粉碎！不占内存！
-                    should_destroy = true; 
-                } else if (now - s.expire_time > 86400) {
-                    // 常规日程：保留 24 小时在“收容所”供查看
-                    should_destroy = true; 
-                }
-            }
-
-            if (should_destroy)
-            {
-                for (int j = i; j < sysConfig.schedule_count - 1; j++)
-                    sysConfig.schedules[j] = sysConfig.schedules[j + 1];
-                sysConfig.schedule_count--;
-                need_save = true;
-                i--; // 游标回退
-                continue;
-            }
-
-            // 到期提醒先进入统一队列；入队失败时保持未过期，下一秒继续重试，不能静默丢失。
-            if (!s.is_expired && now >= s.target_time)
-            {
-                bool queued = s.prescript.length() == 0
-                    ? SysReminder_Submit(SysReminderKind::Random, nullptr, false)
-                    : SysReminder_Submit(SysReminderKind::Custom, s.prescript.c_str(), false);
-                if (!queued)
-                    continue;
-
-                s.is_expired = true;
-                s.expire_time = now;
-                s.is_restored = false;
-                need_save = true;
-            }
-        }
-        if (need_save)
-            sysConfig.save();
-        Schedule_UpdateNextWake();
     }
 
 };

@@ -29,9 +29,10 @@ enum BtnEvent {
     BTN_DOUBLE
 };
 
-/** Light Sleep 返回原因；HAL 只区分业务需要的按键、定时器和失败三类。 */
+/** Light Sleep 返回原因；RTC 表示扩展板 PCF8563 的低电平 INT# 唤醒。 */
 enum class HALSleepWakeReason : uint8_t {
     Button,
+    Rtc,
     Timer,
     Error
 };
@@ -100,7 +101,7 @@ void HAL_Sprite_Clear(void);
 
 void HAL_Sleep_Enter_Prepare();
 /**
- * 配置两个实体按键和可选定时器为 Light Sleep 唤醒源，并阻塞到唤醒。
+ * 配置两个实体按键、RTC INT# 和可选定时器为 Light Sleep 唤醒源，并阻塞到唤醒。
  * timer_wakeup_us=0 表示只允许按键唤醒；返回值供 Standby 决定静默续睡还是恢复外设。
  */
 HALSleepWakeReason HAL_Sleep_Start(uint64_t timer_wakeup_us = 0);

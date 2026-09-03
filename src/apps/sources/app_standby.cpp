@@ -1,5 +1,5 @@
 ﻿/*
-【模块职责】待机页。显示 standby.bin，处理空闲后 Light Sleep，按键唤醒后恢复屏幕、音频、震动、NFC 和运动采样。
+【模块职责】待机页。显示 standby.bin，处理空闲后 Light Sleep，并响应按键、RTC INT# 或 ESP 定时器唤醒。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/apps/app_standby.cpp
@@ -11,6 +11,7 @@
 #include "sys/sys_audio.h"
 #include "sys/sys_nfc.h"
 #include "sys/sys_time.h"
+#include "sys/sys_calendar.h"
 #include "sys/sys_sleep_scheduler.h"
 #include "sys/sys_motion.h"
 #include "sys/sys_mag.h"
@@ -99,11 +100,26 @@ public:
                     break;
                 }
 
+                if (wake_reason == HALSleepWakeReason::Rtc)
+                {
+                    /*
+                     * PCF8563 AF 为锁存低电平。先恢复唯一可信时间，再让 SysCalendar 在外设仍休眠时
+                     * 处理到期业务、确认 AF 并写回下一槽；只有真实业务到期才恢复前台。
+                     */
+                    SysTime_RefreshFromRtc(SysTimeRefreshReason::Wakeup);
+                    if (SysCalendar_ServiceSleepWake())
+                        break;
+
+                    // 月初检查点或无业务的毛刺唤醒已经确认 AF 并写好下一槽，外设保持休眠直接续睡。
+                    continue;
+                }
+
                 if (wake_reason == HALSleepWakeReason::Timer)
                 {
                     /* 定时器可能服务每小时维护，也可能服务最近提醒；两种情况都先以 RTC 校准系统。 */
                     SysTime_RefreshFromRtc(SysTimeRefreshReason::Hourly);
-                    if (foregroundWakeIsDue())
+                    bool calendar_due = SysCalendar_ServiceSleepWake();
+                    if (calendar_due || foregroundWakeIsDue())
                         break;
 
                     // 纯每小时维护唤醒：屏幕、音频、震动、NFC 保持休眠，直接开始下一轮。
