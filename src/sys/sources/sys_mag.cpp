@@ -1,8 +1,8 @@
 /*
 【模块职责】实现独立磁场采样、校准文件、质量门控和诊断日志。
 【恢复策略】正常轮询不重试I2C；失败后每5秒在现有Wire1上Reset或重新探测，绝不周期性重建总线。
-【实板轴向】当前MMC5603NJ扩展板尚未完成三轴有序旋转，禁止沿用旧QMC5883P安装矩阵。
-传感器坐标仍可用于采样与椭球校准；轴映射冻结前body_uT保持零且磁航向融合关闭。
+【实板轴向】2026-09-09按屏幕朝上、顶部朝远的基准姿态完成Body X/Y/Z有序旋转，冻结
+BodyX=+SensorY、BodyY=-SensorX、BodyZ=+SensorZ。映射只作用于椭球校准后的向量，BSP仍输出芯片坐标。
 */
 #include "sys/sys_mag.h"
 
@@ -25,7 +25,7 @@ namespace
     static constexpr float FIELD_REJECT_RATIO = 0.25f;
     static constexpr float FIELD_STEP_REJECT_UT = 10.0f;
 
-    static constexpr bool BOARD_AXIS_MAPPING_VERIFIED = false;
+    static constexpr bool BOARD_AXIS_MAPPING_VERIFIED = true;
 
     bool s_started = false;
     bool s_available = false;
@@ -55,11 +55,18 @@ namespace
         return config;
     }
 
-    SysMagVector3 SensorToBody(const SysMagVector3 &sensor)
+    constexpr SysMagVector3 SensorToBody(const SysMagVector3 &sensor)
     {
-        // 当前只保留未来映射入口；false门下返回值不会进入融合，避免暗中继承旧板矩阵。
-        return BOARD_AXIS_MAPPING_VERIFIED ? sensor : SysMagVector3{};
+        // 新板IMU与扩展板地磁使用同一机身轴合同；该交换加符号变换行列式为+1，不产生镜像坐标。
+        return {sensor.y, -sensor.x, sensor.z};
     }
+
+    static_assert(SensorToBody({1.0f, 0.0f, 0.0f}).y == -1.0f,
+                  "MMC5603NJ Sensor X必须映射到-Body Y");
+    static_assert(SensorToBody({0.0f, 1.0f, 0.0f}).x == 1.0f,
+                  "MMC5603NJ Sensor Y必须映射到+Body X");
+    static_assert(SensorToBody({0.0f, 0.0f, 1.0f}).z == 1.0f,
+                  "MMC5603NJ Sensor Z必须映射到+Body Z");
 
     float Magnitude(const SysMagVector3 &value)
     {

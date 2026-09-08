@@ -150,9 +150,14 @@ namespace
 
     int32_t DecodeAxis(uint8_t high, uint8_t middle, uint8_t low)
     {
+        /*
+         * Rev.B寄存器图中0x06～0x08的bit7:4承载Axis[3:0]，bit3:0固定为0。
+         * 这里必须先右移；直接取低半字节会把20位输出退化为16位，实机日志表现为raw值
+         * 永远按16计数跳变。BSP仍向上层返回减去零场中心后的有符号20位计数。
+         */
         const uint32_t raw20 = (static_cast<uint32_t>(high) << 12) |
                                (static_cast<uint32_t>(middle) << 4) |
-                               (low & 0x0F);
+                               ((low >> 4) & 0x0F);
         return static_cast<int32_t>(raw20) - RAW_ZERO_FIELD;
     }
 }

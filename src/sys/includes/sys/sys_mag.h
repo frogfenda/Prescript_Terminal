@@ -1,8 +1,8 @@
 /*
 【模块职责】MMC5603NJ独立系统服务。它是磁力计唯一采样者，提供原始/校准磁场缓存、质量状态、
 校准会话、持久化和休眠恢复；指南针、调试页、姿态融合均只是消费者。
-【坐标合同】sensor_*保留芯片坐标；body_*只在当前扩展板轴向实测冻结后才有效。轴向未验证时
-AxisMappingVerified()返回false，消费者不得把 body_* 用于正式航向或姿态纠正。
+【坐标合同】sensor_*保留芯片坐标；body_*使用当前新板实测冻结的右手映射：
+BodyX=+SensorY、BodyY=-SensorX、BodyZ=+SensorZ。消费者仍须检查质量门后才能用于航向或姿态纠正。
 【线程约束】Init/Update/Sleep/Wakeup/校准接口均只能由Arduino主任务调用。
 */
 #pragma once
