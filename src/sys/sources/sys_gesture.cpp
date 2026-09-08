@@ -1,8 +1,8 @@
 /*
-【模块职责】实现基于 LSM6DSL 实板采样标定的离散手势状态机。
-【识别原则】滚动由 gy 主脉冲和反向回摆确认；业力长边敲击同样检查 gz 主脉冲、反向回摆、
+【模块职责】实现基于六轴 IMU 物理量输入的离散手势状态机；现有阈值源自旧板数据，LSM6DSV 实板需回归。
+【识别原则】滚动由机身 X 轴主脉冲和反向回摆确认；业力长边敲击检查机身 Z 轴主脉冲、反向回摆、
 主轴占优和冲击加速度，不使用单点峰值。换武器只在默认上下文中使用原有 gz 高速判定。
-【重要约束】所有阈值单位均为 g、dps、us，输入只能来自 SysMotion 的物理量缓存。
+【重要约束】所有阈值单位均为 g、dps、us，方向语义只能来自 SysMotion 的 body_imu。
 */
 #include "sys/sys_gesture.h"
 
@@ -152,12 +152,13 @@ namespace
 
     bool DetectWeaponChange(const SysMotionSample &sample)
     {
-        const float abs_gx = fabsf(sample.sensor_imu.gxDps);
-        const float abs_gy = fabsf(sample.sensor_imu.gyDps);
-        const float abs_gz = fabsf(sample.sensor_imu.gzDps);
-        const float accel_mag = sqrtf(sample.sensor_imu.axG * sample.sensor_imu.axG +
-                                      sample.sensor_imu.ayG * sample.sensor_imu.ayG +
-                                      sample.sensor_imu.azG * sample.sensor_imu.azG);
+        const SysPose::ImuSample &imu = sample.body_imu;
+        const float abs_gx = fabsf(imu.gxDps);
+        const float abs_gy = fabsf(imu.gyDps);
+        const float abs_gz = fabsf(imu.gzDps);
+        const float accel_mag = sqrtf(imu.axG * imu.axG +
+                                      imu.ayG * imu.ayG +
+                                      imu.azG * imu.azG);
 
         if (abs_gz < WEAPON_GZ_PEAK_DPS ||
             abs_gz < abs_gy * WEAPON_GZ_TO_GY_RATIO ||
@@ -167,7 +168,7 @@ namespace
             return false;
         }
 
-        const int8_t direction = sample.sensor_imu.gzDps >= 0.0f ? 1 : -1;
+        const int8_t direction = imu.gzDps >= 0.0f ? 1 : -1;
         PushEvent(SysGestureType::WeaponChange, sample.timestamp_us, abs_gz, direction);
         ResetTracking();
         s_cooldown_until_us = sample.timestamp_us + WEAPON_COOLDOWN_US;
@@ -177,13 +178,14 @@ namespace
     bool UpdateKarmaStrike(const SysMotionSample &sample)
     {
         const uint32_t now = sample.timestamp_us;
-        const float abs_gx = fabsf(sample.sensor_imu.gxDps);
-        const float abs_gy = fabsf(sample.sensor_imu.gyDps);
-        const float abs_gz = fabsf(sample.sensor_imu.gzDps);
+        const SysPose::ImuSample &imu = sample.body_imu;
+        const float abs_gx = fabsf(imu.gxDps);
+        const float abs_gy = fabsf(imu.gyDps);
+        const float abs_gz = fabsf(imu.gzDps);
         const float cross_axis = fmaxf(abs_gx, abs_gy);
-        const float accel_mag = sqrtf(sample.sensor_imu.axG * sample.sensor_imu.axG +
-                                      sample.sensor_imu.ayG * sample.sensor_imu.ayG +
-                                      sample.sensor_imu.azG * sample.sensor_imu.azG);
+        const float accel_mag = sqrtf(imu.axG * imu.axG +
+                                      imu.ayG * imu.ayG +
+                                      imu.azG * imu.azG);
 
         if (DeadlinePending(now, s_karma_cooldown_until_us))
             return false;
@@ -196,7 +198,7 @@ namespace
                 abs_gz >= cross_axis * KARMA_ARM_AXIS_DOMINANCE)
             {
                 s_karma.active = true;
-                s_karma.direction = sample.sensor_imu.gzDps >= 0.0f ? 1 : -1;
+                s_karma.direction = imu.gzDps >= 0.0f ? 1 : -1;
                 s_karma.started_us = now;
                 s_karma.primary_peak_dps = abs_gz;
                 s_karma.return_peak_dps = 0.0f;
@@ -217,12 +219,12 @@ namespace
          * 若一个较弱的杂波先以错误方向启动，而真正主脉冲尚未达到确认阈值，则允许强反向段
          * 重新建档。这样不会因为敲击前的小回摆吞掉本次动作，同时已成形的主脉冲不会被改向。
          */
-        if (sample.sensor_imu.gzDps * s_karma.direction < 0.0f &&
+        if (imu.gzDps * s_karma.direction < 0.0f &&
             s_karma.primary_peak_dps < KARMA_PRIMARY_PEAK_DPS &&
             abs_gz >= KARMA_ARM_DPS &&
             abs_gz >= cross_axis * KARMA_ARM_AXIS_DOMINANCE)
         {
-            s_karma.direction = sample.sensor_imu.gzDps >= 0.0f ? 1 : -1;
+            s_karma.direction = imu.gzDps >= 0.0f ? 1 : -1;
             s_karma.started_us = now;
             s_karma.primary_peak_dps = abs_gz;
             s_karma.return_peak_dps = 0.0f;
@@ -231,7 +233,7 @@ namespace
             return false;
         }
 
-        if (sample.sensor_imu.gzDps * s_karma.direction >= 0.0f)
+        if (imu.gzDps * s_karma.direction >= 0.0f)
             s_karma.primary_peak_dps = fmaxf(s_karma.primary_peak_dps, abs_gz);
         else
             s_karma.return_peak_dps = fmaxf(s_karma.return_peak_dps, abs_gz);
@@ -264,28 +266,34 @@ namespace
     void UpdateScroll(const SysMotionSample &sample)
     {
         const uint32_t now = sample.timestamp_us;
-        const float abs_gx = fabsf(sample.sensor_imu.gxDps);
-        const float abs_gy = fabsf(sample.sensor_imu.gyDps);
-        const float abs_gz = fabsf(sample.sensor_imu.gzDps);
+        const SysPose::ImuSample &imu = sample.body_imu;
+        /*
+         * 旧产品把传感器 +Y 定义为“向上滚动”的正方向；换算到统一机身坐标后等价于 -BodyX。
+         * 在这里保留这个交互语义，算法其余部分只处理 scroll_rate_dps，不再知道芯片安装方向。
+         */
+        const float scroll_rate_dps = -imu.gxDps;
+        const float abs_scroll_rate = fabsf(scroll_rate_dps);
+        const float abs_cross_axis = fabsf(imu.gyDps);
+        const float abs_gz = fabsf(imu.gzDps);
 
         if (!s_scroll.active)
         {
-            const bool is_down = sample.sensor_imu.gyDps < 0.0f;
+            const bool is_down = scroll_rate_dps < 0.0f;
             const float arm_dps = is_down ? SCROLL_DOWN_ARM_DPS : SCROLL_UP_ARM_DPS;
             const float axis_dominance = is_down ? SCROLL_DOWN_AXIS_DOMINANCE
                                                  : SCROLL_UP_AXIS_DOMINANCE;
 
-            // 起始样本必须由 gy 明显主导，防止扭转设备或换武器动作误启动滚动跟踪。
-            if (abs_gy >= arm_dps &&
-                abs_gy >= abs_gx * axis_dominance &&
-                abs_gy >= abs_gz * axis_dominance)
+            // 起始样本必须由滚动轴明显主导，防止扭转设备或换武器动作误启动滚动跟踪。
+            if (abs_scroll_rate >= arm_dps &&
+                abs_scroll_rate >= abs_cross_axis * axis_dominance &&
+                abs_scroll_rate >= abs_gz * axis_dominance)
             {
                 s_scroll.active = true;
-                s_scroll.direction = sample.sensor_imu.gyDps >= 0.0f ? 1 : -1;
+                s_scroll.direction = scroll_rate_dps >= 0.0f ? 1 : -1;
                 s_scroll.started_us = now;
-                s_scroll.primary_peak_dps = abs_gy;
+                s_scroll.primary_peak_dps = abs_scroll_rate;
                 s_scroll.return_peak_dps = 0.0f;
-                s_scroll.cross_axis_peak_dps = abs_gx;
+                s_scroll.cross_axis_peak_dps = abs_cross_axis;
             }
             return;
         }
@@ -299,11 +307,11 @@ namespace
             return;
         }
 
-        if (sample.sensor_imu.gyDps * s_scroll.direction >= 0.0f)
-            s_scroll.primary_peak_dps = fmaxf(s_scroll.primary_peak_dps, abs_gy);
+        if (scroll_rate_dps * s_scroll.direction >= 0.0f)
+            s_scroll.primary_peak_dps = fmaxf(s_scroll.primary_peak_dps, abs_scroll_rate);
         else
-            s_scroll.return_peak_dps = fmaxf(s_scroll.return_peak_dps, abs_gy);
-        s_scroll.cross_axis_peak_dps = fmaxf(s_scroll.cross_axis_peak_dps, abs_gx);
+            s_scroll.return_peak_dps = fmaxf(s_scroll.return_peak_dps, abs_scroll_rate);
+        s_scroll.cross_axis_peak_dps = fmaxf(s_scroll.cross_axis_peak_dps, abs_cross_axis);
 
         const bool is_down = s_scroll.direction < 0;
         const float primary_threshold = is_down ? SCROLL_DOWN_PRIMARY_PEAK_DPS

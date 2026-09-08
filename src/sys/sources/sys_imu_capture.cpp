@@ -3,7 +3,7 @@
 【数据契约】CSV 前十一列保持旧串口采集格式不变，末尾只追加会话编号和 fresh 标志，已有分析工具
 仍可按原列读取；每次记录使用独立文件，避免一次异常覆盖之前的有效数据。
 【时序约束】记录期间只把固定长度原始样本复制到 PSRAM，不刷新全屏、不写 FAT，也不格式化 CSV；
-动作结束后才统一生成文本并落盘，避免 QSPI、Flash 和逐帧 vsnprintf 阻塞 104Hz 采样。
+动作结束后才统一生成文本并落盘，避免 QSPI、Flash 和逐帧 vsnprintf 阻塞 120Hz 采样。
 */
 #include "sys/sys_imu_capture.h"
 
@@ -64,7 +64,7 @@ namespace
 
     /*
      * 旧标签继续保留，便于把新动作与菜单、业力和普通持握数据放在同一套采集工具中回归。
-     * E～J 只描述用户动作语义，不预设 LSM6DSL 的轴、符号或阈值；这些结论必须由脱线实测得出。
+     * E～J 只描述用户动作语义，不预设 LSM6DSV 的轴、符号或阈值；这些结论必须由脱线实测得出。
      * K～P 用于确认陀螺仪与机身物理方向的安装关系：操作者正视屏幕，分别绕“左右连线”、
      * “顶底连线”和“屏幕法线”完成两个相反方向。名称刻意只写外壳边缘如何运动，不把任一动作
      * 提前叫作传感器 X/Y/Z 或正/负旋转；最终机身坐标和符号只能由六面静态及这六组旋转共同确定。
@@ -492,7 +492,7 @@ namespace
 
 void SysImuCapture::Setup()
 {
-    Serial.println("\n=== LSM6DSL 脱线动作数据采集 ===");
+    Serial.println("\n=== LSM6DSV 脱线动作数据采集 ===");
     Serial.println("[IMU采集] 正常APP已停用；旋钮选标签，主键开始，侧键提前停止。");
 
     HAL_Init();
@@ -518,7 +518,7 @@ void SysImuCapture::Setup()
     }
 
     if (!SysMotion_Init())
-        Serial.println("[IMU采集-警告] LSM6DSL尚未就绪，采样服务会继续尝试恢复。");
+        Serial.println("[IMU采集-警告] LSM6DSV尚未就绪，采样服务会继续尝试恢复。");
 
     s_state = CaptureState::Idle;
     s_status_detail = "";

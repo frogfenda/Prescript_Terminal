@@ -88,7 +88,7 @@ namespace SysHumanFrame
         void Begin();
 
         /**
-         * 顺序推进一帧 V4B 机身坐标样本。只有 fresh 陀螺仪帧才推进姿态；超过 100ms 的断点
+         * 顺序推进一帧统一机身坐标样本。只有 fresh 陀螺仪帧才推进姿态；超过 100ms 的断点
          * 会进入 Discontinuous 并冻结结果，必须显式 Begin() 重新校准，不能把未知运动伪装成连续姿态。
          * 返回 true 表示本次完成了校准或推进了一帧跟踪数据。
          */

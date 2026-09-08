@@ -1,7 +1,7 @@
 /*
-【模块职责】实现系统级 LSM6DSL 采样所有权、缓存和恢复策略。
-【总线约束】PCF8563、TM6605、QMC5883 与 IMU 共用 Wire1；正常采样只做一次 16 字节连续读取，
-不额外轮询 STATUS_REG，并把轮询周期限制为 9 ms，避免主循环空转时占满 100 kHz I2C。
+【模块职责】实现系统级 LSM6DSV 采样所有权、缓存和恢复策略。
+【总线约束】PCF8563、TM6605、MMC5603NJ与IMU共用Wire1；先读取状态，确认有新数据后才连续读取
+14 字节输出寄存器。120 Hz 节拍使用绝对相位推进，避免主循环毫秒级粒度把 8.33 ms 累积成 9 ms。
 【恢复策略】高频路径不打印每次失败。一次真实总线失败会把服务置为离线，之后每秒至多恢复一次；
 恢复成功和离线状态转换才输出串口信息。
 */
@@ -12,15 +12,17 @@
 
 #include <esp_heap_caps.h>
 
-#include "bsp/bsp_imu_lsm6dsl.h"
+#include "bsp/bsp_imu_lsm6dsv.h"
 
 namespace
 {
-    static constexpr uint32_t POLL_INTERVAL_US = 9000;
+    // 120 Hz 的整数微秒近似值。采用 8333 而不是 8300，长期频率误差低于 0.01%。
+    static constexpr uint32_t POLL_INTERVAL_US = 8333;
+    static constexpr uint32_t NOT_READY_RETRY_US = 300;
     static constexpr uint32_t RECOVERY_INTERVAL_MS = 1000;
-    // 104Hz 下约覆盖 300ms。主循环短时阻塞时保留完整动作相位，溢出则由上层安全复位。
-    static constexpr uint8_t PENDING_SAMPLE_CAPACITY = 32;
-    static constexpr SysMotionAcquisitionConfig ACQUISITION_CONFIG = {104, 16, 2000};
+    // 120Hz 下约覆盖 333ms。主循环短时阻塞时保留完整动作相位，溢出则由上层安全复位。
+    static constexpr uint8_t PENDING_SAMPLE_CAPACITY = 40;
+    static constexpr SysMotionAcquisitionConfig ACQUISITION_CONFIG = {120, 16, 2000};
 
     bool s_started = false;
     bool s_available = false;
@@ -30,7 +32,7 @@ namespace
     uint32_t s_next_recovery_ms = 0;
     SysMotionSample s_latest = {};
     /*
-     * 32帧待消费环用于吸收主循环短暂停顿，约占2.5 KiB。它不参与DMA或ISR，放入PSRAM可把
+     * 40帧待消费环用于吸收主循环短暂停顿，约占3.1 KiB。它不参与DMA或ISR，放入PSRAM可把
      * 内部DRAM留给BLE、WiFi和FreeRTOS任务栈；初始化后固定地址，采样路径不会重复分配。
      * 若PSRAM异常，退化为一帧内部缓冲并标记溢出，保证普通姿态消费者仍可工作。
      */
@@ -87,41 +89,53 @@ namespace
     }
 
     /**
-     * 把LSM6DSL传感器坐标转换为V4B统一机身坐标。
-     * 2026-07-30六面静态标签1～6得到BodyX=-SensorY、BodyY=+SensorX、BodyZ=+SensorZ，
-     * 标签20～25的三轴双方向旋转又独立验证了同一陀螺仪轴和符号。该变换是行列式+1的
-     * 有符号置换，必须同时作用于加速度和角速度；这里不混入单台设备、单温度下的零偏值。
+     * 2026-09-07 新板六面静态数据唯一确定安装矩阵：
+     * BodyX=+SensorY、BodyY=-SensorX、BodyZ=+SensorZ。三组半轴跨度分别约为
+     * 0.9991/0.9983/1.0007 g，且该矩阵行列式为 +1，是右手坐标变换。
+     * 加速度与角速度必须使用同一旋转矩阵；sensor_imu 继续保留芯片原生坐标，仅供采集诊断。
      */
     SysPose::ImuSample SensorToBody(const SysPose::ImuSample &sensor)
     {
         SysPose::ImuSample body = {};
-        body.axG = -sensor.ayG;
-        body.ayG = sensor.axG;
+        body.axG = sensor.ayG;
+        body.ayG = -sensor.axG;
         body.azG = sensor.azG;
-        body.gxDps = -sensor.gyDps;
-        body.gyDps = sensor.gxDps;
+        body.gxDps = sensor.gyDps;
+        body.gyDps = -sensor.gxDps;
         body.gzDps = sensor.gzDps;
         return body;
     }
 
-    BSP::Lsm6dsl::Config MotionConfig()
+    BSP::Lsm6dsv::Config MotionConfig()
     {
-        BSP::Lsm6dsl::Config config = {};
-        config.accelRate = BSP::Lsm6dsl::OutputDataRate::Hz104;
-        config.gyroRate = BSP::Lsm6dsl::OutputDataRate::Hz104;
+        BSP::Lsm6dsv::Config config = {};
+        config.accelRate = BSP::Lsm6dsv::OutputDataRate::Hz120;
+        config.gyroRate = BSP::Lsm6dsv::OutputDataRate::Hz120;
         /*
          * 首批双蛇杖横斩/竖斩在 ±8 g 下已出现单轴 raw 削顶。全系统消费者都读取 BSP
          * 换算后的物理量，因此统一升到 ±16 g 可以保留完整冲击波形，不需要按比例修改
          * 滚动、业力、换武器或海的 g/dps 阈值；代价是加速度分辨率减半。
          */
-        config.accelRange = BSP::Lsm6dsl::AccelRange::G16;
-        config.gyroRange = BSP::Lsm6dsl::GyroRange::Dps2000;
+        config.accelRange = BSP::Lsm6dsv::AccelRange::G16;
+        config.gyroRange = BSP::Lsm6dsv::GyroRange::Dps2000;
         return config;
     }
 
-    void ScheduleNextPoll()
+    /** 从当前时刻建立新的采样相位，只用于初始化、恢复和唤醒。 */
+    void ResetPollSchedule()
     {
         s_next_poll_us = micros() + POLL_INTERVAL_US;
+    }
+
+    /**
+     * 沿既有相位推进到 now_us 之后，而不是从当前时刻重新计时。这样即使主循环只能在整数毫秒附近
+     * 运行，也会自然形成 8/9 ms 交替节拍，不会把每帧迟到的零点几毫秒永久累加进下一帧。
+     */
+    void AdvancePollSchedule(uint32_t now_us)
+    {
+        const uint32_t elapsed_us = now_us - s_next_poll_us;
+        const uint32_t periods = elapsed_us / POLL_INTERVAL_US + 1;
+        s_next_poll_us += periods * POLL_INTERVAL_US;
     }
 
     /**
@@ -131,12 +145,12 @@ namespace
     bool RecoverSensor()
     {
         bool ok = false;
-        if (BSP::Lsm6dsl::Address() != 0)
+        if (BSP::Lsm6dsv::Address() != 0)
         {
             // 曾经在线说明驱动持有完整状态；软复位失败后允许 Begin 重建一次共享 Wire1 总线。
-            ok = BSP::Lsm6dsl::Reset();
+            ok = BSP::Lsm6dsv::Reset();
             if (!ok)
-                ok = BSP::Lsm6dsl::Begin(Wire1, BSP::Lsm6dsl::DEFAULT_ADDRESS, MotionConfig());
+                ok = BSP::Lsm6dsv::Begin(Wire1, BSP::Lsm6dsv::DEFAULT_ADDRESS, MotionConfig());
         }
         else
         {
@@ -144,16 +158,16 @@ namespace
              * 开机从未发现 IMU 时只在现有 Wire1 上检查 WHO_AM_I。
              * 不能每秒调用 Begin() 重建共享总线，否则缺件主板会周期性干扰 RTC 和 TM6605。
              */
-            if (BSP::Lsm6dsl::IsPresent(BSP::Lsm6dsl::DEFAULT_ADDRESS))
-                ok = BSP::Lsm6dsl::Begin(Wire1, BSP::Lsm6dsl::DEFAULT_ADDRESS, MotionConfig());
+            if (BSP::Lsm6dsv::IsPresent(BSP::Lsm6dsv::DEFAULT_ADDRESS))
+                ok = BSP::Lsm6dsv::Begin(Wire1, BSP::Lsm6dsv::DEFAULT_ADDRESS, MotionConfig());
         }
 
         if (!ok)
             return false;
 
         s_available = true;
-        ScheduleNextPoll();
-        Serial.println("[运动] LSM6DSL 通信已恢复。");
+        ResetPollSchedule();
+        Serial.println("[运动] LSM6DSV 通信已恢复。");
         return true;
     }
 
@@ -161,8 +175,8 @@ namespace
     {
         if (s_available)
         {
-            Serial.printf("[运动-警告] LSM6DSL 采样失败，稍后自动恢复：错误码=%u。\n",
-                          (unsigned)BSP::Lsm6dsl::LastError());
+            Serial.printf("[运动-警告] LSM6DSV 采样失败，稍后自动恢复：错误码=%u。\n",
+                          (unsigned)BSP::Lsm6dsv::LastError());
         }
         s_available = false;
         s_next_recovery_ms = millis() + RECOVERY_INTERVAL_MS;
@@ -180,17 +194,17 @@ bool SysMotion_Init()
     s_latest = {};
     ClearPendingSamples();
 
-    if (!BSP::Lsm6dsl::Begin(Wire1, BSP::Lsm6dsl::DEFAULT_ADDRESS, MotionConfig()))
+    if (!BSP::Lsm6dsv::Begin(Wire1, BSP::Lsm6dsv::DEFAULT_ADDRESS, MotionConfig()))
     {
-        Serial.printf("[运动-警告] LSM6DSL 初始化失败，运动功能暂不可用：错误码=%u。\n",
-                      (unsigned)BSP::Lsm6dsl::LastError());
+        Serial.printf("[运动-警告] LSM6DSV 初始化失败，运动功能暂不可用：错误码=%u。\n",
+                      (unsigned)BSP::Lsm6dsv::LastError());
         s_next_recovery_ms = millis() + RECOVERY_INTERVAL_MS;
         return false;
     }
 
     s_available = true;
-    ScheduleNextPoll();
-    Serial.println("[运动] LSM6DSL 已初始化：104 Hz，±16 g，±2000 dps。");
+    ResetPollSchedule();
+    Serial.println("[运动] LSM6DSV 已初始化：120 Hz，±16 g，±2000 dps。");
     return true;
 }
 
@@ -226,18 +240,21 @@ bool SysMotion_Update()
     const uint32_t now_us = micros();
     if ((int32_t)(now_us - s_next_poll_us) < 0)
         return false;
-    ScheduleNextPoll();
+    AdvancePollSchedule(now_us);
 
-    BSP::Lsm6dsl::Reading reading = {};
-    if (!BSP::Lsm6dsl::Read(&reading))
+    BSP::Lsm6dsv::Reading reading = {};
+    if (!BSP::Lsm6dsv::Read(&reading))
     {
         MarkOffline();
         return false;
     }
 
-    // 轮询可能略早于 104 Hz 数据边沿；没有任何新六轴数据时不推进 sequence，避免上层重复处理。
+    // 轮询可能略早于 120 Hz 数据边沿；短重试避免一次相位擦边直接损失完整的 8.3 ms 样本周期。
     if (!reading.ready.accel && !reading.ready.gyro)
+    {
+        s_next_poll_us = micros() + NOT_READY_RETRY_US;
         return false;
+    }
 
     SysMotionSample sample = {};
     sample.sequence = s_latest.sequence + 1;
@@ -302,7 +319,7 @@ void SysMotion_Sleep()
 
     s_sleeping = true;
     ClearPendingSamples();
-    if (s_available && !BSP::Lsm6dsl::PowerDown())
+    if (s_available && !BSP::Lsm6dsv::PowerDown())
         MarkOffline();
 }
 
@@ -319,12 +336,12 @@ bool SysMotion_Wakeup()
         return false;
     }
 
-    if (!BSP::Lsm6dsl::Wakeup())
+    if (!BSP::Lsm6dsv::Wakeup())
     {
         MarkOffline();
         return false;
     }
 
-    ScheduleNextPoll();
+    ResetPollSchedule();
     return true;
 }

@@ -51,22 +51,26 @@ private:
             char line[112];
             snprintf(line, sizeof(line), "STATE %s  ERR %s(%u)",
                      status.sleeping ? "SLEEP" : (status.available ? "WAIT_DATA" : "OFFLINE"),
-                     BSP::Qmc5883::ErrorName(status.last_error),
+                     BSP::Mmc5603::ErrorName(status.last_error),
                      static_cast<unsigned>(status.last_error));
             HAL_Screen_ShowChineseLine_Faded_Color(8, 28, line, 0.0f, TFT_RED);
-            snprintf(line, sizeof(line), "ADDR %02X ACK:%c  CHIP_ID:%s%02X",
+            snprintf(line, sizeof(line), "ADDR %02X/%02X ACK:%c ID:%s%02X",
                      status.sensor.requestedAddress,
+                     status.sensor.detectedAddress,
                      status.sensor.addressAcknowledged ? 'Y' : 'N',
-                     status.sensor.chipIdValid ? "" : "--/",
-                     status.sensor.chipId);
+                     status.sensor.productIdValid ? "" : "--/",
+                     status.sensor.productId);
             HAL_Screen_ShowChineseLine(8, 50, line);
-            snprintf(line, sizeof(line), "REG29:%s%02X C1:%s%02X C2:%s%02X",
-                     status.sensor.axisSignValid ? "" : "--/", status.sensor.axisSign,
-                     status.sensor.ctrl1Valid ? "" : "--/", status.sensor.ctrl1,
-                     status.sensor.ctrl2Valid ? "" : "--/", status.sensor.ctrl2);
+            snprintf(line, sizeof(line), "CFG:%c ODR:%u C0:%02X C1:%02X C2:%02X",
+                     status.sensor.configurationWritten ? 'Y' : 'N',
+                     status.sensor.expectedOdr,
+                     status.sensor.expectedCtrl0,
+                     status.sensor.expectedCtrl1,
+                     status.sensor.expectedCtrl2);
             HAL_Screen_ShowChineseLine(8, 72, line);
-            snprintf(line, sizeof(line), "STATUS:%s%02X  %s",
+            snprintf(line, sizeof(line), "STATUS:%s%02X OTP:%c  %s",
                      status.sensor.statusValid ? "" : "--/", status.sensor.status,
+                     status.sensor.otpLoaded ? 'Y' : 'N',
                      status.available ? "等待第一帧" : UIStrings::MagUnavailable(lang));
             HAL_Screen_ShowChineseLine_Faded_Color(8, 94, line, 0.0f, TFT_RED);
             drawHint(UIStrings::MagLiveHint(lang));
@@ -74,14 +78,16 @@ private:
         }
 
         char line[112];
-        snprintf(line, sizeof(line), "%s 0x%02X AXIS:%s RNG:%s CAL:%s",
-                 BSP::Qmc5883::TypeName(sample.sensor_type), sample.address,
+        snprintf(line, sizeof(line), "%s 0x%02X AXIS:%s CFG:%s CAL:%s",
+                 BSP::Mmc5603::TypeName(), sample.address,
                  sample.axis_mapping_verified ? "OK" : "?",
-                 sample.range_configuration_verified ? "OK" : "?",
+                 sample.configuration_verified ? "OK" : "?",
                  sample.calibrated ? "OK" : "NO");
         HAL_Screen_ShowChineseLine(8, 28, line);
-        snprintf(line, sizeof(line), "RAW   X%6d  Y%6d  Z%6d",
-                 sample.raw_x, sample.raw_y, sample.raw_z);
+        snprintf(line, sizeof(line), "RAW X%7ld Y%7ld Z%7ld",
+                 static_cast<long>(sample.raw_x),
+                 static_cast<long>(sample.raw_y),
+                 static_cast<long>(sample.raw_z));
         HAL_Screen_ShowChineseLine(8, 50, line);
         snprintf(line, sizeof(line), "SENS  X%+7.2f Y%+7.2f Z%+7.2f uT",
                  sample.sensor_uT.x, sample.sensor_uT.y, sample.sensor_uT.z);

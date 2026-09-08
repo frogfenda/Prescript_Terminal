@@ -125,7 +125,7 @@ namespace SysUsbSession
         if (bootTestEnabled)
         {
             /*
-             * 隔离测试的主循环可能承担 104 Hz 传感器采样，不能等待 CDC 发送锁。
+             * 隔离测试的主循环可能承担 120 Hz 传感器采样，不能等待 CDC 发送锁。
              * Arduino-ESP32 的 availableForWrite() 与 flush() 各自最多等待一次
              * cdcTxTimeoutMs；正常固件保留默认 20 ms 以提高日志送达率，而测试固件
              * 使用 0 ms 只做机会式补发。CDC RX 由 TinyUSB 回调进入队列，不依赖这个

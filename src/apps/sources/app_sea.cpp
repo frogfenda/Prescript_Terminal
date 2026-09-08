@@ -52,7 +52,7 @@ void AppSea_ClearAudioBinding()
 
 namespace
 {
-    constexpr float IMU_SAMPLE_HZ = 104.0f;
+    constexpr float DEFAULT_IMU_SAMPLE_HZ = 120.0f;
     constexpr uint32_t MOTION_STALE_MS = 160;
     constexpr uint32_t MOTION_DISCONTINUITY_US = 100000;
     constexpr float IDLE_ROLL_DELTA_DEG = 0.8f;
@@ -89,6 +89,23 @@ namespace
     {
         return (int32_t)(now - deadline) >= 0;
     }
+
+    /**
+     * 海页面原有视觉参数把“绕页面水平边翻滚”定义为局部 X 轴，并已通过旧板实机调好方向。
+     * 该产品语义等价于 SeaX=+BodyY、SeaY=-BodyX、SeaZ=+BodyZ，是一个右手旋转；集中在此处
+     * 转换后，姿态、角速度和线性加速度始终使用同一局部坐标，页面不再依赖传感器封装方向。
+     */
+    SysPose::ImuSample BodyToSeaFrame(const SysPose::ImuSample &body)
+    {
+        SysPose::ImuSample sea = {};
+        sea.axG = body.ayG;
+        sea.ayG = -body.axG;
+        sea.azG = body.azG;
+        sea.gxDps = body.gyDps;
+        sea.gyDps = -body.gxDps;
+        sea.gzDps = body.gzDps;
+        return sea;
+    }
 }
 
 class AppSea : public AppBase
@@ -96,6 +113,7 @@ class AppSea : public AppBase
 private:
     UIFluidSurface fluid_;
     SysPose::MahonySolver pose_solver_;
+    float imu_sample_hz_ = DEFAULT_IMU_SAMPLE_HZ;
     uint32_t last_motion_sequence_ = 0;
     uint32_t last_motion_timestamp_us_ = 0;
     uint32_t last_motion_received_ms_ = 0;
@@ -365,13 +383,13 @@ private:
                                    sample.timestamp_us - previous_timestamp_us > MOTION_DISCONTINUITY_US;
         if (discontinuity)
         {
-            pose_solver_.Begin(IMU_SAMPLE_HZ);
+            pose_solver_.Begin(imu_sample_hz_);
             pose_valid_ = false;
             filtered_roll_accel_dps2_ = 0.0f;
         }
         last_motion_timestamp_us_ = sample.timestamp_us;
 
-        float sample_dt_seconds = 1.0f / IMU_SAMPLE_HZ;
+        float sample_dt_seconds = 1.0f / imu_sample_hz_;
         if (previous_timestamp_us != 0 && !discontinuity)
         {
             sample_dt_seconds = ClampFloat((float)(sample.timestamp_us - previous_timestamp_us) / 1000000.0f,
@@ -379,14 +397,14 @@ private:
                                            0.050f);
         }
 
-        // 海的现有实机参数仍基于传感器原生轴；坐标底座改造期间显式保留旧语义，后续单独回归迁移。
-        pose_solver_.Update(sample.sensor_imu);
+        const SysPose::ImuSample sea_imu = BodyToSeaFrame(sample.body_imu);
+        pose_solver_.Update(sea_imu);
         const SysPose::Result pose = pose_solver_.GetResult(false);
         if (!pose.valid)
             return;
 
         fluid_input_.roll_deg = pose.euler.rollDeg;
-        fluid_input_.roll_rate_dps = sample.sensor_imu.gxDps;
+        fluid_input_.roll_rate_dps = sea_imu.gxDps;
 
         /*
          * 角加速度使用相邻真实 IMU 时间戳求导，再做一次快速低通。它只用于“停止转动后的反向回摆”，
@@ -394,24 +412,24 @@ private:
          */
         const float raw_roll_accel = (previous_timestamp_us == 0 || discontinuity)
                                          ? 0.0f
-                                         : (sample.sensor_imu.gxDps - previous_roll_rate_dps_) / sample_dt_seconds;
+                                         : (sea_imu.gxDps - previous_roll_rate_dps_) / sample_dt_seconds;
         const float accel_alpha = ClampFloat(sample_dt_seconds * ANGULAR_ACCEL_FILTER_HZ, 0.0f, 1.0f);
         filtered_roll_accel_dps2_ += (raw_roll_accel - filtered_roll_accel_dps2_) * accel_alpha;
         fluid_input_.roll_accel_dps2 = filtered_roll_accel_dps2_;
-        previous_roll_rate_dps_ = sample.sensor_imu.gxDps;
+        previous_roll_rate_dps_ = sea_imu.gxDps;
 
         if (sample.accel_fresh)
         {
             /*
-             * Mahony 四元数已经描述机身姿态，可直接计算机身 Y/Z 轴应看到的单位重力分量。
+             * Mahony 四元数已经描述海页面局部姿态，可直接计算局部 Y/Z 轴应看到的单位重力分量。
              * 实测加速度减去该分量后得到线性运动，避免“只是倾斜设备”被重复当成横向冲击。
              */
             const SysPose::Quaternion &q = pose.quaternion;
             const float expected_gravity_y = 2.0f * (q.w * q.x + q.y * q.z);
             const float expected_gravity_z = q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z;
-            fluid_input_.lateral_accel_g = ApplyDeadZone(sample.sensor_imu.ayG - expected_gravity_y,
+            fluid_input_.lateral_accel_g = ApplyDeadZone(sea_imu.ayG - expected_gravity_y,
                                                          LINEAR_ACCEL_DEAD_ZONE_G);
-            fluid_input_.vertical_accel_g = ApplyDeadZone(sample.sensor_imu.azG - expected_gravity_z,
+            fluid_input_.vertical_accel_g = ApplyDeadZone(sea_imu.azG - expected_gravity_z,
                                                           LINEAR_ACCEL_DEAD_ZONE_G);
         }
 
@@ -462,7 +480,11 @@ public:
     {
         // 绑定器独立持有雨声句柄；Sea 页面只确保它已经安装，不直接依赖 SysAudio。
         AppSeaAudio_EnsureInstalled();
-        pose_solver_.Begin(IMU_SAMPLE_HZ);
+        SysMotionAcquisitionConfig motion_config = {};
+        imu_sample_hz_ = SysMotion_GetAcquisitionConfig(&motion_config)
+                             ? (float)motion_config.output_rate_hz
+                             : DEFAULT_IMU_SAMPLE_HZ;
+        pose_solver_.Begin(imu_sample_hz_);
         fluid_.reset(HAL_Get_Screen_Width(), HAL_Get_Screen_Height());
         UIPrescript::InitGlitchPool();
         last_motion_sequence_ = 0;

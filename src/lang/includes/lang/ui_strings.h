@@ -225,7 +225,7 @@ namespace UIStrings
 
     inline const char *MagUnavailable(SystemLang_t lang)
     {
-        return IsZh(lang) ? "QMC5883P不可用，正在低频重试" : "QMC5883P OFFLINE - RETRYING";
+        return IsZh(lang) ? "MMC5603NJ不可用，正在低频重试" : "MMC5603NJ OFFLINE - RETRYING";
     }
 
     inline const char *MagLiveHint(SystemLang_t lang)

@@ -8,6 +8,8 @@
 
 #include <math.h>
 
+#include "sys/sys_motion.h"
+
 namespace SysHumanFrame
 {
     namespace
@@ -137,8 +139,12 @@ namespace SysHumanFrame
 
     void Tracker::Begin()
     {
-        gyro_solver_.Begin(104.0f);
-        aided_solver_.Begin(104.0f);
+        SysMotionAcquisitionConfig acquisition = {};
+        const float sample_rate_hz = SysMotion_GetAcquisitionConfig(&acquisition)
+                                         ? (float)acquisition.output_rate_hz
+                                         : 120.0f;
+        gyro_solver_.Begin(sample_rate_hz);
+        aided_solver_.Begin(sample_rate_hz);
         snapshot_ = {};
         snapshot_.status = Status::Calibrating;
         calibration_started_ = false;

@@ -54,16 +54,16 @@ namespace
 
     const char *I2CDeviceName(uint8_t address)
     {
+        if (address >= 0x30 && address <= 0x37)
+            return "MMC5603NJ";
         switch (address)
         {
-        case 0x2C:
-            return "QMC5883P";
         case BSP::Tm6605::DEFAULT_ADDRESS:
             return "TM6605";
         case 0x51:
             return "PCF8563";
         case 0x6A:
-            return "LSM6DSL";
+            return "LSM6DSV";
         default:
             return "未知设备";
         }

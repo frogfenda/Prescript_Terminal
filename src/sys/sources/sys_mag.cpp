@@ -1,8 +1,8 @@
 /*
 【模块职责】实现独立磁场采样、校准文件、质量门控和诊断日志。
 【恢复策略】正常轮询不重试I2C；失败后每5秒在现有Wire1上Reset或重新探测，绝不周期性重建总线。
-【实板轴向】V4B三轴有序旋转与北半球地磁倾角共同确认：BodyX=+SensorX、BodyY=-SensorY、
-BodyZ=-SensorZ。该安装变换只作用于校准后的磁场，不改变BSP寄存器事实或校准文件的传感器坐标契约。
+【实板轴向】当前MMC5603NJ扩展板尚未完成三轴有序旋转，禁止沿用旧QMC5883P安装矩阵。
+传感器坐标仍可用于采样与椭球校准；轴映射冻结前body_uT保持零且磁航向融合关闭。
 */
 #include "sys/sys_mag.h"
 
@@ -15,18 +15,17 @@ BodyZ=-SensorZ。该安装变换只作用于校准后的磁场，不改变BSP寄
 
 namespace
 {
-    static constexpr uint32_t POLL_INTERVAL_US = 20000; // QMC5883P Normal 50Hz。
+    static constexpr uint32_t POLL_INTERVAL_US = 10000; // MMC5603NJ连续测量100Hz。
     static constexpr uint32_t RECOVERY_INTERVAL_MS = 5000;
     static constexpr uint32_t DIAGNOSTIC_INTERVAL_MS = 500;
     static constexpr uint32_t CALIBRATION_CAPACITY = 1200;
-    // schema 2切换到实板可回读确认的±30G量程；旧±8G假设下的偏置/矩阵量纲不可复用。
-    static constexpr uint16_t CALIBRATION_SCHEMA_VERSION = 2;
+    // schema 3切换到MMC5603NJ的20位量纲，并强制校验传感器型号，旧QMC校准不可复用。
+    static constexpr uint16_t CALIBRATION_SCHEMA_VERSION = 3;
     static constexpr float FIELD_WARNING_RATIO = 0.15f;
     static constexpr float FIELD_REJECT_RATIO = 0.25f;
     static constexpr float FIELD_STEP_REJECT_UT = 10.0f;
 
-    // 2026-08-05 V4B实机用Body X/Y/Z三个有序90°旋转确认；数值证据记录在任务台账中。
-    static constexpr bool BOARD_AXIS_MAPPING_VERIFIED = true;
+    static constexpr bool BOARD_AXIS_MAPPING_VERIFIED = false;
 
     bool s_started = false;
     bool s_available = false;
@@ -45,24 +44,21 @@ namespace
     uint32_t s_calibration_count = 0;
     bool s_calibration_active = false;
 
-    BSP::Qmc5883::Config RuntimeConfig()
+    BSP::Mmc5603::Config RuntimeConfig()
     {
-        BSP::Qmc5883::Config config;
-        config.range = BSP::Qmc5883::Range::G30;
-        config.outputRate = BSP::Qmc5883::OutputDataRate::Hz50;
-        config.oversampling1 = BSP::Qmc5883::Oversampling::X8;
-        config.oversampling2 = BSP::Qmc5883::Oversampling::X8;
+        BSP::Mmc5603::Config config;
+        config.outputRateHz = 100;
+        config.bandwidth = BSP::Mmc5603::Bandwidth::Ms3_5;
+        config.automaticSetReset = true;
+        config.periodicSet = true;
+        config.periodicSetInterval = BSP::Mmc5603::PeriodicSet::Every100;
         return config;
     }
 
     SysMagVector3 SensorToBody(const SysMagVector3 &sensor)
     {
-        /*
-         * V4B实测安装关系等价于绕Sensor X旋转180°：X同向，Y/Z同时反向，行列式为+1。
-         * 三轴旋转先分别确认对应轴不交换，再用正向Body Z旋转和北半球向下的地磁倾角消除
-         * “整体反号”歧义。输入必须是椭球校准后的传感器坐标，输出供独立质量门和未来融合使用。
-         */
-        return {sensor.x, -sensor.y, -sensor.z};
+        // 当前只保留未来映射入口；false门下返回值不会进入融合，避免暗中继承旧板矩阵。
+        return BOARD_AXIS_MAPPING_VERIFIED ? sensor : SysMagVector3{};
     }
 
     float Magnitude(const SysMagVector3 &value)
@@ -116,7 +112,9 @@ namespace
             return false;
         }
         const uint16_t schema = document["schema"] | 0;
-        if (schema != CALIBRATION_SCHEMA_VERSION || !(document["valid"] | false))
+        const char *sensor = document["sensor"] | "";
+        if (schema != CALIBRATION_SCHEMA_VERSION || !(document["valid"] | false) ||
+            strcmp(sensor, BSP::Mmc5603::TypeName()) != 0)
         {
             Serial.printf("[地磁-警告] 校准文件版本或有效标记不匹配：版本=%u。\n", schema);
             return false;
@@ -166,8 +164,8 @@ namespace
         JsonDocument document;
         document["schema"] = CALIBRATION_SCHEMA_VERSION;
         document["valid"] = calibration.valid;
-        document["sensor"] = BSP::Qmc5883::TypeName();
-        document["address"] = BSP::Qmc5883::Address();
+        document["sensor"] = BSP::Mmc5603::TypeName();
+        document["address"] = BSP::Mmc5603::Address();
         document["calibration_version"] = s_calibration_version;
         JsonArray bias = document["bias_uT"].to<JsonArray>();
         bias.add(calibration.bias_uT.x); bias.add(calibration.bias_uT.y); bias.add(calibration.bias_uT.z);
@@ -195,7 +193,7 @@ namespace
 
     void AppendCalibrationSample(const SysMagSample &sample)
     {
-        if (!s_calibration_active || !s_calibration_samples || sample.overflow || !sample.fresh ||
+        if (!s_calibration_active || !s_calibration_samples || !sample.fresh ||
             s_calibration_count >= CALIBRATION_CAPACITY)
         {
             return;
@@ -209,16 +207,11 @@ namespace
     {
         sample.calibrated = s_calibration.valid;
         sample.axis_mapping_verified = BOARD_AXIS_MAPPING_VERIFIED;
-        sample.range_configuration_verified = BSP::Qmc5883::RangeConfigurationVerified();
+        sample.configuration_verified = BSP::Mmc5603::ConfigurationWritten();
         sample.calibration_version = s_calibration_version;
         sample.disturbance_reasons = SYS_MAG_DISTURBANCE_NONE;
         sample.confidence = 1.0f;
 
-        if (sample.overflow)
-        {
-            sample.disturbance_reasons |= SYS_MAG_DISTURBANCE_OVERFLOW;
-            sample.confidence = 0.0f;
-        }
         if (!s_calibration.valid)
         {
             sample.disturbance_reasons |= SYS_MAG_DISTURBANCE_NOT_CALIBRATED;
@@ -229,9 +222,9 @@ namespace
             sample.disturbance_reasons |= SYS_MAG_DISTURBANCE_AXIS_UNVERIFIED;
             sample.confidence = fminf(sample.confidence, 0.35f);
         }
-        if (!sample.range_configuration_verified)
+        if (!sample.configuration_verified)
         {
-            sample.disturbance_reasons |= SYS_MAG_DISTURBANCE_RANGE_UNVERIFIED;
+            sample.disturbance_reasons |= SYS_MAG_DISTURBANCE_CONFIG_UNVERIFIED;
             sample.confidence = fminf(sample.confidence, 0.35f);
         }
 
@@ -261,10 +254,9 @@ namespace
         }
         s_previous_field_strength_uT = sample.field_strength_uT;
         sample.disturbed = (sample.disturbance_reasons &
-            (SYS_MAG_DISTURBANCE_OVERFLOW | SYS_MAG_DISTURBANCE_FIELD_STRENGTH |
-             SYS_MAG_DISTURBANCE_FIELD_STEP)) != 0;
+            (SYS_MAG_DISTURBANCE_FIELD_STRENGTH | SYS_MAG_DISTURBANCE_FIELD_STEP)) != 0;
         sample.fusion_usable = sample.calibrated && sample.axis_mapping_verified &&
-                               sample.range_configuration_verified &&
+                               sample.configuration_verified &&
                                !sample.disturbed && sample.confidence >= 0.5f;
     }
 
@@ -276,11 +268,13 @@ namespace
         if (now - s_last_diagnostic_ms < DIAGNOSTIC_INTERVAL_MS)
             return;
         s_last_diagnostic_ms = now;
-        Serial.printf("[地磁-数据] 序号=%lu 原始=[%d,%d,%d] 传感器=[%.2f,%.2f,%.2f]uT "
+        Serial.printf("[地磁-数据] 序号=%lu 原始=[%ld,%ld,%ld] 传感器=[%.2f,%.2f,%.2f]uT "
                       "校准=[%.2f,%.2f,%.2f]uT 机身=[%.2f,%.2f,%.2f]uT "
                       "场强=%.2fuT 置信=%.2f 原因=0x%02lX。\n",
                       static_cast<unsigned long>(sample.sequence),
-                      sample.raw_x, sample.raw_y, sample.raw_z,
+                      static_cast<long>(sample.raw_x),
+                      static_cast<long>(sample.raw_y),
+                      static_cast<long>(sample.raw_z),
                       sample.sensor_uT.x, sample.sensor_uT.y, sample.sensor_uT.z,
                       sample.calibrated_sensor_uT.x,
                       sample.calibrated_sensor_uT.y,
@@ -296,17 +290,17 @@ namespace
     bool RecoverSensor()
     {
         bool ok = false;
-        if (BSP::Qmc5883::Address() != 0)
-            ok = BSP::Qmc5883::Reset();
-        if (!ok && BSP::Qmc5883::IsPresent(BSP::Qmc5883::ADDRESS_QMC5883P))
-            ok = BSP::Qmc5883::Begin(Wire1, BSP::Qmc5883::ADDRESS_QMC5883P, RuntimeConfig());
+        if (BSP::Mmc5603::Address() != 0)
+            ok = BSP::Mmc5603::Reset();
+        if (!ok)
+            ok = BSP::Mmc5603::Begin(Wire1, 0, RuntimeConfig());
         if (!ok)
             return false;
 
         s_available = true;
         s_previous_field_strength_uT = 0.0f;
         ScheduleNextPoll();
-        Serial.println("[地磁] QMC5883P 通信已恢复。");
+        Serial.printf("[地磁] MMC5603NJ通信已恢复：地址=0x%02X。\n", BSP::Mmc5603::Address());
         return true;
     }
 
@@ -314,8 +308,9 @@ namespace
     {
         if (s_available)
         {
-            Serial.printf("[地磁-警告] QMC5883采样失败，稍后恢复：错误码=%u。\n",
-                          static_cast<unsigned>(BSP::Qmc5883::LastError()));
+            Serial.printf("[地磁-警告] MMC5603NJ采样失败，稍后恢复：%s(%u)。\n",
+                          BSP::Mmc5603::ErrorName(BSP::Mmc5603::LastError()),
+                          static_cast<unsigned>(BSP::Mmc5603::LastError()));
         }
         s_available = false;
         s_next_recovery_ms = millis() + RECOVERY_INTERVAL_MS;
@@ -335,18 +330,19 @@ bool SysMag_Init()
     FreeCalibrationBuffer();
     LoadCalibration();
 
-    if (!BSP::Qmc5883::Begin(Wire1, BSP::Qmc5883::ADDRESS_QMC5883P, RuntimeConfig()))
+    if (!BSP::Mmc5603::Begin(Wire1, 0, RuntimeConfig()))
     {
-        Serial.printf("[地磁-警告] QMC5883P 初始化失败，地磁功能暂不可用：错误码=%u。\n",
-                      static_cast<unsigned>(BSP::Qmc5883::LastError()));
+        Serial.printf("[地磁-警告] MMC5603NJ初始化失败，地磁功能暂不可用：%s(%u)。\n",
+                      BSP::Mmc5603::ErrorName(BSP::Mmc5603::LastError()),
+                      static_cast<unsigned>(BSP::Mmc5603::LastError()));
         s_next_recovery_ms = millis() + RECOVERY_INTERVAL_MS;
         return false;
     }
 
     s_available = true;
     ScheduleNextPoll();
-    Serial.printf("[地磁] %s已初始化：地址=0x%02X，Normal 50Hz，±30G，OSR1/2=8；轴映射=%s。\n",
-                  BSP::Qmc5883::TypeName(), BSP::Qmc5883::Address(),
+    Serial.printf("[地磁] %s已初始化：地址=0x%02X，连续100Hz，带宽3.5ms，自动置位/复位；轴映射=%s。\n",
+                  BSP::Mmc5603::TypeName(), BSP::Mmc5603::Address(),
                   BOARD_AXIS_MAPPING_VERIFIED ? "已验证" : "待实板验证");
     return true;
 }
@@ -370,8 +366,8 @@ bool SysMag_Update()
         return false;
     ScheduleNextPoll();
 
-    BSP::Qmc5883::Reading reading = {};
-    if (!BSP::Qmc5883::Read(&reading))
+    BSP::Mmc5603::Reading reading = {};
+    if (!BSP::Mmc5603::Read(&reading))
     {
         MarkOffline();
         return false;
@@ -382,14 +378,12 @@ bool SysMag_Update()
     SysMagSample sample = {};
     sample.sequence = s_latest.sequence + 1;
     sample.timestamp_us = micros();
-    sample.sensor_type = BSP::Qmc5883::SensorType();
-    sample.address = BSP::Qmc5883::Address();
+    sample.address = BSP::Mmc5603::Address();
     sample.raw_x = reading.xRaw;
     sample.raw_y = reading.yRaw;
     sample.raw_z = reading.zRaw;
     sample.sensor_uT = {reading.xUt, reading.yUt, reading.zUt};
     sample.fresh = true;
-    sample.overflow = reading.status.overflow;
 
     if (s_calibration.valid)
     {
@@ -433,8 +427,8 @@ bool SysMag_GetStatus(SysMagServiceStatus *out)
     out->available = s_available;
     out->sleeping = s_sleeping;
     out->has_sample = s_has_sample;
-    out->last_error = BSP::Qmc5883::LastError();
-    BSP::Qmc5883::GetDiagnostics(&out->sensor);
+    out->last_error = BSP::Mmc5603::LastError();
+    BSP::Mmc5603::GetDiagnostics(&out->sensor);
     return true;
 }
 
@@ -454,9 +448,9 @@ bool SysMag_GetCalibration(SysMagCalibration::Result *out)
 bool SysMag_StartCalibration()
 {
     FreeCalibrationBuffer();
-    if (!BSP::Qmc5883::RangeConfigurationVerified())
+    if (!BSP::Mmc5603::ConfigurationWritten())
     {
-        Serial.println("[地磁-校准] 当前量程寄存器尚未验证，拒绝采集校准数据。");
+        Serial.println("[地磁-校准] 当前连续测量配置尚未完成，拒绝采集校准数据。");
         return false;
     }
     s_calibration_samples = static_cast<SysMagCalibration::Vector3 *>(
@@ -552,7 +546,7 @@ void SysMag_Sleep()
         return;
     SysMag_CancelCalibration();
     s_sleeping = true;
-    if (s_available && !BSP::Qmc5883::PowerDown())
+    if (s_available && !BSP::Mmc5603::PowerDown())
         MarkOffline();
 }
 
@@ -566,7 +560,7 @@ bool SysMag_Wakeup()
         s_next_recovery_ms = millis();
         return false;
     }
-    if (!BSP::Qmc5883::Wakeup())
+    if (!BSP::Mmc5603::Wakeup())
     {
         MarkOffline();
         return false;

@@ -2,7 +2,7 @@
 【模块职责】双蛇杖离散动作的可移植识别核心：统一完成静止锚定、连续双候选分段、动作局部
 特征提取、六分类、边界置信度和候选诊断。固件与PC回放编译同一份实现，避免状态机双写漂移。
 【分层边界】本模块不包含Arduino、PSRAM、串口、文件、App或反馈接口；调用方只按时间顺序喂入
-V4B机身坐标样本。SysMotion仍是唯一采样所有者，SysGesture仍是唯一业务事件队列所有者。
+统一机身坐标样本。SysMotion仍是唯一采样所有者，SysGesture仍是唯一业务事件队列所有者。
 【时间约束】输入单位固定为g、dps、us。超过100ms的采样断点会使动作局部积分失效，调用方
 必须Reset并重新完成静止锚定；500ms仅是硬上限，高置信度且稳定收尾的动作可以提前结算。
 */
@@ -49,7 +49,7 @@ namespace SysCaduceusCore
         UppercutStructure,
     };
 
-    /** 一帧已经由SysMotion转换到V4B机身坐标的输入。 */
+    /** 一帧已经由SysMotion转换到统一机身坐标的输入。 */
     struct InputSample
     {
         uint32_t sequence = 0;

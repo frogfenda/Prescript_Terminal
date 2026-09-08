@@ -1,7 +1,7 @@
 /*
-【模块职责】QMC5883 独立系统服务。它是磁力计唯一采样者，提供原始/校准磁场缓存、质量状态、
+【模块职责】MMC5603NJ独立系统服务。它是磁力计唯一采样者，提供原始/校准磁场缓存、质量状态、
 校准会话、持久化和休眠恢复；指南针、调试页、姿态融合均只是消费者。
-【坐标合同】sensor_* 保留芯片坐标；body_* 使用V4B固定安装映射。当前实板轴向未验证时
+【坐标合同】sensor_*保留芯片坐标；body_*只在当前扩展板轴向实测冻结后才有效。轴向未验证时
 AxisMappingVerified()返回false，消费者不得把 body_* 用于正式航向或姿态纠正。
 【线程约束】Init/Update/Sleep/Wakeup/校准接口均只能由Arduino主任务调用。
 */
@@ -9,18 +9,17 @@ AxisMappingVerified()返回false，消费者不得把 body_* 用于正式航向�
 
 #include <stdint.h>
 
-#include "bsp/bsp_mag_qmc5883.h"
+#include "bsp/bsp_mag_mmc5603.h"
 #include "sys/sys_mag_calibration.h"
 
 enum SysMagDisturbance : uint32_t
 {
     SYS_MAG_DISTURBANCE_NONE = 0,
-    SYS_MAG_DISTURBANCE_OVERFLOW = 1U << 0,
     SYS_MAG_DISTURBANCE_FIELD_STRENGTH = 1U << 1,
     SYS_MAG_DISTURBANCE_FIELD_STEP = 1U << 2,
     SYS_MAG_DISTURBANCE_NOT_CALIBRATED = 1U << 3,
     SYS_MAG_DISTURBANCE_AXIS_UNVERIFIED = 1U << 4,
-    SYS_MAG_DISTURBANCE_RANGE_UNVERIFIED = 1U << 5,
+    SYS_MAG_DISTURBANCE_CONFIG_UNVERIFIED = 1U << 5,
 };
 
 struct SysMagVector3
@@ -38,22 +37,20 @@ struct SysMagSample
 {
     uint32_t sequence = 0;
     uint32_t timestamp_us = 0;
-    BSP::Qmc5883::Type sensor_type = BSP::Qmc5883::Type::None;
     uint8_t address = 0;
 
-    int16_t raw_x = 0;
-    int16_t raw_y = 0;
-    int16_t raw_z = 0;
+    int32_t raw_x = 0;
+    int32_t raw_y = 0;
+    int32_t raw_z = 0;
     SysMagVector3 sensor_uT;
     SysMagVector3 calibrated_sensor_uT;
     SysMagVector3 body_uT;
     float field_strength_uT = 0.0f;
 
     bool fresh = false;
-    bool overflow = false;
     bool calibrated = false;
     bool axis_mapping_verified = false;
-    bool range_configuration_verified = false;
+    bool configuration_verified = false;
     bool disturbed = true;
     bool fusion_usable = false;
     float confidence = 0.0f;
@@ -77,8 +74,8 @@ struct SysMagServiceStatus
     bool available = false;
     bool sleeping = false;
     bool has_sample = false;
-    BSP::Qmc5883::Error last_error = BSP::Qmc5883::Error::NotInitialized;
-    BSP::Qmc5883::Diagnostics sensor;
+    BSP::Mmc5603::Error last_error = BSP::Mmc5603::Error::NotInitialized;
+    BSP::Mmc5603::Diagnostics sensor;
 };
 
 bool SysMag_Init();
@@ -87,7 +84,7 @@ bool SysMag_IsAvailable();
 bool SysMag_GetLatest(SysMagSample *out);
 bool SysMag_GetStatus(SysMagServiceStatus *out);
 
-/** 当前V4B板级轴映射是否已经用实板三轴旋转验证；false时融合必须保持关闭。 */
+/** 当前扩展板安装轴映射是否已经用实板三轴旋转验证；false时融合必须保持关闭。 */
 bool SysMag_AxisMappingVerified();
 
 /** 复制最近一次载入或拟合成功的设备校准；没有有效校准时返回false。 */
