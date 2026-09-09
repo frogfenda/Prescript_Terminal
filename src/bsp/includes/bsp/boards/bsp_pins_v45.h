@@ -41,11 +41,15 @@ namespace BSP::Pins
     // 扩展板 PCF8563 INT# 为开漏低有效；BSP 负责电平，HAL 将其与 ESP 定时器兜底一起登记为 Light Sleep 唤醒源。
     constexpr int RTC_INT = 2;
 
-    // W25N01 只在此登记并保留引脚；本次不实现 NAND BSP，也不把它冒充现有 FFat 分区。
+    /*
+     * W25N01GV使用独立SPI3；它是原始NAND，由专用BSP访问，不能冒充现有内部FFat分区。
+     * 原理图网络名把STG_MOSI/STG_MISO写反：GPIO39实际连到芯片DO/IO1，GPIO40实际连到DI/IO0。
+     * 这里按芯片引脚的真实数据方向命名，不能再次按错误网络名交换。
+     */
     constexpr int NAND_CS = 42;
     constexpr int NAND_SCLK = 41;
-    constexpr int NAND_MISO = 40;
-    constexpr int NAND_MOSI = 39;
+    constexpr int NAND_MISO = 39;
+    constexpr int NAND_MOSI = 40;
 
     // FM17550 使用 UART0：GPIO43 发往扩展板 UART_RX，GPIO44 接收扩展板 UART_TX。
     // 扩展板用 SET0/SET1 下拉固定 UART 模式，NPD 未引出，运行期只能软件复位/软休眠。

@@ -60,7 +60,7 @@ namespace BSP::Power
     {
         /*
          * 当前原理图使用 1M/1M 分压与 GPIO1 CHAG。分压比例仍是 1:1；GPIO39 已专用于
-         * W25N01 MOSI，电源代码不能再把它配置成充电输入。高阻分压的 ADC 稳定性仍需实板验证。
+         * W25N01 MISO，电源代码不能再把它配置成充电输入。高阻分压的 ADC 稳定性仍需实板验证。
          */
         pinMode(Pins::BAT_ADC, ANALOG);
         pinMode(Pins::CHRG, INPUT);

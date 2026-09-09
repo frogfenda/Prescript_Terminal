@@ -1,7 +1,8 @@
 ﻿/*
-【模块职责】板级总入口实现。当前仅做无副作用的结构占位，后续外设扩展时可统一收束板级初始化顺序。
+【模块职责】板级总入口实现。收束不依赖SYS/HAL的独立外设初始化；共享总线传感器仍由各SYS拥有。
 */
 #include "bsp/bsp_board.h"
+#include "bsp/bsp_flash_w25n01.h"
 
 namespace BSP::Board
 {
@@ -11,10 +12,11 @@ namespace BSP::Board
         // 当前 WiFi 关闭、串口初始化等仍由 main.cpp 控制，避免改变开机时序。
     }
 
-    // 【函数说明】板级常规入口。当前不主动接管外设初始化，避免破坏 HAL/SYS 的既有依赖顺序。
+    // 【函数说明】板级常规入口。初始化独占SPI3的外挂NAND；失败不阻止内部文件系统和APP启动。
     void Begin()
     {
-        // 各外设仍由 HAL/SYS 按原顺序初始化；BSP 子模块只负责具体硬件细节。
+        (void)BSP::W25n01::Begin();
+        BSP::W25n01::PrintDiagnostics();
     }
 }
 

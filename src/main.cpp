@@ -24,6 +24,7 @@
 #include "sys/sys_usb_session.h"
 #include "sys/sys_fat_update.h"
 #include "sys/sys_res.h"
+#include "bsp/bsp_board.h"
 
 void setup()
 {
@@ -47,6 +48,12 @@ void setup()
      */
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
+
+    /*
+     * 独立板级外设在文件系统和APP之前完成只读探测。W25N01初始化默认保持阵列写保护，
+     * 探测失败不会影响内部Flash上的LittleFS/FFat启动。
+     */
+    BSP::Board::Begin();
 
     SysFatUpdate::PrepareApplicationFilesystemsAtBoot();
     sysConfig.load();
