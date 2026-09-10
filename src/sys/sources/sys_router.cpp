@@ -8,6 +8,7 @@
 #include "sys/sys_event.h"
 #include "sys/sys_ble.h"
 #include "sys/sys_command_result.h"
+#include "sys/sys_device_identity.h"
 #include "lang/terminal_lang.h"
 
 #include "hal/hal.h"
@@ -127,6 +128,44 @@ static bool SysRouter_Dispatch(const SysParsedCommand &cmd)
         out += TerminalLang::LOCKED ? ":LOCKED:" : ":RUNTIME:";
         out += TerminalLang::BUILD_CODE;
         SysBLE_Notify(out.c_str());
+        return true;
+    }
+
+    case SysCommandType::GetIdentity:
+    {
+        const String response = SysDeviceIdentity_BuildPublicResponse();
+        SysBLE_Notify(response.c_str());
+        return true;
+    }
+
+    case SysCommandType::DeviceBind:
+    {
+        const SysDeviceIdentityBindResult result = SysDeviceIdentity_Bind(cmd.public_id, cmd.device_key);
+        switch (result)
+        {
+        case SysDeviceIdentityBindResult::Ok:
+            SysCmdResult_Ok("BOUND", cmd.public_id);
+            break;
+        case SysDeviceIdentityBindResult::AlreadyBound:
+            SysCmdResult_Warn("ALREADY_BOUND");
+            break;
+        case SysDeviceIdentityBindResult::InvalidPublicId:
+            SysCmdResult_Error("INVALID_PUBLIC_ID");
+            break;
+        case SysDeviceIdentityBindResult::InvalidDeviceKey:
+            SysCmdResult_Error("INVALID_DEVICE_KEY");
+            break;
+        case SysDeviceIdentityBindResult::MachineCodeUnavailable:
+            SysCmdResult_Error("MACHINE_CODE_UNAVAILABLE");
+            break;
+        case SysDeviceIdentityBindResult::StorageUnavailable:
+            SysCmdResult_Error("IDENTITY_STORAGE_UNAVAILABLE");
+            break;
+        case SysDeviceIdentityBindResult::SaveFailed:
+        default:
+            SysCmdResult_Error("IDENTITY_SAVE_FAILED");
+            break;
+        }
         return true;
     }
 
@@ -266,14 +305,17 @@ static void SysRouter_ExecuteSingle(const String &raw_cmd)
 
     if (cmd.type == SysCommandType::Invalid)
     {
-        Serial.printf("[协议层] 无效命令: %s | reason=%s\n", raw_cmd.c_str(), cmd.error.c_str());
+        Serial.printf("[协议层] 收到无效命令，长度=%u，原因=%s。\n",
+                      static_cast<unsigned int>(raw_cmd.length()),
+                      cmd.error.c_str());
         Router_SendAckErr(cmd.type, cmd.error);
         return;
     }
 
     if (cmd.type == SysCommandType::Unknown)
     {
-        Serial.printf("[协议层] 未知命令: %s\n", raw_cmd.c_str());
+        Serial.printf("[协议层] 收到未知命令，长度=%u。\n",
+                      static_cast<unsigned int>(raw_cmd.length()));
         Router_SendAckErr(cmd.type, "UNKNOWN_COMMAND");
         return;
     }
@@ -326,7 +368,9 @@ void SysRouter_ProcessBLE(const String &msg)
     String cmd;
     while (SysProtocol_NextMacroCommand(msg, cursor, cmd))
     {
-        Serial.printf("[宏引擎] 提取子指令并开火: %s\n", cmd.c_str());
+        // 子命令可能包含 Wi-Fi 密码或设备通行码，日志不再打印原文。
+        Serial.printf("[宏引擎] 已提取子指令，长度=%u。\n",
+                      static_cast<unsigned int>(cmd.length()));
         SysRouter_ExecuteSingle(cmd);
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -354,7 +398,15 @@ void _Cb_NfcScanned(void *payload)
     Evt_NfcScanned_t *p = (Evt_NfcScanned_t *)payload;
     String text = String(p->payload);
 
-    Serial.printf("[路由中心] 收到 NFC 物理卡片指令: %s\n", text.c_str());
+    // NFC 不承担设备身份配发；即使事件入口未来恢复，也不能用卡片注入 DEV_BIND。
+    if (text.indexOf("DEV_BIND:") >= 0)
+    {
+        Serial.println("[路由中心] 已拒绝 NFC 中的设备身份绑定命令。");
+        return;
+    }
+
+    Serial.printf("[路由中心] 收到 NFC 物理卡片指令，长度=%u。\n",
+                  static_cast<unsigned int>(text.length()));
     SysRouter_ProcessBLE(text);
 }
 

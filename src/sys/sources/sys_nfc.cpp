@@ -297,6 +297,14 @@ namespace
 
     bool enqueueExtractedCommand(const String &rawText)
     {
+        // 设备身份配发只允许由近场手机链路执行，NFC 卡片即使夹带在宏命令中也必须拒绝。
+        if (rawText.indexOf("DEV_BIND:") >= 0)
+        {
+            Serial.println("[NFC] 卡片包含受限的设备身份绑定命令，本次数据已拒绝。");
+            Feedback_PlayNfcReadError();
+            return false;
+        }
+
         const int start = findCommandStart(rawText);
         if (start < 0)
         {

@@ -1,5 +1,5 @@
 ﻿/*
-【模块职责】文本协议解析实现。识别 GET/TXT/ALM/SCH/PRE/WIFI/COIN/SPC 等命令，校验日期、时间、槽位和必填字段，并保留 | 与换行宏命令兼容。
+【模块职责】文本协议解析实现。识别 GET/TXT/ALM/SCH/PRE/WIFI/COIN/SPC/DEV_BIND 等命令，校验日期、时间、槽位和必填字段，并保留 | 与换行宏命令兼容。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/sys/sys_protocol.cpp
@@ -118,6 +118,30 @@ SysParsedCommand SysProtocol_ParseSingle(const String &raw)
     if (msg.startsWith("GET:LANG") || msg.startsWith("GET:INFO"))
     {
         out.type = SysCommandType::GetLanguage;
+        return out;
+    }
+
+    if (msg == "GET:IDENTITY")
+    {
+        out.type = SysCommandType::GetIdentity;
+        return out;
+    }
+
+    if (msg.startsWith("DEV_BIND:"))
+    {
+        const int separator = msg.indexOf(':', 9);
+        if (separator < 0)
+            return MakeInvalid(msg, "DEV_BIND_FORMAT");
+
+        out.type = SysCommandType::DeviceBind;
+        out.public_id = msg.substring(9, separator);
+        out.device_key = msg.substring(separator + 1);
+        out.public_id.trim();
+        out.device_key.trim();
+        if (out.public_id.length() == 0)
+            return MakeInvalid(msg, "DEV_BIND_EMPTY_ID");
+        if (out.device_key.length() == 0)
+            return MakeInvalid(msg, "DEV_BIND_EMPTY_KEY");
         return out;
     }
 
@@ -448,6 +472,10 @@ const char *SysProtocol_CommandName(SysCommandType type)
         return "TGT_DEL";
     case SysCommandType::TargetSet:
         return "TGT_SET";
+    case SysCommandType::GetIdentity:
+        return "GET_IDENTITY";
+    case SysCommandType::DeviceBind:
+        return "DEV_BIND";
     case SysCommandType::Invalid:
         return "INVALID";
     case SysCommandType::Unknown:
@@ -476,6 +504,7 @@ bool SysProtocol_IsMutating(SysCommandType type)
     case SysCommandType::TargetAdd:
     case SysCommandType::TargetDel:
     case SysCommandType::TargetSet:
+    case SysCommandType::DeviceBind:
         return true;
     default:
         return false;

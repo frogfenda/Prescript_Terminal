@@ -3,13 +3,15 @@
 【模块职责】网络同步实现。
 
 网络任务固定运行在 Core 0，主 UI 循环运行在 Arduino loop 所在核心。
-主循环只负责状态检查和任务唤醒，真正的 WiFi/NTP/HTTP 全部在 network_daemon_task 中执行。
+主循环只负责状态检查和会话请求，真正的 WiFi/NTP/HTTP 与持久化 Outbox 消费全部在
+network_daemon_task 中执行。
 
 本文件的关键设计：
 1. 开机不立刻启动 WiFi，而是通过 Network_RequestBootSync() 延迟触发，避免首屏卡顿；
 2. 普通同步执行 NTP + API，周期校时只执行 NTP；
 3. 网络任务只用 UDP NTP 获取 UTC epoch，不直接修改 ESP32 时钟；结果排队交给主循环统一应用并写入 RTC；
 4. 失败后设置退避窗口，避免无网环境下反复打开 WiFi。
+5. 任意成功联网会话都会消费 Outbox，具体业务通过 job_type 执行器注册，不写入网络编排代码。
 */
 #include "sys/sys_network.h"
 #include "sys/sys_config.h"
@@ -27,17 +29,24 @@
 #include "sys/sys_constants.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_sleep_scheduler.h"
+#include "sys/sys_network_outbox.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 #include <queue>
 #include <mutex>
 
 volatile NetworkState g_state = NET_DISCONNECTED;
 TaskHandle_t g_netTaskHandle = NULL;
+static volatile bool g_worker_active = false;
+static volatile bool g_abort_requested = false;
+static volatile NetworkState g_abort_target_state = NET_SYNC_FAILED;
 
 namespace
 {
     bool NetworkStateBlocksSleep(NetworkState state)
     {
-        return state == NET_CONNECTING ||
+        return g_worker_active ||
+               state == NET_CONNECTING ||
                state == NET_SYNCING_NTP ||
                state == NET_FETCHING_API ||
                state == NET_SYNC_SUCCESS;
@@ -51,15 +60,16 @@ namespace
     }
 }
 
-/* keep_alive=true 时，完整同步完成后保持 WiFi 在线；否则任务收尾时关闭 WiFi。 */
-static volatile bool g_keep_wifi_alive = false;
-
 /*
- * 本轮网络任务是否请求隐秘指令 API。
- * - Network_StartSync() 设置为 true：完整同步；
- * - Network_StartTimeSyncOnly() 设置为 false：周期轻量校时。
+ * 主循环向 Core 0 投递不可变会话请求，避免 keep_alive/fetch_api 两个跨核全局变量被下一次
+ * 请求改写。队列长度为 1：当前只允许一个会话运行，也不积压过时的“再次联网”请求。
  */
-static volatile bool g_fetch_api_this_round = true;
+struct NetworkSessionRequest
+{
+    bool keep_alive;
+    bool fetch_hidden_api;
+};
+static QueueHandle_t g_session_request_queue = nullptr;
 
 /* 开机自动同步延迟触发状态：setup() 只登记，loop() 中到点触发。 */
 static volatile bool g_boot_sync_pending = false;
@@ -72,6 +82,18 @@ static constexpr uint32_t NETWORK_TOTAL_TIMEOUT_MS = 25000;
 /* 周期轻量校时失败后的退避时间。无网时不要连续反复打开 WiFi。 */
 static constexpr uint32_t TIME_RESYNC_RETRY_AFTER_FAIL_MS = 5UL * 60UL * 1000UL;
 static uint32_t g_next_time_resync_allowed_ms = 0;
+
+/* 每轮最多执行 8 项，防止待办积压后一次联网无限占用射频和电量。 */
+static constexpr uint8_t NETWORK_OUTBOX_MAX_JOBS_PER_SESSION = 8;
+static constexpr uint8_t NETWORK_JOB_HANDLER_CAPACITY = 12;
+static constexpr uint32_t NETWORK_JOB_UNHANDLED_RETRY_SECONDS = 60UL * 60UL;
+
+struct NetworkJobHandlerEntry
+{
+    uint16_t job_type = 0;
+    NetworkJobHandler handler = nullptr;
+};
+static NetworkJobHandlerEntry g_job_handlers[NETWORK_JOB_HANDLER_CAPACITY];
 
 /*
  * 不能使用 configTime()/configTzTime()：Arduino-ESP32 的 SNTP 客户端会在后台直接修改
@@ -192,7 +214,7 @@ static bool _Network_ConnectWifi()
     WiFi.begin(sysConfig.wifi_ssid.c_str(), sysConfig.wifi_pass.c_str());
 
     int timeout_ticks = 0;
-    while (WiFi.status() != WL_CONNECTED && timeout_ticks < 20)
+    while (!g_abort_requested && WiFi.status() != WL_CONNECTED && timeout_ticks < 20)
     {
         vTaskDelay(pdMS_TO_TICKS(500));
         timeout_ticks++;
@@ -209,8 +231,9 @@ static bool _Network_ConnectWifi()
  * - 校验响应来源、模式、层级和请求回显，拒绝旧包或无效服务器响应；
  * - 成功后只把 UTC epoch 投递给 SysTime，settimeofday、RTC 写入和状态更新都留在主循环。
  */
-static bool _Network_SyncNtp()
+static bool _Network_SyncNtp(time_t &out_network_epoch)
 {
+    out_network_epoch = 0;
     NetworkSetState(NET_SYNCING_NTP);
     Serial.println("[网络] WiFi 已连接，开始 NTP 对时...");
 
@@ -224,6 +247,9 @@ static bool _Network_SyncNtp()
 
     for (const char *server_name : NTP_SERVERS)
     {
+        if (g_abort_requested)
+            break;
+
         IPAddress server_ip;
         if (WiFi.hostByName(server_name, server_ip) != 1)
         {
@@ -263,6 +289,12 @@ static bool _Network_SyncNtp()
         const uint32_t wait_started_ms = millis();
         while ((uint32_t)(millis() - wait_started_ms) < NTP_RESPONSE_TIMEOUT_MS)
         {
+            if (g_abort_requested)
+            {
+                udp.stop();
+                return false;
+            }
+
             const int packet_size = udp.parsePacket();
             if (packet_size < (int)NTP_PACKET_SIZE)
             {
@@ -308,6 +340,7 @@ static bool _Network_SyncNtp()
                 return false;
             }
 
+            out_network_epoch = network_epoch;
             Serial.printf("[网络] 已收到 NTP 响应并交给主循环：服务器=%s。\n", server_name);
             udp.stop();
             return true;
@@ -318,6 +351,95 @@ static bool _Network_SyncNtp()
 
     udp.stop();
     return false;
+}
+
+/** 查找任务类型对应的执行器；注册表只在 setup 阶段写，网络任务运行期只读。 */
+static NetworkJobHandler _Network_FindJobHandler(uint16_t job_type)
+{
+    for (const NetworkJobHandlerEntry &entry : g_job_handlers)
+    {
+        if (entry.job_type == job_type)
+            return entry.handler;
+    }
+    return nullptr;
+}
+
+/** 默认指数退避从 30 秒起，最多 6 小时；服务端 Retry-After 可通过结果显式覆盖。 */
+static uint32_t _Network_DefaultJobRetrySeconds(uint8_t attempt_count)
+{
+    const uint8_t exponent = attempt_count > 10 ? 10 : (attempt_count > 0 ? attempt_count - 1 : 0);
+    uint32_t delay_seconds = 30UL << exponent;
+    const uint32_t maximum_seconds = 6UL * 60UL * 60UL;
+    return delay_seconds > maximum_seconds ? maximum_seconds : delay_seconds;
+}
+
+/**
+ * 在已联网且 NTP 已返回后消费持久化 Outbox。
+ * 领取动作先落盘 attempt_count，再调用业务执行器；因此执行中掉电只会造成安全重放。
+ */
+static void _Network_DrainOutbox(time_t network_epoch)
+{
+    const SysNetworkOutboxStats initial_stats = SysNetworkOutbox_GetStats();
+    if (!initial_stats.storage_ready || initial_stats.pending_count == 0)
+        return;
+
+    NetworkSetState(NET_FETCHING_API);
+    Serial.printf("[网络] 开始处理联网待办：本轮上限=%u，当前待处理=%u。\n",
+                  static_cast<unsigned>(NETWORK_OUTBOX_MAX_JOBS_PER_SESSION),
+                  static_cast<unsigned>(initial_stats.pending_count));
+
+    for (uint8_t index = 0; index < NETWORK_OUTBOX_MAX_JOBS_PER_SESSION; ++index)
+    {
+        if (g_abort_requested)
+            break;
+
+        SysNetworkJob job;
+        if (!SysNetworkOutbox_ClaimNextReady(static_cast<int64_t>(network_epoch), &job))
+            break;
+
+        NetworkJobHandler handler = _Network_FindJobHandler(job.job_type);
+        if (!handler)
+        {
+            const int64_t retry_epoch = static_cast<int64_t>(network_epoch) + NETWORK_JOB_UNHANDLED_RETRY_SECONDS;
+            SysNetworkOutbox_Retry(job.job_id, retry_epoch);
+            Serial.printf("[网络] 任务类型 %u 尚未注册执行器，保留任务并延后 1 小时。\n",
+                          static_cast<unsigned>(job.job_type));
+            continue;
+        }
+
+        Serial.printf("[网络] 执行待办：类型=%u，尝试=%u，ID=%08lX%08lX。\n",
+                      static_cast<unsigned>(job.job_type),
+                      static_cast<unsigned>(job.attempt_count),
+                      static_cast<unsigned long>(job.job_id >> 32),
+                      static_cast<unsigned long>(job.job_id));
+
+        const NetworkJobExecutionResult result = handler(job, static_cast<int64_t>(network_epoch));
+        bool saved = false;
+        if (result.disposition == NetworkJobDisposition::Complete)
+        {
+            saved = SysNetworkOutbox_Complete(job.job_id);
+            Serial.printf("[网络] 联网待办%s确认完成。\n", saved ? "已" : "未能");
+        }
+        else if (result.disposition == NetworkJobDisposition::PermanentFailure)
+        {
+            saved = SysNetworkOutbox_DeadLetter(job.job_id);
+            Serial.printf("[网络] 联网待办发生永久错误，%s转入死信。\n", saved ? "已" : "未能");
+        }
+        else
+        {
+            const uint32_t delay_seconds = result.retry_after_seconds > 0
+                                               ? result.retry_after_seconds
+                                               : _Network_DefaultJobRetrySeconds(job.attempt_count);
+            saved = SysNetworkOutbox_Retry(job.job_id, static_cast<int64_t>(network_epoch) + delay_seconds);
+            Serial.printf("[网络] 联网待办暂时失败，%s设置 %lu 秒后重试。\n",
+                          saved ? "已" : "未能",
+                          static_cast<unsigned long>(delay_seconds));
+        }
+
+        /* 状态提交失败时停止本轮，避免同一任务在一次会话内紧密重复。 */
+        if (!saved)
+            break;
+    }
 }
 
 /**
@@ -409,38 +531,43 @@ static bool isWifiConfigured()
 
 static void _Network_FailAndShutdown(NetworkState state)
 {
-    NetworkSetState(state);
     g_sync_started_ms = 0;
     g_next_time_resync_allowed_ms = millis() + TIME_RESYNC_RETRY_AFTER_FAIL_MS;
 
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
+    g_worker_active = false;
+    NetworkSetState(state);
 }
 
 /**
  * Core 0 后台网络守护任务。
  *
  * 执行流程：
- * 1. 等待 Network_StartSync / Network_StartTimeSyncOnly 发送通知；
- * 2. 锁定本轮是否 fetch API；
+ * 1. 等待 Network_StartSync / Network_StartTimeSyncOnly 投递不可变会话请求；
+ * 2. 从请求中读取本轮是否 fetch API、是否保持 WiFi；
  * 3. 连接 WiFi；
  * 4. NTP 对时；
- * 5. 根据本轮模式决定是否请求隐秘指令 API；
- * 6. 成功后更新下一次允许校时时间；
- * 7. 根据 keep_alive 决定保持在线或关闭 WiFi。
+ * 5. 消费持久化联网待办；
+ * 6. 根据本轮模式决定是否请求隐秘指令 API；
+ * 7. 成功后更新下一次允许校时时间；
+ * 8. 根据 keep_alive 决定保持在线或关闭 WiFi。
  */
 static void network_daemon_task(void *pvParameters)
 {
     while (true)
     {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-        bool fetch_api = g_fetch_api_this_round;
+        NetworkSessionRequest request = {};
+        if (!g_session_request_queue ||
+            xQueueReceive(g_session_request_queue, &request, portMAX_DELAY) != pdTRUE)
+            continue;
 
         if (!isWifiConfigured())
         {
             Serial.println("[网络] 未配置真实 WiFi，跳过自动同步。");
             g_next_time_resync_allowed_ms = millis() + TIME_RESYNC_RETRY_AFTER_FAIL_MS;
+            g_sync_started_ms = 0;
+            g_worker_active = false;
             NetworkSetState(NET_DISCONNECTED);
             continue;
         }
@@ -448,18 +575,34 @@ static void network_daemon_task(void *pvParameters)
         if (!_Network_ConnectWifi())
         {
             Serial.println("[网络] WiFi 连接超时。");
-            _Network_FailAndShutdown(NET_CONNECT_FAILED);
+            _Network_FailAndShutdown(g_abort_requested ? g_abort_target_state : NET_CONNECT_FAILED);
             continue;
         }
 
-        if (!_Network_SyncNtp())
+        time_t network_epoch = 0;
+        if (!_Network_SyncNtp(network_epoch))
         {
             Serial.println("[网络] NTP 对时超时。");
-            _Network_FailAndShutdown(NET_SYNC_FAILED);
+            _Network_FailAndShutdown(g_abort_requested ? g_abort_target_state : NET_SYNC_FAILED);
             continue;
         }
 
-        if (fetch_api)
+        if (g_abort_requested)
+        {
+            _Network_FailAndShutdown(g_abort_target_state);
+            continue;
+        }
+
+        /* 无论本轮因何联网，只要连接和校时成功，就顺手处理“下次联网”待办。 */
+        _Network_DrainOutbox(network_epoch);
+
+        if (g_abort_requested)
+        {
+            _Network_FailAndShutdown(g_abort_target_state);
+            continue;
+        }
+
+        if (request.fetch_hidden_api)
         {
             _Network_FetchHiddenPrescripts();
         }
@@ -480,15 +623,22 @@ static void network_daemon_task(void *pvParameters)
         Serial.println("[网络] 本轮网络任务完成。");
         vTaskDelay(pdMS_TO_TICKS(2000));
 
-        if (!g_keep_wifi_alive)
+        if (g_abort_requested)
+        {
+            _Network_FailAndShutdown(g_abort_target_state);
+        }
+        else if (!request.keep_alive)
         {
             Serial.println("[网络] 自动同步结束，正在关闭 WiFi。");
             WiFi.disconnect(true, false);
             WiFi.mode(WIFI_OFF);
+            g_worker_active = false;
             NetworkSetState(NET_DISCONNECTED);
         }
         else
         {
+            g_worker_active = false;
+            NetworkSetState(NET_SYNC_SUCCESS);
             Serial.println("[网络] 手动连接模式，保持 WiFi 在线。");
         }
     }
@@ -506,6 +656,13 @@ void Network_Init()
     g_next_time_resync_allowed_ms = millis() + ((uint32_t)sysConfig.time_resync_interval_min * 60UL * 1000UL);
 
     SysEvent_Subscribe(EVT_WIFI_SET, _Cb_WifiSet);
+
+    g_session_request_queue = xQueueCreate(1, sizeof(NetworkSessionRequest));
+    if (!g_session_request_queue)
+    {
+        Serial.println("[网络] 无法创建联网会话请求队列。");
+        return;
+    }
 
     const BaseType_t created = xTaskCreatePinnedToCore(
         network_daemon_task,
@@ -525,69 +682,80 @@ void Network_Init()
     }
 }
 
+bool Network_RegisterJobHandler(uint16_t job_type, NetworkJobHandler handler)
+{
+    if (job_type == 0 || !handler || g_worker_active)
+        return false;
+
+    for (NetworkJobHandlerEntry &entry : g_job_handlers)
+    {
+        if (entry.job_type == job_type)
+            return false;
+        if (entry.job_type == 0)
+        {
+            entry.job_type = job_type;
+            entry.handler = handler;
+            Serial.printf("[网络] 已注册联网待办执行器：类型=%u。\n", static_cast<unsigned>(job_type));
+            return true;
+        }
+    }
+
+    Serial.println("[网络] 联网待办执行器注册表已满。");
+    return false;
+}
+
+static bool _Network_QueueSession(const NetworkSessionRequest &request, const char *description)
+{
+    if (!g_netTaskHandle || !g_session_request_queue)
+    {
+        Serial.printf("[网络] %s被忽略：网络任务尚未创建。\n", description);
+        return false;
+    }
+    if (!isWifiConfigured())
+    {
+        Serial.printf("[网络] %s被忽略：尚未配置真实 WiFi。\n", description);
+        NetworkSetState(NET_CONNECT_FAILED);
+        return false;
+    }
+    if (Network_IsBusy())
+    {
+        Serial.printf("[网络] %s被忽略：网络会话正在运行或保持在线。\n", description);
+        return false;
+    }
+
+    g_abort_requested = false;
+    g_abort_target_state = NET_SYNC_FAILED;
+    g_sync_started_ms = millis();
+    g_worker_active = true;
+    NetworkSetState(NET_CONNECTING);
+    if (xQueueSend(g_session_request_queue, &request, 0) != pdTRUE)
+    {
+        g_worker_active = false;
+        g_sync_started_ms = 0;
+        NetworkSetState(NET_SYNC_FAILED);
+        Serial.printf("[网络] %s入队失败。\n", description);
+        return false;
+    }
+    return true;
+}
+
 void Network_StartSync(bool keep_alive)
 {
-    g_keep_wifi_alive = keep_alive;
-    g_fetch_api_this_round = true;
-
     /*
      * 如果用户在开机自动同步延迟期间手动触发网络同步，
      * 取消原定的开机同步，避免几秒后重复启动第二轮同步。
      */
     g_boot_sync_pending = false;
 
-    if (g_netTaskHandle == NULL)
-    {
-        Serial.println("[网络] 同步请求被忽略：网络任务尚未创建。");
-        return;
-    }
-
-    if (sysConfig.wifi_ssid.isEmpty())
-    {
-        Serial.println("[网络] 同步请求被忽略：SSID 为空。");
-        NetworkSetState(NET_CONNECT_FAILED);
-        return;
-    }
-
-    if (Network_IsBusy())
-    {
-        Serial.println("[网络] 同步请求被忽略：网络任务正在运行。");
-        return;
-    }
-
-    g_sync_started_ms = millis();
-    NetworkSetState(NET_CONNECTING);
-    xTaskNotifyGive(g_netTaskHandle);
+    const NetworkSessionRequest request = {keep_alive, true};
+    _Network_QueueSession(request, "完整同步请求");
 }
 
 void Network_StartTimeSyncOnly()
 {
-    g_keep_wifi_alive = false;
-    g_fetch_api_this_round = false;
-
-    if (g_netTaskHandle == NULL)
-    {
-        Serial.println("[网络] 轻量校时被忽略：网络任务尚未创建。");
-        return;
-    }
-
-    if (sysConfig.wifi_ssid.isEmpty())
-    {
-        Serial.println("[网络] 轻量校时被忽略：SSID 为空。");
-        return;
-    }
-
-    if (Network_IsBusy())
-    {
-        Serial.println("[网络] 轻量校时被忽略：网络任务正在运行。");
-        return;
-    }
-
-    g_sync_started_ms = millis();
-    NetworkSetState(NET_CONNECTING);
-
     Serial.println("[网络] 开始轻量 NTP 校时。");
-    xTaskNotifyGive(g_netTaskHandle);
+    const NetworkSessionRequest request = {false, false};
+    _Network_QueueSession(request, "轻量校时请求");
 }
 
 NetworkState Network_GetState()
@@ -672,14 +840,34 @@ void Network_Update()
 
 void Network_Abort()
 {
-    g_keep_wifi_alive = false;
     g_boot_sync_pending = false;
     g_sync_started_ms = 0;
     g_next_time_resync_allowed_ms = millis() + TIME_RESYNC_RETRY_AFTER_FAIL_MS;
+    g_abort_target_state = NET_SYNC_FAILED;
+    g_abort_requested = true;
+
+    if (g_session_request_queue)
+        xQueueReset(g_session_request_queue);
 
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
 
     NetworkSetState(NET_SYNC_FAILED);
     Serial.println("[网络] 已强制关闭 WiFi，状态置为 NET_SYNC_FAILED。");
+}
+
+void Network_Disconnect()
+{
+    g_boot_sync_pending = false;
+    g_sync_started_ms = 0;
+    g_abort_target_state = NET_DISCONNECTED;
+    g_abort_requested = true;
+
+    if (g_session_request_queue)
+        xQueueReset(g_session_request_queue);
+
+    WiFi.disconnect(true, false);
+    WiFi.mode(WIFI_OFF);
+    NetworkSetState(NET_DISCONNECTED);
+    Serial.println("[网络] 已按用户请求关闭 WiFi。");
 }

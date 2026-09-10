@@ -1,6 +1,8 @@
 ﻿#include <Arduino.h>
 #include <WiFi.h>
 #include "sys/sys_config.h"
+#include "sys/sys_device_identity.h"
+#include "sys/sys_network_outbox.h"
 #include "sys/sys_time.h"
 #include "sys/sys_calendar.h"
 #include "sys/sys_network.h"
@@ -57,6 +59,10 @@ void setup()
 
     SysFatUpdate::PrepareApplicationFilesystemsAtBoot();
     sysConfig.load();
+    // 身份凭据使用独立 NVS 分区，不依赖 LittleFS 配置是否可读，也不在这里触发任何联网行为。
+    SysDeviceIdentity_Init();
+    // 联网待办使用另一块独立 NVS；初始化只恢复任务，不会因此立即打开 WiFi。
+    SysNetworkOutbox_Init();
 
     /*
      * 先把配置中的语言写入 AppManager。

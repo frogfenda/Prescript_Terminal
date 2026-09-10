@@ -31,7 +31,9 @@ enum class SysCommandType : uint8_t
     GetTarget,
     TargetAdd,
     TargetDel,
-    TargetSet
+    TargetSet,
+    GetIdentity,
+    DeviceBind
 };
 
 struct SysParsedCommand
@@ -47,6 +49,8 @@ struct SysParsedCommand
     String id;
     String ssid;
     String pass;
+    String public_id;
+    String device_key;
     String colors;
     String sync_lang;
 

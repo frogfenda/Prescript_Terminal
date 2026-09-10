@@ -5,7 +5,6 @@
 #include "sys/sys_audio.h"
 #include "hal/hal.h"
 #include "lang/ui_strings.h"
-#include <WiFi.h> // 【关键修复】：必须包含WiFi库，否则无法执行断网指令
 
 class AppWifiConnect : public AppBase
 {
@@ -51,10 +50,7 @@ public:
         // 1. 如果已经连上 -> 强行断网
         if (state == NET_SYNC_SUCCESS)
         {
-            WiFi.disconnect(true, false);
-            WiFi.mode(WIFI_OFF);
-            extern volatile NetworkState g_state;
-            g_state = NET_DISCONNECTED; // 强制更新底层状态
+            Network_Disconnect();
 
             drawUI(UIStrings::WifiDisconnected(appManager.getLanguage()));
             sysAudio.playTone(800, 100);

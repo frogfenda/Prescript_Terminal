@@ -20,9 +20,9 @@ class TerminalBLECallbacks : public NimBLECharacteristicCallbacks
     {
         std::string value = pCharacteristic->getValue();
 
-        Serial.print("[Core 0] BLE Rx: '");
-        Serial.print(value.c_str());
-        Serial.println("'");
+        // 命令可能包含 Wi-Fi 密码或设备通行码，串口只记录长度，不输出原始载荷。
+        Serial.printf("[BLE] 已收到写入，长度=%u 字节，等待主循环处理。\n",
+                      static_cast<unsigned int>(value.size()));
 
         if (value.find("CMD:PUSH_NOW") != std::string::npos)
         {

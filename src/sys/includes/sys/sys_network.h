@@ -14,6 +14,8 @@ SysTime 在主循环统一应用并写回 RTC。App 层不要直接调用 WiFi.b
 #pragma once
 #include <Arduino.h>
 
+struct SysNetworkJob;
+
 enum NetworkState {
     NET_DISCONNECTED,   // WiFi 关闭或网络任务空闲
     NET_CONNECTING,     // 正在连接 WiFi AP
@@ -65,6 +67,38 @@ void Network_StartSync(bool keep_alive = false);
  */
 void Network_StartTimeSyncOnly();
 
+/** 联网待办执行结果。Complete 会删除任务；Retry 会保留并退避；PermanentFailure 进入死信。 */
+enum class NetworkJobDisposition : uint8_t
+{
+    Complete,
+    Retry,
+    PermanentFailure,
+};
+
+struct NetworkJobExecutionResult
+{
+    NetworkJobDisposition disposition;
+    uint32_t retry_after_seconds; // 仅 Retry 使用；0 表示采用网络模块的指数退避。
+
+    NetworkJobExecutionResult(
+        NetworkJobDisposition result = NetworkJobDisposition::Retry,
+        uint32_t retry_seconds = 0)
+        : disposition(result), retry_after_seconds(retry_seconds) {}
+};
+
+/**
+ * 联网待办执行器。它运行在 Core 0 网络任务中，此时 WiFi 已连接且 NTP 已返回可信 UTC。
+ *
+ * 约束：
+ * - 可以执行 HTTP/TLS 等网络 I/O；单项应自行设置有限超时；
+ * - 不得直接修改 UI、LittleFS 业务对象或访问 Wire/I2C；需要落地的结果应投递回主循环；
+ * - 必须把 job.job_id 一并发给服务器作为幂等键。
+ */
+using NetworkJobHandler = NetworkJobExecutionResult (*)(const SysNetworkJob &job, int64_t network_epoch);
+
+/** setup 阶段注册 job_type 对应的执行器；同一类型不能重复注册。 */
+bool Network_RegisterJobHandler(uint16_t job_type, NetworkJobHandler handler);
+
 /**
  * 返回当前网络状态。
  *
@@ -74,6 +108,9 @@ NetworkState Network_GetState();
 
 /** 返回网络任务或保持在线阶段是否仍占用 WiFi；状态变化会同步登记统一休眠 blocker。 */
 bool Network_IsBusy();
+
+/** 统一关闭 WiFi 并清理网络状态；APP 不应直接操作 WiFi 或 g_state。 */
+void Network_Disconnect();
 
 /**
  * 请求一次延迟开机自动同步。
@@ -91,6 +128,7 @@ void Network_RequestBootSync(uint32_t delay_ms);
  * - 到点触发开机完整同步；
  * - 检查网络总超时兜底；
  * - 根据配置触发周期轻量 NTP 校时。
+ * 真正联网成功后，Core 0 会在同一会话中领取并处理持久化 Outbox。
  *
  * 这里不直接执行 WiFi.begin()/HTTP/NTP 等耗时动作。
  */
