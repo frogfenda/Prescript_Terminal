@@ -1,7 +1,7 @@
 ﻿// 文件：src/apps/app_network_sync.cpp
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
-#include "sys/sys_network.h"
+#include "net/net_service.h"
 #include "sys/sys_audio.h"
 #include "hal/hal.h"
 #include "lang/ui_strings.h"
@@ -58,7 +58,7 @@ public:
         m_state = 0;
         
         // 同样是打响指！如果守护神没跑就跑起来，如果在跑了就不会重复触发
-        Network_StartSync(); 
+        NetService_StartStandardSync();
     }
 
     void onLoop() override {
@@ -68,9 +68,10 @@ public:
             anim_dots = (anim_dots + 1) % 4;
         }
 
-        NetworkState state = Network_GetState();
+        NetServiceState state = NetService_GetState();
 
-        if (state == NET_SYNC_SUCCESS) {
+        if (state == NetServiceState::SyncSuccess &&
+            NetService_GetLastOutcome() != NetSessionOutcome::CompletedWithErrors) {
             if (m_state != 2) {
                 m_state = 2; m_timer = millis();
                 // 第二个音由音频任务延迟启动，网络状态页主循环不再阻塞 60ms。
@@ -79,7 +80,10 @@ public:
             }
             if (millis() - m_timer > 1500) { appManager.popApp(); return; }
         }
-        else if (state == NET_CONNECT_FAILED || state == NET_SYNC_FAILED) {
+        else if (state == NetServiceState::ConnectFailed ||
+                 state == NetServiceState::SyncFailed ||
+                 (state == NetServiceState::SyncSuccess &&
+                  NetService_GetLastOutcome() == NetSessionOutcome::CompletedWithErrors)) {
             if (m_state != 3) {
                 m_state = 3; m_timer = millis();
                 sysAudio.playTone(500, 100);
@@ -87,9 +91,9 @@ public:
             if (millis() - m_timer > 2000) { appManager.popApp(); return; }
         }
         else {
-            if (state == NET_CONNECTING) m_state = 0;
-            else if (state == NET_SYNCING_NTP) m_state = 1;
-            else if (state == NET_FETCHING_API) m_state = 4; // 增加 API 拉取状态
+            if (state == NetServiceState::Connecting) m_state = 0;
+            else if (state == NetServiceState::SyncingTime) m_state = 1;
+            else if (state == NetServiceState::RunningTasks) m_state = 4;
         }
 
         // 【降温核心】：只有状态改变才推给屏幕！

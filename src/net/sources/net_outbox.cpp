@@ -1,10 +1,10 @@
-// 文件：src/sys/sources/sys_network_outbox.cpp
+// 文件：src/net/sources/net_outbox.cpp
 /*
 【模块职责】用独立 NVS 分区实现固定容量联网 Outbox。
 【并发边界】主循环可入队，Core 0 网络任务可领取/确认；所有 NVS 事务由同一互斥锁串行化。
 【掉电边界】领取只增加尝试次数，不写“执行中”状态；因此任何阶段掉电都不会把任务永久卡死。
 */
-#include "sys/sys_network_outbox.h"
+#include "net/net_outbox.h"
 
 #include <cstddef>
 #include <cstring>
@@ -33,7 +33,7 @@ namespace
         uint16_t record_size;
         uint64_t job_id;
         uint32_t created_sequence;
-        uint16_t job_type;
+        uint16_t task_id;
         uint8_t priority;
         uint8_t attempt_count;
         uint8_t state;
@@ -41,7 +41,7 @@ namespace
         uint16_t payload_length;
         uint64_t dedup_key;
         int64_t not_before_epoch;
-        uint8_t payload[SYS_NETWORK_JOB_PAYLOAD_MAX];
+        uint8_t payload[NET_OUTBOX_PAYLOAD_MAX];
         uint32_t checksum;
     };
 
@@ -89,25 +89,25 @@ namespace
                record.schema_version == kSchemaVersion &&
                record.record_size == sizeof(StoredNetworkJob) &&
                record.job_id != 0 &&
-               record.job_type != 0 &&
-               record.payload_length <= SYS_NETWORK_JOB_PAYLOAD_MAX &&
-               record.state <= static_cast<uint8_t>(SysNetworkJobState::DeadLetter) &&
+               record.task_id != 0 &&
+               record.payload_length <= NET_OUTBOX_PAYLOAD_MAX &&
+               record.state <= static_cast<uint8_t>(NetOutboxJobState::DeadLetter) &&
                record.not_before_epoch >= 0 &&
                record.checksum == CalculateChecksum(record);
     }
 
-    void CopyPublicJob(const StoredNetworkJob &source, SysNetworkJob *target)
+    void CopyPublicJob(const StoredNetworkJob &source, NetOutboxJob *target)
     {
         memset(target, 0, sizeof(*target));
         target->job_id = source.job_id;
         target->dedup_key = source.dedup_key;
         target->created_sequence = source.created_sequence;
         target->not_before_epoch = source.not_before_epoch;
-        target->job_type = source.job_type;
+        target->task_id = source.task_id;
         target->payload_length = source.payload_length;
         target->priority = source.priority;
         target->attempt_count = source.attempt_count;
-        target->state = static_cast<SysNetworkJobState>(source.state);
+        target->state = static_cast<NetOutboxJobState>(source.state);
         if (source.payload_length > 0)
             memcpy(target->payload, source.payload, source.payload_length);
     }
@@ -190,7 +190,7 @@ namespace
 
     bool FindJobSlot(nvs_handle_t handle, uint64_t job_id, uint8_t *out_slot, StoredNetworkJob *out_record)
     {
-        for (uint8_t slot = 0; slot < SYS_NETWORK_OUTBOX_CAPACITY; ++slot)
+        for (uint8_t slot = 0; slot < NET_OUTBOX_CAPACITY; ++slot)
         {
             StoredNetworkJob record = {};
             const esp_err_t error = ReadSlot(handle, slot, &record);
@@ -217,7 +217,7 @@ namespace
                 continue;
 
             bool collision = false;
-            for (uint8_t slot = 0; slot < SYS_NETWORK_OUTBOX_CAPACITY; ++slot)
+            for (uint8_t slot = 0; slot < NET_OUTBOX_CAPACITY; ++slot)
             {
                 StoredNetworkJob record = {};
                 if (ReadSlot(handle, slot, &record) == ESP_OK && record.job_id == candidate)
@@ -233,7 +233,7 @@ namespace
     }
 }
 
-bool SysNetworkOutbox_Init()
+bool NetOutbox_Init()
 {
     s_storageReady = false;
     if (!s_mutex)
@@ -258,7 +258,7 @@ bool SysNetworkOutbox_Init()
 
     uint8_t pending = 0;
     uint8_t dead = 0;
-    for (uint8_t slot = 0; slot < SYS_NETWORK_OUTBOX_CAPACITY; ++slot)
+    for (uint8_t slot = 0; slot < NET_OUTBOX_CAPACITY; ++slot)
     {
         StoredNetworkJob record = {};
         error = ReadSlot(handle, slot, &record);
@@ -271,7 +271,7 @@ bool SysNetworkOutbox_Init()
                           static_cast<unsigned>(slot));
             return false;
         }
-        if (record.state == static_cast<uint8_t>(SysNetworkJobState::Pending))
+        if (record.state == static_cast<uint8_t>(NetOutboxJobState::Pending))
             ++pending;
         else
             ++dead;
@@ -282,13 +282,13 @@ bool SysNetworkOutbox_Init()
     Serial.printf("[联网待办] 专用存储已就绪：待处理=%u，死信=%u，容量=%u。\n",
                   static_cast<unsigned>(pending),
                   static_cast<unsigned>(dead),
-                  static_cast<unsigned>(SYS_NETWORK_OUTBOX_CAPACITY));
+                  static_cast<unsigned>(NET_OUTBOX_CAPACITY));
     return true;
 }
 
-SysNetworkOutboxStats SysNetworkOutbox_GetStats()
+NetOutboxStats NetOutbox_GetStats()
 {
-    SysNetworkOutboxStats stats;
+    NetOutboxStats stats;
     stats.storage_ready = s_storageReady;
     if (!s_storageReady)
         return stats;
@@ -307,7 +307,7 @@ SysNetworkOutboxStats SysNetworkOutbox_GetStats()
         return stats;
     }
 
-    for (uint8_t slot = 0; slot < SYS_NETWORK_OUTBOX_CAPACITY; ++slot)
+    for (uint8_t slot = 0; slot < NET_OUTBOX_CAPACITY; ++slot)
     {
         StoredNetworkJob record = {};
         const esp_err_t error = ReadSlot(handle, slot, &record);
@@ -318,7 +318,7 @@ SysNetworkOutboxStats SysNetworkOutbox_GetStats()
             stats.storage_ready = false;
             break;
         }
-        if (record.state == static_cast<uint8_t>(SysNetworkJobState::Pending))
+        if (record.state == static_cast<uint8_t>(NetOutboxJobState::Pending))
             ++stats.pending_count;
         else
             ++stats.dead_letter_count;
@@ -327,8 +327,8 @@ SysNetworkOutboxStats SysNetworkOutbox_GetStats()
     return stats;
 }
 
-SysNetworkEnqueueResult SysNetworkOutbox_Enqueue(
-    uint16_t job_type,
+NetOutboxEnqueueResult NetOutbox_Enqueue(
+    uint16_t task_id,
     const void *payload,
     uint16_t payload_length,
     uint8_t priority,
@@ -337,22 +337,22 @@ SysNetworkEnqueueResult SysNetworkOutbox_Enqueue(
 {
     if (out_job_id)
         *out_job_id = 0;
-    if (job_type == 0 || payload_length > SYS_NETWORK_JOB_PAYLOAD_MAX || (payload_length > 0 && !payload))
-        return SysNetworkEnqueueResult::InvalidArgument;
+    if (task_id == 0 || payload_length > NET_OUTBOX_PAYLOAD_MAX || (payload_length > 0 && !payload))
+        return NetOutboxEnqueueResult::InvalidArgument;
     if (!s_storageReady)
-        return SysNetworkEnqueueResult::StorageUnavailable;
+        return NetOutboxEnqueueResult::StorageUnavailable;
 
     ScopedLock lock;
     if (!lock.locked())
-        return SysNetworkEnqueueResult::StorageUnavailable;
+        return NetOutboxEnqueueResult::StorageUnavailable;
 
     nvs_handle_t handle = 0;
     esp_err_t error = nvs_open_from_partition(kPartitionLabel, kNamespace, NVS_READWRITE, &handle);
     if (error != ESP_OK)
-        return SysNetworkEnqueueResult::StorageUnavailable;
+        return NetOutboxEnqueueResult::StorageUnavailable;
 
     int free_slot = -1;
-    for (uint8_t slot = 0; slot < SYS_NETWORK_OUTBOX_CAPACITY; ++slot)
+    for (uint8_t slot = 0; slot < NET_OUTBOX_CAPACITY; ++slot)
     {
         StoredNetworkJob existing = {};
         error = ReadSlot(handle, slot, &existing);
@@ -365,22 +365,22 @@ SysNetworkEnqueueResult SysNetworkOutbox_Enqueue(
         if (error != ESP_OK)
         {
             nvs_close(handle);
-            return SysNetworkEnqueueResult::StorageUnavailable;
+            return NetOutboxEnqueueResult::StorageUnavailable;
         }
-        if (dedup_key != 0 && existing.state == static_cast<uint8_t>(SysNetworkJobState::Pending) &&
-            existing.job_type == job_type && existing.dedup_key == dedup_key)
+        if (dedup_key != 0 && existing.state == static_cast<uint8_t>(NetOutboxJobState::Pending) &&
+            existing.task_id == task_id && existing.dedup_key == dedup_key)
         {
             if (out_job_id)
                 *out_job_id = existing.job_id;
             nvs_close(handle);
-            return SysNetworkEnqueueResult::AlreadyPending;
+            return NetOutboxEnqueueResult::AlreadyPending;
         }
     }
 
     if (free_slot < 0)
     {
         nvs_close(handle);
-        return SysNetworkEnqueueResult::QueueFull;
+        return NetOutboxEnqueueResult::QueueFull;
     }
 
     uint32_t sequence = 0;
@@ -388,7 +388,7 @@ SysNetworkEnqueueResult SysNetworkOutbox_Enqueue(
     if (error != ESP_OK && error != ESP_ERR_NVS_NOT_FOUND)
     {
         nvs_close(handle);
-        return SysNetworkEnqueueResult::StorageUnavailable;
+        return NetOutboxEnqueueResult::StorageUnavailable;
     }
     ++sequence;
     if (sequence == 0)
@@ -400,9 +400,9 @@ SysNetworkEnqueueResult SysNetworkOutbox_Enqueue(
     pending.record_size = sizeof(StoredNetworkJob);
     pending.job_id = CreateJobId(handle);
     pending.created_sequence = sequence;
-    pending.job_type = job_type;
+    pending.task_id = task_id;
     pending.priority = priority;
-    pending.state = static_cast<uint8_t>(SysNetworkJobState::Pending);
+    pending.state = static_cast<uint8_t>(NetOutboxJobState::Pending);
     pending.payload_length = payload_length;
     pending.dedup_key = dedup_key;
     if (payload_length > 0)
@@ -411,7 +411,7 @@ SysNetworkEnqueueResult SysNetworkOutbox_Enqueue(
     if (pending.job_id == 0)
     {
         nvs_close(handle);
-        return SysNetworkEnqueueResult::SaveFailed;
+        return NetOutboxEnqueueResult::SaveFailed;
     }
 
     error = WriteSlot(handle, static_cast<uint8_t>(free_slot), &pending);
@@ -424,19 +424,19 @@ SysNetworkEnqueueResult SysNetworkOutbox_Enqueue(
     if (error != ESP_OK)
     {
         Serial.printf("[联网待办] 任务入队失败：%s。\n", esp_err_to_name(error));
-        return SysNetworkEnqueueResult::SaveFailed;
+        return NetOutboxEnqueueResult::SaveFailed;
     }
 
     if (out_job_id)
         *out_job_id = pending.job_id;
     Serial.printf("[联网待办] 已持久化任务：类型=%u，ID=%08lX%08lX。\n",
-                  static_cast<unsigned>(job_type),
+                  static_cast<unsigned>(task_id),
                   static_cast<unsigned long>(pending.job_id >> 32),
                   static_cast<unsigned long>(pending.job_id));
-    return SysNetworkEnqueueResult::Ok;
+    return NetOutboxEnqueueResult::Ok;
 }
 
-bool SysNetworkOutbox_ClaimNextReady(int64_t now_epoch, SysNetworkJob *out_job)
+bool NetOutbox_ClaimNextReady(int64_t now_epoch, NetOutboxJob *out_job)
 {
     if (!s_storageReady || !out_job || now_epoch < kMinimumTrustedEpoch)
         return false;
@@ -451,7 +451,7 @@ bool SysNetworkOutbox_ClaimNextReady(int64_t now_epoch, SysNetworkJob *out_job)
 
     int selected_slot = -1;
     StoredNetworkJob selected = {};
-    for (uint8_t slot = 0; slot < SYS_NETWORK_OUTBOX_CAPACITY; ++slot)
+    for (uint8_t slot = 0; slot < NET_OUTBOX_CAPACITY; ++slot)
     {
         StoredNetworkJob candidate = {};
         const esp_err_t error = ReadSlot(handle, slot, &candidate);
@@ -462,7 +462,7 @@ bool SysNetworkOutbox_ClaimNextReady(int64_t now_epoch, SysNetworkJob *out_job)
             nvs_close(handle);
             return false;
         }
-        if (candidate.state != static_cast<uint8_t>(SysNetworkJobState::Pending) ||
+        if (candidate.state != static_cast<uint8_t>(NetOutboxJobState::Pending) ||
             (candidate.not_before_epoch > 0 && candidate.not_before_epoch > now_epoch))
             continue;
 
@@ -496,7 +496,7 @@ bool SysNetworkOutbox_ClaimNextReady(int64_t now_epoch, SysNetworkJob *out_job)
     return true;
 }
 
-bool SysNetworkOutbox_Complete(uint64_t job_id)
+bool NetOutbox_Complete(uint64_t job_id)
 {
     if (!s_storageReady || job_id == 0)
         return false;
@@ -525,7 +525,7 @@ bool SysNetworkOutbox_Complete(uint64_t job_id)
     return error == ESP_OK;
 }
 
-bool SysNetworkOutbox_Retry(uint64_t job_id, int64_t not_before_epoch)
+bool NetOutbox_Retry(uint64_t job_id, int64_t not_before_epoch)
 {
     if (!s_storageReady || job_id == 0 || not_before_epoch < 0)
         return false;
@@ -544,7 +544,7 @@ bool SysNetworkOutbox_Retry(uint64_t job_id, int64_t not_before_epoch)
         return false;
     }
 
-    record.state = static_cast<uint8_t>(SysNetworkJobState::Pending);
+    record.state = static_cast<uint8_t>(NetOutboxJobState::Pending);
     record.not_before_epoch = not_before_epoch;
     esp_err_t error = WriteSlot(handle, slot, &record);
     if (error == ESP_OK)
@@ -553,7 +553,7 @@ bool SysNetworkOutbox_Retry(uint64_t job_id, int64_t not_before_epoch)
     return error == ESP_OK;
 }
 
-bool SysNetworkOutbox_DeadLetter(uint64_t job_id)
+bool NetOutbox_DeadLetter(uint64_t job_id)
 {
     if (!s_storageReady || job_id == 0)
         return false;
@@ -572,7 +572,7 @@ bool SysNetworkOutbox_DeadLetter(uint64_t job_id)
         return false;
     }
 
-    record.state = static_cast<uint8_t>(SysNetworkJobState::DeadLetter);
+    record.state = static_cast<uint8_t>(NetOutboxJobState::DeadLetter);
     esp_err_t error = WriteSlot(handle, slot, &record);
     if (error == ESP_OK)
         error = nvs_commit(handle);

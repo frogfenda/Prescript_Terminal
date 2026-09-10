@@ -342,35 +342,53 @@ namespace UIStrings
     {
         static const char *zh_items[] = {
             "",
-            "同步网络时间",
             "时间设置",
             "提取部统计",
             "",
             "设定休眠时间",
             "音量与振动",
             "解码动画配置",
-            "动作测试",
-            "坐标漂移测试",
-            "地磁数据与校准",
+            "传感器校准测试",
             "返回上一级"};
         static const char *en_items[] = {
             "",
-            "SYNC NTP TIME",
             "TIME CONFIG",
             "GACHA STATS",
             "",
             "SLEEP SETTINGS",
             "VOL&HAPTIC",
             "ANIMATION SETUP",
-            "ACTION TEST",
-            "FRAME DRIFT TEST",
-            "MAG DATA & CAL",
+            "SENSOR CAL & TEST",
             "BACK TO MAIN"};
 
-        if (index < 0 || index >= 12)
+        if (index < 0 || index >= 9)
             return "";
-        if (index == 4)
+        if (index == 3)
             return LanguageBuildItem(lang, TerminalLang::DEFAULT_LANG);
+        return IsZh(lang) ? zh_items[index] : en_items[index];
+    }
+
+    // 【传感器校准测试】集中承载动作、人体坐标与地磁维护入口，避免系统设置一级菜单过长。
+    inline const char *SensorCalibrationTestTitle(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "传感器校准测试" : "SENSOR CAL & TEST";
+    }
+
+    inline const char *SensorCalibrationTestItem(SystemLang_t lang, int index)
+    {
+        static const char *zh_items[] = {
+            "动作测试",
+            "坐标漂移测试",
+            "地磁校准",
+            "返回系统设置"};
+        static const char *en_items[] = {
+            "ACTION TEST",
+            "FRAME DRIFT TEST",
+            "MAG CALIBRATION",
+            "BACK TO SETTINGS"};
+
+        if (index < 0 || index >= 4)
+            return "";
         return IsZh(lang) ? zh_items[index] : en_items[index];
     }
 

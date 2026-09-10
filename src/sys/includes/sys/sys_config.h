@@ -73,7 +73,7 @@ public:
     uint32_t auto_push_max_min;
     /*
      * 时间系统配置。
-     * time_auto_resync：是否允许 Network_Update() 在设备运行中周期性启动轻量 NTP 校时。
+     * time_auto_resync：是否允许 NetService_Update() 在设备运行中周期性启动轻量 NTP 校时。
      * time_resync_interval_min：周期校时间隔，单位分钟；当前时间设置 UI 只允许 5/15/30/60。
      * 当前时间由板载 RTC 持续保存；网络和手动校时会直接写回 RTC，配置文件不再保存时间副本。
      */

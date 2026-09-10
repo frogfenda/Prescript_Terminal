@@ -4,7 +4,6 @@
 */
 // 文件：src/sys/app_manager.cpp
 #include "sys/app_manager.h"
-#include "sys/sys_network.h"
 #include "sys/sys_config.h"
 #include <Arduino.h>
 #include "sys/sys_ble.h"

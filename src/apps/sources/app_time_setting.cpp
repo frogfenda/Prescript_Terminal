@@ -22,7 +22,6 @@
 #include "apps/app_menu_base.h"
 #include "sys/app_manager.h"
 #include "sys/sys_config.h"
-#include "sys/sys_network.h"
 #include "sys/sys_time.h"
 #include "sys/sys_audio.h"
 #include "ui/ui_frame.h"
@@ -34,7 +33,7 @@
  * 不开放任意分钟输入，原因是：
  * - 旋钮小屏操作更快；
  * - 避免用户误设 1 分钟导致 WiFi 频繁唤醒；
- * - 后台 Network_Update 只需要处理有限的策略档位。
+ * - 后台 NetService_Update 只需要处理有限的策略档位。
  */
 static const uint16_t kResyncIntervalsMin[] = {5, 15, 30, 60};
 static constexpr int kResyncIntervalCount = sizeof(kResyncIntervalsMin) / sizeof(kResyncIntervalsMin[0]);

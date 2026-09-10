@@ -2,10 +2,9 @@
 #include <WiFi.h>
 #include "sys/sys_config.h"
 #include "sys/sys_device_identity.h"
-#include "sys/sys_network_outbox.h"
+#include "net/net_service.h"
 #include "sys/sys_time.h"
 #include "sys/sys_calendar.h"
-#include "sys/sys_network.h"
 #include "sys/sys_auto_push.h"
 #include "sys/sys_ble.h"
 #include "sys/sys_fs.h"
@@ -45,7 +44,7 @@ void setup()
 
     /*
      * 开机先显式关闭 WiFi。
-     * 网络模块后续会通过 Network_RequestBootSync() 延迟触发自动同步，
+     * 网络服务后续会通过 NetService_RequestBootSync() 延迟触发自动同步，
      * 避免 setup 阶段立刻拉起 WiFi 扫描导致首屏和菜单动画变慢。
      */
     WiFi.disconnect(true, false);
@@ -61,8 +60,6 @@ void setup()
     sysConfig.load();
     // 身份凭据使用独立 NVS 分区，不依赖 LittleFS 配置是否可读，也不在这里触发任何联网行为。
     SysDeviceIdentity_Init();
-    // 联网待办使用另一块独立 NVS；初始化只恢复任务，不会因此立即打开 WiFi。
-    SysNetworkOutbox_Init();
 
     /*
      * 先把配置中的语言写入 AppManager。
@@ -74,7 +71,7 @@ void setup()
     /*
      * SysTime_Init 设置时区并从板载 RTC 恢复时间；RTC 不可信时等待网络或手动校时。
      * 该过程只访问本地 I2C，不联网。
-     * 网络对时由 Network_Init + Network_RequestBootSync 延迟完成。
+     * 网络对时由 NetService_Init + NetService_RequestBootSync 延迟完成。
      */
     SysTime_Init();
     /*
@@ -103,14 +100,14 @@ void setup()
     SysBLE_Init();
     sysNfc.begin();
 
-    Network_Init();
+    NetService_Init();
 
     /*
      * 保留“开机自动同步”体验，但延迟 4 秒触发。
      * 同步内容仍然是完整流程：WiFi -> NTP -> 隐秘指令 API。
      * 延迟触发的好处是 UI 先进入 loop，用户不会在无网环境下看到首屏卡住。
      */
-    Network_RequestBootSync(4000);
+    NetService_RequestBootSync(4000);
 }
 
 void loop()
@@ -131,7 +128,7 @@ void loop()
      *
      * 这里不执行 WiFi.begin 或 HTTP，只做状态判断和任务通知。
      */
-    Network_Update();
+    NetService_Update();
 
     /*
      * 时间服务只在主循环消费网络结果和访问 RTC。

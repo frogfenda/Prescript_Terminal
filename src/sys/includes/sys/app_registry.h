@@ -64,7 +64,10 @@ enum class AppId : uint8_t
     HumanFrameDriftTest,
 
     // 独立地磁数据、校准和干扰诊断页；继续追加以保持此前AppId数值稳定。
-    MagDiagnostics
+    MagDiagnostics,
+
+    // 系统设置下的传感器维护二级菜单；追加在末尾以保持此前AppId数值稳定。
+    SensorCalibrationTest
 };
 
 /** 根据 AppId 返回对应 App 单例指针，AppManager 的 push/launch/replace 会调用它完成页面跳转。 */

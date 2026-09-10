@@ -18,6 +18,8 @@ namespace
     constexpr char kPartitionLabel[] = "identity";
     constexpr char kNamespace[] = "device";
     constexpr char kRecordKey[] = "identity";
+    constexpr char kMigrationNamespace[] = "sys_migrate";
+    constexpr char kMigrationKey[] = "identity_v1";
     constexpr uint32_t kRecordMagic = 0x50544944UL;
     constexpr uint16_t kSchemaVersion = 1;
     constexpr size_t kMaxPublicIdLength = 64;
@@ -134,16 +136,43 @@ namespace
         return IsPublicIdValid(String(record.public_id)) && IsDeviceKeyValid(String(record.device_key));
     }
 
+    bool WasPartitionInitializedBefore()
+    {
+        nvs_handle_t handle = 0;
+        if (nvs_open(kMigrationNamespace, NVS_READONLY, &handle) != ESP_OK)
+            return false;
+        uint8_t marker = 0;
+        const esp_err_t error = nvs_get_u8(handle, kMigrationKey, &marker);
+        nvs_close(handle);
+        return error == ESP_OK && marker == 1;
+    }
+
+    bool SavePartitionInitializedMarker()
+    {
+        nvs_handle_t handle = 0;
+        esp_err_t error = nvs_open(kMigrationNamespace, NVS_READWRITE, &handle);
+        if (error == ESP_OK)
+        {
+            error = nvs_set_u8(handle, kMigrationKey, 1);
+            if (error == ESP_OK)
+                error = nvs_commit(handle);
+            nvs_close(handle);
+        }
+        return error == ESP_OK;
+    }
+
     /*
-     * 【函数说明】初始化自定义 NVS。第一次改用新分区表时，该区域可能残留旧 LittleFS 尾部数据；
-     * 仅在 NVS 明确报告格式不可用时擦除 identity 分区，绝不触碰默认 NVS、LittleFS 或 FATFS。
+     * 【函数说明】第一次改用新分区表时，该区域可能残留旧 LittleFS 尾部数据，因此允许一次自动格式化。
+     * 迁移标记写入默认 NVS 后，任何格式错误都只报错并保留现场，避免永久通行码被静默擦除。
      */
     bool PrepareIdentityPartition()
     {
+        const bool initialized_before = WasPartitionInitializedBefore();
         esp_err_t error = nvs_flash_init_partition(kPartitionLabel);
-        if (error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND)
+        if ((error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND) &&
+            !initialized_before)
         {
-            Serial.println("[设备身份] 专用分区尚未格式化，将只初始化 identity 区域。");
+            Serial.println("[设备身份] 首次启用专用分区，只格式化 identity 区域。");
             error = nvs_flash_erase_partition(kPartitionLabel);
             if (error == ESP_OK)
                 error = nvs_flash_init_partition(kPartitionLabel);
@@ -151,7 +180,13 @@ namespace
 
         if (error != ESP_OK)
         {
-            Serial.printf("[设备身份] identity 分区初始化失败：%s。\n", esp_err_to_name(error));
+            Serial.printf("[设备身份] identity 分区初始化失败：%s；为保留凭据，未自动擦除。\n",
+                          esp_err_to_name(error));
+            return false;
+        }
+        if (!initialized_before && !SavePartitionInitializedMarker())
+        {
+            Serial.println("[设备身份] 无法保存首次初始化标记，拒绝启用以避免未来误格式化。");
             return false;
         }
         return true;

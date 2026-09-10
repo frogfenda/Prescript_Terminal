@@ -126,6 +126,6 @@ namespace PrescriptConst
     constexpr const char *BLE_DEVICE_NAME = "Terminal_01";
     constexpr const char *BLE_SERVICE_UUID = "0000DEAD-0000-1000-8000-00805F9B34FB";
     constexpr const char *BLE_CHAR_UUID = "0000BEEF-0000-1000-8000-00805F9B34FB";
-    constexpr const char *NETWORK_SYNC_URL = "http://index.dimension-404.cloud/api/schedule/sync";
+    constexpr const char *NETWORK_SYNC_URL = "https://index.dimension-404.cloud/api/schedule/sync";
 
 }

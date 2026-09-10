@@ -85,6 +85,14 @@ bool SysTime_RefreshFromRtc(SysTimeRefreshReason reason);
 bool SysTime_SubmitNetworkTime(time_t epoch);
 
 /**
+ * 等待主循环把最近一次提交的网络时间真正写入 ESP32 系统时钟。
+ *
+ * 网络任务在开始 TLS 前必须调用本函数，避免“已经收到 NTP 响应，但系统时钟仍停留在未校准值”
+ * 导致证书有效期校验失败。等待期间不会访问 RTC；RTC 写回仍由主循环完成。
+ */
+bool SysTime_WaitForNetworkTimeApplied(uint32_t timeout_ms);
+
+/**
  * 把当前 ESP32 本地时间写入 PCF8563。
  * 用于网络/手动校时完成后的统一持久化；执行一次短 I2C 事务，不能每帧调用。
  */

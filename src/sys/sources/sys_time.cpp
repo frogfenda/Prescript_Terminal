@@ -11,6 +11,7 @@ PCF8563 是正常运行和断电重启后的常态时间源；网络与手动设
 #include <sys/time.h>
 #include <limits.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
 #include <freertos/queue.h>
 
 namespace
@@ -30,6 +31,9 @@ namespace
     bool s_has_network_sync = false;
     bool s_rtc_write_failed = false;
     QueueHandle_t s_network_time_queue = nullptr;
+    EventGroupHandle_t s_network_time_apply_event = nullptr;
+    constexpr EventBits_t NETWORK_TIME_APPLIED_BIT = BIT0;
+    volatile bool s_network_time_apply_ok = false;
     uint32_t s_time_revision = 0;
 
     /** 每次 RTC 读写维护完成后重新登记下一次静默唤醒；失败同样推迟一小时，避免离线时频繁唤醒。 */
@@ -203,6 +207,13 @@ void SysTime_Init()
             Serial.println("[时间-错误] 创建网络时间队列失败，NTP 结果将无法回送主循环。");
     }
 
+    if (!s_network_time_apply_event)
+    {
+        s_network_time_apply_event = xEventGroupCreate();
+        if (!s_network_time_apply_event)
+            Serial.println("[时间-错误] 创建网络时间确认事件失败，TLS 任务将不会在未确认时间下继续。");
+    }
+
     s_time_status.rtc_available = BSP::Pcf8563::Begin();
     if (s_time_status.rtc_available)
         SysTime_RefreshFromRtc(SysTimeRefreshReason::Startup);
@@ -288,9 +299,27 @@ bool SysTime_RefreshFromRtc(SysTimeRefreshReason reason)
 
 bool SysTime_SubmitNetworkTime(time_t epoch)
 {
-    if (!s_network_time_queue || epoch < NETWORK_TIME_MIN_EPOCH || epoch > NETWORK_TIME_MAX_EPOCH)
+    if (!s_network_time_queue || !s_network_time_apply_event ||
+        epoch < NETWORK_TIME_MIN_EPOCH || epoch > NETWORK_TIME_MAX_EPOCH)
         return false;
+
+    s_network_time_apply_ok = false;
+    xEventGroupClearBits(s_network_time_apply_event, NETWORK_TIME_APPLIED_BIT);
     return xQueueOverwrite(s_network_time_queue, &epoch) == pdPASS;
+}
+
+bool SysTime_WaitForNetworkTimeApplied(uint32_t timeout_ms)
+{
+    if (!s_network_time_apply_event)
+        return false;
+
+    const EventBits_t bits = xEventGroupWaitBits(
+        s_network_time_apply_event,
+        NETWORK_TIME_APPLIED_BIT,
+        pdTRUE,
+        pdFALSE,
+        pdMS_TO_TICKS(timeout_ms));
+    return (bits & NETWORK_TIME_APPLIED_BIT) != 0 && s_network_time_apply_ok;
 }
 
 void SysTime_Update()
@@ -298,7 +327,8 @@ void SysTime_Update()
     time_t network_epoch = 0;
     if (s_network_time_queue && xQueueReceive(s_network_time_queue, &network_epoch, 0) == pdTRUE)
     {
-        if (SetSystemEpoch(network_epoch))
+        const bool applied = SetSystemEpoch(network_epoch);
+        if (applied)
         {
             s_has_network_sync = true;
             s_last_network_sync_millis = millis();
@@ -307,6 +337,11 @@ void SysTime_Update()
             s_last_rtc_refresh_millis = millis();
             Serial.println("[时间] 已应用真实 NTP 时间并写入 RTC。");
         }
+
+        /* 无论成功失败都唤醒等待方；返回值通过共享布尔量区分，避免网络线程一直等到总超时。 */
+        s_network_time_apply_ok = applied;
+        if (s_network_time_apply_event)
+            xEventGroupSetBits(s_network_time_apply_event, NETWORK_TIME_APPLIED_BIT);
     }
 
     if ((uint32_t)(millis() - s_last_rtc_refresh_millis) >= RTC_REFRESH_INTERVAL_MS)

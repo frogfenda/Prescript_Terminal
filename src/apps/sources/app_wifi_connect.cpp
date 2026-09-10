@@ -1,7 +1,7 @@
 ﻿// 文件：src/apps/app_wifi_connect.cpp
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
-#include "sys/sys_network.h"
+#include "net/net_service.h"
 #include "sys/sys_audio.h"
 #include "hal/hal.h"
 #include "lang/ui_strings.h"
@@ -45,12 +45,12 @@ public:
         anim_dots = 0;
         anim_time = millis();
         is_finished = false;
-        NetworkState state = Network_GetState();
+        NetServiceState state = NetService_GetState();
 
         // 1. 如果已经连上 -> 强行断网
-        if (state == NET_SYNC_SUCCESS)
+        if (state == NetServiceState::SyncSuccess)
         {
-            Network_Disconnect();
+            NetService_Disconnect();
 
             drawUI(UIStrings::WifiDisconnected(appManager.getLanguage()));
             sysAudio.playTone(800, 100);
@@ -59,7 +59,9 @@ public:
             return;
         }
         // 2. 如果守护神正在干活 -> 提示运行中
-        else if (state == NET_CONNECTING || state == NET_SYNCING_NTP || state == NET_FETCHING_API)
+        else if (state == NetServiceState::Connecting ||
+                 state == NetServiceState::SyncingTime ||
+                 state == NetServiceState::RunningTasks)
         {
             drawUI(UIStrings::WifiRunning(appManager.getLanguage()));
             sysAudio.playTone(1500, 100);
@@ -69,7 +71,7 @@ public:
         }
 
         // 3. 只有断网或失败时 -> 发起手动常驻连接 (传入 true)
-        Network_StartSync(true);
+        NetService_StartStandardSync(true);
         drawUI(UIStrings::WifiInit(appManager.getLanguage()));
     }
 
@@ -91,14 +93,16 @@ public:
             dots_changed = true; // 脏矩形标记
         }
 
-        NetworkState state = Network_GetState();
+        NetServiceState state = NetService_GetState();
 
         // 【核心修复】：只有点数变化时才允许重绘，彻底告别频闪！
-        if (dots_changed && state == NET_CONNECTING)
+        if (dots_changed && state == NetServiceState::Connecting)
         {
             drawUI(UIStrings::WifiConnecting(appManager.getLanguage()), true);
         }
-        else if (state == NET_SYNCING_NTP || state == NET_FETCHING_API || state == NET_SYNC_SUCCESS)
+        else if (state == NetServiceState::SyncingTime ||
+                 state == NetServiceState::RunningTasks ||
+                 state == NetServiceState::SyncSuccess)
         {
             drawUI(UIStrings::WifiConnected(appManager.getLanguage()));
             sysAudio.playTone(2000, 80);
@@ -107,7 +111,7 @@ public:
             is_finished = true;
             result_show_time = millis();
         }
-        else if (state == NET_CONNECT_FAILED || state == NET_SYNC_FAILED)
+        else if (state == NetServiceState::ConnectFailed || state == NetServiceState::SyncFailed)
         {
             drawUI(UIStrings::WifiError(appManager.getLanguage()));
             SYS_SOUND_ERROR();
