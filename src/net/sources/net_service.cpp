@@ -11,6 +11,7 @@
 网络守护固定在 Core 0。UI、LittleFS 业务对象和 I2C 仍只在 Arduino 主循环修改。
 */
 #include "net/net_service.h"
+#include "net/net_tls_memory.h"
 
 #include <WiFi.h>
 #include <cstring>
@@ -394,6 +395,12 @@ void NetService_Init()
     WiFi.setAutoReconnect(false);
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
+
+    /*
+     * 必须在任何 WiFiClientSecure 对象出现前安装一次。该接口只改变 mbedTLS 自己的
+     * 动态对象，不改变普通 malloc、TinyUSB、显示 DMA 或文件系统的内存归属。
+     */
+    NetTlsMemory_InstallAllocator();
 
     NetOutbox_Init();
     NetBuiltinTasks_RegisterAll();

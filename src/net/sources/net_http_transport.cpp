@@ -3,6 +3,7 @@
 【资源边界】单次请求对象只在 Core 0 网络任务栈内存在；响应大小由业务调用方给出硬上限。
 */
 #include "net/net_http_transport.h"
+#include "net/net_tls_memory.h"
 
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -13,6 +14,31 @@ namespace
     constexpr char kServerBaseUrl[] = "https://test.prescript.cloud";
     constexpr uint32_t kMaximumRequestTimeoutMs = 8000;
     constexpr uint32_t kMinimumRequestBudgetMs = 1200;
+
+    class TlsMemoryRequestGuard
+    {
+    public:
+        TlsMemoryRequestGuard()
+        {
+            NetTlsMemory_BeginRequest();
+        }
+
+        ~TlsMemoryRequestGuard()
+        {
+            /*
+             * 本对象先于 WiFiClientSecure 创建，因而析构顺序在客户端之后；此时快照中的
+             * current_bytes 应回落到请求前基线，可以同时发现第三方库遗留的 TLS 对象。
+             */
+            const NetTlsMemorySnapshot snapshot = NetTlsMemory_GetSnapshot();
+            Serial.printf(
+                "[网络/TLS内存] 请求结束：本次峰值=%u，当前占用=%u，预算=%u，失败=%s，失败申请=%u。\n",
+                static_cast<unsigned>(snapshot.request_peak_bytes),
+                static_cast<unsigned>(snapshot.current_bytes),
+                static_cast<unsigned>(snapshot.budget_bytes),
+                NetTlsMemory_DescribeFailure(snapshot.last_failure),
+                static_cast<unsigned>(snapshot.last_failed_request_bytes));
+        }
+    };
 
     /** 将 HTTPClient 的稳定负错误码翻译成中文，避免业务日志只有无法解释的数字。 */
     const char *DescribeTransportError(int error)
@@ -128,6 +154,14 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
         const uint32_t timeout_ms = remaining_ms - 500 < kMaximumRequestTimeoutMs
                                         ? remaining_ms - 500
                                         : kMaximumRequestTimeoutMs;
+        const NetTlsMemorySnapshot memory = NetTlsMemory_GetSnapshot();
+        if (!memory.installed)
+        {
+            Serial.println("[网络/TLS内存] 请求被拒绝：PSRAM分配器尚未安装。 ");
+            return NetHttpResult::TlsInitializationFailed;
+        }
+
+        TlsMemoryRequestGuard memoryGuard;
         WiFiClientSecure client;
         client.setCACert(kIsrgRootX1);
         /*
