@@ -1,6 +1,8 @@
 #pragma once
 
-#ifdef __cplusplus
+// Arduino + ESP-IDF 混合构建会把本头作为全局预包含文件传给底层 IDF 组件；这些组件
+// 没有 Arduino 头文件搜索路径，也不需要 Serial 兼容层，因此只在 USBCDC 可见时启用。
+#if defined(__cplusplus) && __has_include(<USBCDC.h>)
 
 #include <USBCDC.h>
 
@@ -50,4 +52,4 @@ extern BufferedUSBCDC CDCSerial;
 #define Serial CDCSerial
 #endif
 
-#endif // __cplusplus
+#endif // defined(__cplusplus) && __has_include(<USBCDC.h>)

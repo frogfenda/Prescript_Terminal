@@ -172,12 +172,14 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
                 response.secure_error_code);
 
             Serial.printf(
-                "[网络/HTTPS] 请求失败：传输错误=%d（%s），TLS错误=%d，内部堆=%u，最大内部块=%u。\n",
+                "[网络/HTTPS] 请求失败：传输错误=%d（%s），TLS错误=%d，内部堆=%u，最大内部块=%u，PSRAM=%u，最大PSRAM块=%u。\n",
                 status_code,
                 DescribeTransportError(status_code),
                 response.secure_error_code,
                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
             if (response.secure_error_code < 0 && secure_error_text[0] != '\0')
             {
                 Serial.printf("[网络/HTTPS] TLS底层说明：%s。\n", secure_error_text);

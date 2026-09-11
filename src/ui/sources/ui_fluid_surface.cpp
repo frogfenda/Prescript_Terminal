@@ -11,6 +11,9 @@
 
 #include "hal/hal.h"
 
+// C++11 中参与标准库模板参数推导时会发生 ODR 使用，因此在实现文件提供唯一存储定义。
+constexpr int UIFluidSurface::NODE_SPACING_PX;
+
 namespace
 {
     constexpr float PI_F = 3.14159265f;
