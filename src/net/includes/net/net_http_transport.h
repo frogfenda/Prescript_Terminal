@@ -16,10 +16,30 @@ enum class NetHttpResult : uint8_t
     ResponseTooLarge,
 };
 
+/** HTTPClient 负错误码经传输层归一化后的稳定原因，避免业务层依赖框架私有宏。 */
+enum class NetHttpFailureDetail : uint8_t
+{
+    None,
+    SecureConnectionFailed,
+    ServerConnectionFailed,
+    RequestSendFailed,
+    ConnectionLost,
+    InsufficientMemory,
+    ReadTimeout,
+    Unknown,
+};
+
 struct NetHttpResponse
 {
     int status_code = 0;
     String body;
+    /*
+    HTTPClient 在拿不到 HTTP 状态码时返回负数；WiFiClientSecure 则保留更底层的
+    mbedTLS 错误。二者只用于失败分类和串口诊断，绝不能承载响应正文或凭据。
+    */
+    int transport_error_code = 0;
+    int secure_error_code = 0;
+    NetHttpFailureDetail failure_detail = NetHttpFailureDetail::None;
 };
 
 /** 向主服务端相对路径发送 JSON；bearer 为空时不附带 Authorization。 */

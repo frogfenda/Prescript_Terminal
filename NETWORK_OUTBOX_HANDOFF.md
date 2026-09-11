@@ -16,13 +16,15 @@ ba1cf11 接入设备身份与持久化联网待办框架
 目前接入的网络工作包括：
 
 1. NTP：每次联网会话必经的基础阶段，不是普通任务；
-2. 设备绑定与认证：`task_id=2`，每次会话在 Outbox 前自动执行；
-3. HTTPS JSON 传输：证书校验、响应上限和会话剩余时限集中管理；
-4. 隐秘指令拉取：普通任务，`task_id=1`，因旧域名失效暂不自动触发；
-5. Outbox 消费器：框架已运行，但还没有业务生产者调用 `NetOutbox_Enqueue()`。
+2. 设备身份绑定：`task_id=2`，只由系统设置页在常驻 WiFi 上显式执行；
+3. 已绑定设备临时认证准备：`task_id=3`，每次会话在 Outbox 前自动执行；
+4. HTTPS JSON 传输：证书校验、响应上限和会话剩余时限集中管理；
+5. 隐秘指令拉取：普通任务，`task_id=1`，因旧域名失效暂不自动触发；
+6. Outbox 消费器：框架已运行，但还没有业务生产者调用 `NetOutbox_Enqueue()`。
 
-开机标准同步、设置页手动同步、WiFi 配置后同步和周期轻量校时都会先完成绑定/临时认证，并顺带消费
-已经到期的 Outbox。旧隐秘指令任务只能由显式 `task_id` 调用，待服务端新接口完成后再恢复自动同步。
+开机标准同步、设置页手动同步、WiFi 配置后同步和周期轻量校时都会先为已绑定设备建立临时认证，并顺带消费
+已经到期的 Outbox。首次身份绑定不会因联网自动发生，只能在系统设置的“身份绑定”页按主键显式启动；绑定任务
+复用当前常驻 WiFi 会话，不重复连接或校时。旧隐秘指令任务只能由显式 `task_id` 调用，待服务端新接口完成后再恢复自动同步。
 
 ## 关键文件
 
@@ -36,7 +38,8 @@ ba1cf11 接入设备身份与持久化联网待办框架
 - `src/net/sources/net_http_transport.cpp`：受信根、HTTPS JSON、响应和超时上限；
 - `src/net/sources/net_auth_session.cpp`：永久 Key 换本轮 RAM Token；
 - `src/net/sources/net_builtin_tasks.cpp`：内置任务安装清单；
-- `src/net/sources/services/net_device_binding.cpp`：自动绑定和认证准备任务；
+- `src/net/sources/services/net_device_binding.cpp`：显式设备身份绑定任务；
+- `src/net/sources/services/net_device_auth_prepare.cpp`：已绑定设备的会话认证准备任务；
 - `src/net/sources/services/net_hidden_prescript.cpp`：普通任务范例；
 - `src/main.cpp`：`NetService_Init/RequestBootSync/Update` 接入点。
 
@@ -60,7 +63,8 @@ ba1cf11 接入设备身份与持久化联网待办框架
 
 ```text
 1 = NET_TASK_HIDDEN_PRESCRIPT_PULL
-2 = 设备绑定与认证准备任务（内部保留，不得写入 Outbox）
+2 = 设备身份绑定任务（仅 UI 显式调用，不得写入 Outbox）
+3 = 已绑定设备临时认证准备任务（内部保留，不得写入 Outbox）
 ```
 
 ID 一旦用于持久化就不能改含义，也不能被其他任务复用。建议每个业务模块在自己的头文件维护 ID 和
@@ -171,14 +175,15 @@ NetService_Init();
 NetService_RequestBootSync(4000);
 NetService_Update();
 
-NetService_StartStandardSync(false); // NTP + 绑定/认证 + Outbox + STANDARD_SYNC，结束断网
+NetService_StartStandardSync(false); // NTP + 已绑定设备认证 + Outbox + STANDARD_SYNC，结束断网
 NetService_StartStandardSync(true);  // 同上，但保持在线
 NetService_StartTimeSyncOnly();      // NTP + Outbox，不执行额外会话任务
+NetService_StartOnlineTask(2);       // 在当前常驻 WiFi 上显式执行身份绑定
 NetService_Disconnect();
 ```
 
-所有会话都强制先执行 NTP，然后运行 `SESSION_PREPARE` 建立设备身份上下文。不要创建“NTP task_id”，
-也不要从业务执行器直接读取永久 Key 或自行维护 Token。
+所有会话都强制先执行 NTP，然后运行 `SESSION_PREPARE` 为已绑定设备建立身份认证上下文。首次绑定不在该阶段执行，
+而由身份绑定页通过在线任务入口显式触发。不要创建“NTP task_id”，也不要从业务执行器直接读取永久 Key 或自行维护 Token。
 
 ## 状态与 UI
 
@@ -195,7 +200,7 @@ NetServiceState state = NetService_GetState();
 
 - WiFi 失败：`ConnectFailed`，周期策略退避 5 分钟；
 - NTP 失败：`SyncFailed`，本轮不执行任何普通任务；
-- 绑定/认证不可用：本轮汇总为失败，认证型 Outbox 返回 `AuthBlocked` 并保留；
+- 已绑定设备认证不可用：本轮汇总为失败，认证型 Outbox 返回 `AuthBlocked` 并保留；未绑定设备会跳过认证准备；
 - 会话任务失败：只记录，等待下一轮策略触发，不在原地循环；
 - 持久任务 `Retry`：默认从 30 秒指数退避，最多 6 小时；
 - 未注册持久任务：保留并延后 1 小时；
@@ -216,11 +221,12 @@ rg -n "sys_network|SysNetwork|Network_Start|Network_Update" src
 1. 无真实 WiFi 配置时不开射频、不反复重试；
 2. 开机 4 秒后标准同步；
 3. NTP 成功后才出现 `RunningTasks`；
-4. 未绑定设备完成挑战应答、保存身份并成功获取临时 Token；
+4. 未绑定设备在身份绑定页显式完成挑战应答并保存身份；
 5. 已绑定设备只执行 Key -> Token，不再次调用绑定接口；
-6. 手动保持在线后可用同一入口断开；
-7. Outbox 成功、临时失败、认证阻塞、掉电重放和死信路径；
-8. 会话结束或中止后 Token 被清除且休眠 blocker 释放。
+6. 在线身份绑定任务不会重连 WiFi 或重复 NTP；
+7. 手动保持在线后可用同一入口断开；
+8. Outbox 成功、临时失败、认证阻塞、掉电重放和死信路径；
+9. 会话结束或中止后 Token 被清除且休眠 blocker 释放。
 
 ## 当前未完成项
 

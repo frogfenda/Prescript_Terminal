@@ -95,10 +95,8 @@ protected:
         value_animator.drawSegmentedText(x, y, prefix, anim_val, suffix, distance);
     }
 
-    // 【函数说明】绘制非菜单页面的通用页眉：标题在左，当前时间在右，下方一条横线分隔内容区。
+    // 【函数说明】绘制非菜单页面的通用页眉：页面标题在左，当前时间在右，下方一条横线分隔内容区。
     void drawAppWindow(const char* title) {
-        HAL_Screen_DrawHeader();
-
         int sw = HAL_Get_Screen_Width();
         HAL_Screen_ShowChineseLine(UI_MARGIN_LEFT, UI_TEXT_Y_TOP, title);
         

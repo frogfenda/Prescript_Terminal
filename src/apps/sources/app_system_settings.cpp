@@ -18,10 +18,10 @@
 class AppSystemSettings : public AppMenuBase {
 protected:
     /**
-     * 系统设置共 9 项。传感器维护功能只保留一个二级菜单入口，网络校时则由时间设置独占。
+     * 系统设置共 10 项。身份绑定放在返回项之前，传感器维护功能只保留一个二级菜单入口。
      * 这样一级菜单只表达设置类别，不直接混入具体测试页面。
      */
-    int getMenuCount() override { return 9; }
+    int getMenuCount() override { return 10; }
 
     /** 返回系统设置页标题，使用已有 UIStrings 适配中英文。 */
     const char* getTitle() override {
@@ -65,7 +65,7 @@ protected:
      * 5 音量震动；
      * 6 解码动画；
      * 7 传感器校准测试二级菜单；
-     * 8 返回。
+     * 8 身份绑定；9 返回。
      */
     void onItemClicked(int index) override {
         if (index == 0) appManager.push(AppId::WifiConnect);
@@ -84,7 +84,8 @@ protected:
         else if (index == 5) appManager.push(AppId::VolumeSetting);
         else if (index == 6) appManager.push(AppId::AnimSetting);
         else if (index == 7) appManager.push(AppId::SensorCalibrationTest);
-        else if (index == 8) appManager.popApp();
+        else if (index == 8) appManager.push(AppId::DeviceBinding);
+        else if (index == 9) appManager.popApp();
     }
 
     /** 长按退出系统设置页，回到上一级菜单。 */

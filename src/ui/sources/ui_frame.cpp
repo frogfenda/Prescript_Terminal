@@ -50,10 +50,10 @@ void DrawTip(const char* text, int y, float fade)
     UIText::DrawCenteredFaded(y, text, fade);
 }
 
-// 【函数说明】绘制删除/清空等危险操作确认画面。
+// 【函数说明】绘制通用状态弹窗，调用方通过颜色区分成功、普通提示或错误。
 // 本函数只负责弹窗文字和提示，不主动清屏、不主动推屏，调用方可决定是否叠加其他图形。
-// 弹窗样式统一采用“指令档案”原有的居中黑底红框，避免不同 App 各画一套确认框。
-void DrawDangerConfirm(const char* title, const char* message, const char* tip)
+// 弹窗样式统一采用“指令档案”原有的居中黑底框，避免不同 App 各画一套确认框。
+void DrawDialog(const char* title, const char* message, const char* tip, uint16_t color)
 {
     int sw = HAL_Get_Screen_Width();
     int sh = HAL_Get_Screen_Height();
@@ -69,15 +69,15 @@ void DrawDangerConfirm(const char* title, const char* message, const char* tip)
     int box_y = (sh - box_h) / 2;
 
     HAL_Fill_Rect(box_x, box_y, box_w, box_h, TFT_BLACK);
-    HAL_Draw_Rect(box_x, box_y, box_w, box_h, TFT_RED);
+    HAL_Draw_Rect(box_x, box_y, box_w, box_h, color);
 
     int title_w = HAL_Get_Text_Width(title);
-    HAL_Screen_ShowLine_Font((sw - title_w) / 2, box_y + 9, title, HAL_FONT_BODY, TFT_RED);
+    HAL_Screen_ShowLine_Font((sw - title_w) / 2, box_y + 9, title, HAL_FONT_BODY, color);
 
     if (has_message)
     {
         int msg_w = HAL_Get_Text_Width(message);
-        HAL_Screen_ShowLine_Font((sw - msg_w) / 2, box_y + 9 + body_h + 4, message, HAL_FONT_BODY, TFT_RED);
+        HAL_Screen_ShowLine_Font((sw - msg_w) / 2, box_y + 9 + body_h + 4, message, HAL_FONT_BODY, color);
     }
 
     int tip_w = HAL_Get_Text_Width_Font(tip, HAL_FONT_SMALL);
@@ -86,6 +86,12 @@ void DrawDangerConfirm(const char* title, const char* message, const char* tip)
                              tip,
                              HAL_FONT_SMALL,
                              TFT_DARKGREY);
+}
+
+// 【函数说明】保留原危险确认接口，旧页面继续得到红色弹窗而无需改调用点。
+void DrawDangerConfirm(const char* title, const char* message, const char* tip)
+{
+    DrawDialog(title, message, tip, TFT_RED);
 }
 
 // 【函数说明】绘制无填充角框，突出当前滚轮/确认区域。

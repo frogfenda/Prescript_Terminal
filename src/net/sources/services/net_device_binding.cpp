@@ -13,14 +13,90 @@
 
 namespace
 {
-    constexpr uint16_t kTaskId = 2;
     constexpr size_t kBindingResponseLimit = 1024;
+    NetDeviceBindingFailure s_lastFailure = NetDeviceBindingFailure::None;
+    portMUX_TYPE s_failureMux = portMUX_INITIALIZER_UNLOCKED;
 
-    NetTaskExecutionResult TemporaryFailure(const char *stage, NetHttpResult result)
+    /** 绑定执行器运行在 Core 0，页面在主循环读取；短临界区保证失败类型不会跨核撕裂。 */
+    void SetFailure(NetDeviceBindingFailure failure)
     {
-        Serial.printf("[设备绑定] %s失败，传输结果=%u。\n",
+        portENTER_CRITICAL(&s_failureMux);
+        s_lastFailure = failure;
+        portEXIT_CRITICAL(&s_failureMux);
+    }
+
+    const char *DescribeBindingFailure(NetDeviceBindingFailure failure)
+    {
+        switch (failure)
+        {
+        case NetDeviceBindingFailure::RequestTimeout:
+            return "请求超时";
+        case NetDeviceBindingFailure::SecureConnectionFailed:
+            return "安全连接失败";
+        case NetDeviceBindingFailure::ServerConnectionFailed:
+            return "无法连接绑定服务器";
+        case NetDeviceBindingFailure::RequestSendFailed:
+            return "绑定请求发送失败";
+        case NetDeviceBindingFailure::ConnectionLost:
+            return "连接中途断开";
+        case NetDeviceBindingFailure::InsufficientMemory:
+            return "安全连接内存不足";
+        case NetDeviceBindingFailure::InvalidServerResponse:
+            return "服务器响应无效";
+        case NetDeviceBindingFailure::NetworkTransportFailed:
+        default:
+            return "网络传输失败";
+        }
+    }
+
+    NetDeviceBindingFailure TransportFailure(
+        NetHttpResult result,
+        const NetHttpResponse &response)
+    {
+        switch (result)
+        {
+        case NetHttpResult::DeadlineExceeded:
+            return NetDeviceBindingFailure::RequestTimeout;
+        case NetHttpResult::TlsInitializationFailed:
+            return NetDeviceBindingFailure::SecureConnectionFailed;
+        case NetHttpResult::ResponseTooLarge:
+            return NetDeviceBindingFailure::InvalidServerResponse;
+        case NetHttpResult::TransportFailed:
+            switch (response.failure_detail)
+            {
+            case NetHttpFailureDetail::SecureConnectionFailed:
+                return NetDeviceBindingFailure::SecureConnectionFailed;
+            case NetHttpFailureDetail::ReadTimeout:
+                return NetDeviceBindingFailure::RequestTimeout;
+            case NetHttpFailureDetail::ServerConnectionFailed:
+                return NetDeviceBindingFailure::ServerConnectionFailed;
+            case NetHttpFailureDetail::RequestSendFailed:
+                return NetDeviceBindingFailure::RequestSendFailed;
+            case NetHttpFailureDetail::ConnectionLost:
+                return NetDeviceBindingFailure::ConnectionLost;
+            case NetHttpFailureDetail::InsufficientMemory:
+                return NetDeviceBindingFailure::InsufficientMemory;
+            case NetHttpFailureDetail::None:
+            case NetHttpFailureDetail::Unknown:
+            default:
+                return NetDeviceBindingFailure::NetworkTransportFailed;
+            }
+        default:
+            return NetDeviceBindingFailure::NetworkTransportFailed;
+        }
+    }
+
+    NetTaskExecutionResult TemporaryFailure(
+        const char *stage,
+        NetHttpResult result,
+        const NetHttpResponse &response)
+    {
+        const NetDeviceBindingFailure failure = TransportFailure(result, response);
+        SetFailure(failure);
+        Serial.printf("[设备绑定] %s失败：%s（类型=%u）。\n",
                       stage,
-                      static_cast<unsigned>(result));
+                      DescribeBindingFailure(failure),
+                      static_cast<unsigned>(failure));
         return {NetTaskDisposition::Retry, 5UL * 60UL};
     }
 
@@ -29,6 +105,7 @@ namespace
         const NetAuthEnsureResult auth = NetAuthSession_Ensure(context);
         if (auth == NetAuthEnsureResult::Ready)
             return {NetTaskDisposition::Complete, 0};
+        SetFailure(NetDeviceBindingFailure::SessionAuthenticationFailed);
         if (auth == NetAuthEnsureResult::CredentialsRejected ||
             auth == NetAuthEnsureResult::DeviceUnbound)
             return {NetTaskDisposition::AuthBlocked, 0};
@@ -37,9 +114,11 @@ namespace
 
     NetTaskExecutionResult Execute(const NetTaskInvocation &, const NetTaskContext &context)
     {
+        SetFailure(NetDeviceBindingFailure::Unknown);
         const SysDeviceIdentitySnapshot identity = SysDeviceIdentity_GetSnapshot();
         if (!identity.storage_ready || identity.machine_code.isEmpty())
         {
+            SetFailure(NetDeviceBindingFailure::IdentityUnavailable);
             Serial.println("[设备绑定] 身份分区或机器码不可用，本轮停止认证。 ");
             return {NetTaskDisposition::PermanentFailure, 0};
         }
@@ -49,7 +128,8 @@ namespace
 
         if (!SysDeviceBinding_IsProofAvailable())
         {
-            Serial.println("[设备绑定] 固件未注入产品绑定主密钥，自动绑定不可用。 ");
+            SetFailure(NetDeviceBindingFailure::BindingSecretUnavailable);
+            Serial.println("[设备绑定] 固件未注入产品绑定主密钥，身份绑定不可用。 ");
             return {NetTaskDisposition::AuthBlocked, 0};
         }
 
@@ -67,14 +147,18 @@ namespace
             kBindingResponseLimit,
             challenge_response);
         if (transport != NetHttpResult::Ok)
-            return TemporaryFailure("领取绑定挑战", transport);
+            return TemporaryFailure("领取绑定挑战", transport, challenge_response);
         if (challenge_response.status_code == 409)
         {
+            SetFailure(NetDeviceBindingFailure::ServerAlreadyBound);
             Serial.println("[设备绑定] 服务端记录已绑定，但本机没有凭据，需要管理员恢复。 ");
             return {NetTaskDisposition::AuthBlocked, 0};
         }
         if (challenge_response.status_code != 201)
         {
+            SetFailure(challenge_response.status_code >= 500
+                           ? NetDeviceBindingFailure::ServerUnavailable
+                           : NetDeviceBindingFailure::ServerRejected);
             Serial.printf("[设备绑定] 领取挑战失败，HTTP=%d。\n", challenge_response.status_code);
             return {NetTaskDisposition::Retry, 5UL * 60UL};
         }
@@ -86,6 +170,7 @@ namespace
         const String challenge = challenge_document["challenge"] | "";
         if (error || protocol_version != 1 || challenge_id.length() != 36 || challenge.isEmpty())
         {
+            SetFailure(NetDeviceBindingFailure::InvalidServerResponse);
             Serial.println("[设备绑定] 挑战响应格式无效。 ");
             return {NetTaskDisposition::Retry, 5UL * 60UL};
         }
@@ -97,6 +182,7 @@ namespace
                 challenge,
                 verification_code))
         {
+            SetFailure(NetDeviceBindingFailure::ProofGenerationFailed);
             Serial.println("[设备绑定] 无法生成挑战校验码。 ");
             return {NetTaskDisposition::PermanentFailure, 0};
         }
@@ -119,14 +205,18 @@ namespace
             complete_response);
         complete_body = "";
         if (transport != NetHttpResult::Ok)
-            return TemporaryFailure("提交绑定证明", transport);
+            return TemporaryFailure("提交绑定证明", transport, complete_response);
         if (complete_response.status_code == 401 || complete_response.status_code == 403)
         {
+            SetFailure(NetDeviceBindingFailure::ServerRejected);
             Serial.println("[设备绑定] 服务端拒绝绑定证明。 ");
             return {NetTaskDisposition::AuthBlocked, 0};
         }
         if (complete_response.status_code != 200)
         {
+            SetFailure(complete_response.status_code >= 500
+                           ? NetDeviceBindingFailure::ServerUnavailable
+                           : NetDeviceBindingFailure::ServerRejected);
             Serial.printf("[设备绑定] 完成绑定失败，HTTP=%d。\n", complete_response.status_code);
             return {NetTaskDisposition::Retry, 5UL * 60UL};
         }
@@ -141,6 +231,7 @@ namespace
             public_id.isEmpty() || device_key.isEmpty())
         {
             device_key = "";
+            SetFailure(NetDeviceBindingFailure::InvalidServerResponse);
             Serial.println("[设备绑定] 永久凭据响应格式无效。 ");
             return {NetTaskDisposition::Retry, 5UL * 60UL};
         }
@@ -149,6 +240,7 @@ namespace
         device_key = "";
         if (saved != SysDeviceIdentityBindResult::Ok)
         {
+            SetFailure(NetDeviceBindingFailure::CredentialSaveFailed);
             Serial.printf("[设备绑定] 永久凭据落盘失败，结果=%u；未向服务端确认。\n",
                           static_cast<unsigned>(saved));
             return {NetTaskDisposition::PermanentFailure, 0};
@@ -159,18 +251,27 @@ namespace
         if (authenticated.disposition != NetTaskDisposition::Complete)
             return authenticated;
 
-        Serial.printf("[设备绑定] 自动绑定完成，公开身份=%s；永久通行码未写入日志。\n",
+        Serial.printf("[设备绑定] 身份绑定完成，公开身份=%s；永久通行码未写入日志。\n",
                       public_id.c_str());
+        SetFailure(NetDeviceBindingFailure::None);
         return {NetTaskDisposition::Complete, 0};
     }
+}
+
+NetDeviceBindingFailure NetDeviceBinding_GetLastFailure()
+{
+    portENTER_CRITICAL(&s_failureMux);
+    const NetDeviceBindingFailure failure = s_lastFailure;
+    portEXIT_CRITICAL(&s_failureMux);
+    return failure;
 }
 
 bool NetDeviceBinding_Register()
 {
     NetTaskDefinition definition;
-    definition.task_id = kTaskId;
-    definition.name = "设备绑定与认证";
+    definition.task_id = NET_TASK_DEVICE_BINDING;
+    definition.name = "设备身份绑定";
     definition.execute = Execute;
-    definition.trigger_mask = NET_TASK_TRIGGER_SESSION_PREPARE;
+    definition.trigger_mask = NET_TASK_TRIGGER_NONE;
     return NetTaskRegistry_Register(definition);
 }

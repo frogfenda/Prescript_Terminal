@@ -2,13 +2,14 @@
 /*
 【模块职责】顶层网络服务入口与联网会话编排。
 
-一次联网会话固定经过：WiFi 连接 -> NTP 基础校时 -> 绑定/认证准备 -> Outbox -> 本轮普通任务 -> 断网/保持在线。
+一次联网会话固定经过：WiFi 连接 -> NTP 基础校时 -> 已绑定设备认证准备 -> Outbox -> 本轮普通任务 -> 断网/保持在线。
 NetService 不包含具体 HTTP 业务。新增网络业务应注册到 NetTaskRegistry，再由会话 task_ids 点名
 或写入 NetOutbox 等到下次联网执行。
 */
 #pragma once
 
 #include <Arduino.h>
+#include "net/net_task_registry.h"
 
 enum class NetServiceState : uint8_t
 {
@@ -41,6 +42,18 @@ struct NetSessionRequest
     uint16_t task_ids[NET_SESSION_TASK_CAPACITY] = {};
 };
 
+/**
+ * 显式在线任务的最近一次完成结果。
+ * sequence 每完成一次任务递增，页面可在投递前记录旧值，再据此区分历史结果与本次结果。
+ */
+struct NetOnlineTaskResult
+{
+    uint32_t sequence = 0;
+    uint16_t task_id = 0;
+    bool task_found = false;
+    NetTaskDisposition disposition = NetTaskDisposition::Retry;
+};
+
 /** 初始化存储、内置网络任务、WiFi 事件订阅和 Core 0 守护任务；不会立即联网。 */
 void NetService_Init();
 
@@ -55,6 +68,18 @@ bool NetService_StartStandardSync(bool keep_alive = false);
 
 /** 请求轻量校时：仍会顺带消费 Outbox，但不执行额外会话任务。 */
 bool NetService_StartTimeSyncOnly();
+
+/**
+ * 在手动保持在线的 WiFi 会话上执行一个非持久化任务。
+ * 本入口不会重连 WiFi、不会重复 NTP，也不会消费 Outbox；任务仍固定在 Core 0 执行。
+ */
+bool NetService_StartOnlineTask(uint16_t task_id);
+
+/** 返回最近完成的显式在线任务结果；调用方用 sequence 判断是否为本次请求。 */
+NetOnlineTaskResult NetService_GetLastOnlineTaskResult();
+
+/** WiFi 当前实际已连接；RunningTasks 期间也视为在线。 */
+bool NetService_IsOnline();
 
 NetServiceState NetService_GetState();
 

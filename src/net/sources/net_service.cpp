@@ -42,6 +42,10 @@ namespace
     uint32_t s_bootSyncDueMs = 0;
     uint32_t s_sessionStartedMs = 0;
     uint32_t s_nextTimeResyncAllowedMs = 0;
+    uint32_t s_onlineTaskSequence = 0;
+    NetOnlineTaskResult s_lastOnlineTaskResult;
+    portMUX_TYPE s_onlineTaskResultMux = portMUX_INITIALIZER_UNLOCKED;
+    volatile int64_t s_currentNetworkEpoch = 0;
 
     /* 连接、三台 NTP 服务器及有限数量业务任务共用的最后保险。 */
     constexpr uint32_t kSessionTotalTimeoutMs = 60UL * 1000UL;
@@ -59,6 +63,8 @@ namespace
     struct QueuedSession
     {
         NetSessionRequest request;
+        bool online_task = false;
+        uint16_t online_task_id = 0;
         char ssid[kWifiSsidCapacity] = {};
         char password[kWifiPasswordCapacity] = {};
     };
@@ -81,6 +87,17 @@ namespace
     bool IsAbortRequested()
     {
         return s_abortRequested;
+    }
+
+    /** 在线任务结果跨 Core 0 与主循环共享，使用短临界区保证快照字段来自同一次完成事件。 */
+    void PublishOnlineTaskResult(uint16_t task_id, bool task_found, NetTaskDisposition disposition)
+    {
+        portENTER_CRITICAL(&s_onlineTaskResultMux);
+        s_lastOnlineTaskResult.task_id = task_id;
+        s_lastOnlineTaskResult.task_found = task_found;
+        s_lastOnlineTaskResult.disposition = disposition;
+        s_lastOnlineTaskResult.sequence = ++s_onlineTaskSequence;
+        portEXIT_CRITICAL(&s_onlineTaskResultMux);
     }
 
     /** 占位符 SSID 不算有效配置，否则每次开机会无意义地申请约 60 KiB WiFi 内部堆。 */
@@ -165,7 +182,7 @@ namespace
         NetTaskRunSummary summary;
         SetState(NetServiceState::RunningTasks);
 
-        /* 绑定与本轮 Token 必须先于需要认证的持久任务建立；它不属于 Outbox 业务。 */
+        /* 已绑定设备的本轮 Token 必须先于认证型持久任务建立；首次绑定不在这里自动执行。 */
         MergeSummary(
             summary,
             NetTaskRegistry_ExecuteTriggeredTasks(NET_TASK_TRIGGER_SESSION_PREPARE, context));
@@ -228,6 +245,43 @@ namespace
             if (!s_sessionQueue || xQueueReceive(s_sessionQueue, &queued, portMAX_DELAY) != pdTRUE)
                 continue;
 
+            /* 常驻 WiFi 会话上的显式任务：不重连、不校时，只复用当前认证上下文。 */
+            if (queued.online_task)
+            {
+                if (WiFi.status() != WL_CONNECTED || s_state != NetServiceState::SyncSuccess)
+                {
+                    Serial.println("[网络服务] 在线任务执行时 WiFi 已断开，拒绝继续执行。 ");
+                    PublishOnlineTaskResult(queued.online_task_id, false, NetTaskDisposition::Retry);
+                    FailAndShutdown(s_abortRequested ? s_abortTargetState : NetServiceState::ConnectFailed);
+                    continue;
+                }
+
+                s_workerActive = true;
+                SetState(NetServiceState::RunningTasks);
+                NetTaskContext context;
+                context.network_epoch = s_currentNetworkEpoch;
+                context.deadline_ms = millis() + 20UL * 1000UL;
+                context.is_abort_requested = IsAbortRequested;
+                NetTaskExecutionResult result;
+                const bool found = NetTaskRegistry_ExecuteSessionTask(
+                    queued.online_task_id, context, &result);
+                const NetTaskDisposition disposition = found
+                                                           ? result.disposition
+                                                           : NetTaskDisposition::PermanentFailure;
+                PublishOnlineTaskResult(queued.online_task_id, found, disposition);
+                Serial.printf("[网络服务] 在线任务完成：ID=%u，结果=%u。\n",
+                              static_cast<unsigned>(queued.online_task_id),
+                              static_cast<unsigned>(disposition));
+                if (s_abortRequested || WiFi.status() != WL_CONNECTED)
+                    FailAndShutdown(s_abortRequested ? s_abortTargetState : NetServiceState::ConnectFailed);
+                else
+                {
+                    s_workerActive = false;
+                    SetState(NetServiceState::SyncSuccess);
+                }
+                continue;
+            }
+
             if (queued.ssid[0] == '\0')
             {
                 Serial.println("[网络服务] 未配置真实 WiFi，跳过会话。 ");
@@ -265,6 +319,7 @@ namespace
 
             NetTaskContext context;
             context.network_epoch = static_cast<int64_t>(network_epoch);
+            s_currentNetworkEpoch = context.network_epoch;
             context.deadline_ms = s_sessionStartedMs + kSessionTotalTimeoutMs;
             context.is_abort_requested = IsAbortRequested;
             const NetTaskRunSummary summary = RunRequestedTasks(queued.request, context);
@@ -329,6 +384,12 @@ void NetService_Init()
 {
     SetState(NetServiceState::Disconnected);
     s_lastOutcome = NetSessionOutcome::None;
+    s_onlineTaskSequence = 0;
+    s_lastOnlineTaskResult.sequence = 0;
+    s_lastOnlineTaskResult.task_id = 0;
+    s_lastOnlineTaskResult.task_found = false;
+    s_lastOnlineTaskResult.disposition = NetTaskDisposition::Retry;
+    s_currentNetworkEpoch = 0;
     WiFi.persistent(false);
     WiFi.setAutoReconnect(false);
     WiFi.disconnect(true, false);
@@ -436,6 +497,50 @@ bool NetService_StartTimeSyncOnly()
     request.keep_alive = false;
     request.drain_outbox = true;
     return NetService_StartSession(request);
+}
+
+bool NetService_StartOnlineTask(uint16_t task_id)
+{
+    if (task_id == 0 || !s_daemonTaskHandle || !s_sessionQueue)
+        return false;
+    if (WiFi.status() != WL_CONNECTED || s_state != NetServiceState::SyncSuccess || s_workerActive)
+    {
+        Serial.println("[网络服务] 在线任务被拒绝：当前没有可复用的常驻 WiFi 会话。 ");
+        return false;
+    }
+
+    QueuedSession queued;
+    queued.online_task = true;
+    queued.online_task_id = task_id;
+    /* 必须先占用 worker 标记再唤醒 Core 0，防止极快任务完成后被主循环重新写成 busy。 */
+    s_workerActive = true;
+    if (xQueueSend(s_sessionQueue, &queued, 0) != pdTRUE)
+    {
+        s_workerActive = false;
+        Serial.println("[网络服务] 在线任务入队失败。 ");
+        return false;
+    }
+    Serial.printf("[网络服务] 已投递在线任务：ID=%u。\n", static_cast<unsigned>(task_id));
+    return true;
+}
+
+NetOnlineTaskResult NetService_GetLastOnlineTaskResult()
+{
+    NetOnlineTaskResult result;
+    portENTER_CRITICAL(&s_onlineTaskResultMux);
+    result.sequence = s_lastOnlineTaskResult.sequence;
+    result.task_id = s_lastOnlineTaskResult.task_id;
+    result.task_found = s_lastOnlineTaskResult.task_found;
+    result.disposition = s_lastOnlineTaskResult.disposition;
+    portEXIT_CRITICAL(&s_onlineTaskResultMux);
+    return result;
+}
+
+bool NetService_IsOnline()
+{
+    return WiFi.status() == WL_CONNECTED &&
+           (s_state == NetServiceState::SyncSuccess ||
+            s_state == NetServiceState::RunningTasks);
 }
 
 NetServiceState NetService_GetState()

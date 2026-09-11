@@ -133,14 +133,6 @@ void HAL_Screen_Clear()
     textSprite.fillSprite(TFT_BLACK);
 }
 
-void HAL_Screen_DrawHeader()
-{
-    textSprite.setTextColor(TFT_RED, TFT_BLACK);
-    textSprite.setTextSize(1);
-    textSprite.setCursor(10, 8);
-    textSprite.print("[ PRESCRIPT ]");
-}
-
 // 【函数说明】绘制待机图。
 // 新屏横屏模式下，standby.bin 必须匹配 HAL_Get_Screen_Width/Height 的 RGB565 原始图。
 // 如果仍然使用旧 284×76 待机图，本函数不会强行读取，避免读越界或显示错乱，而是在屏幕上给出尺寸提示。

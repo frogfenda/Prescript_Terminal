@@ -12,8 +12,9 @@ NTP 被定义为每次真实联网会话的基础阶段，不注册成普通任�
 - NTP 失败时不应继续执行依赖时间的业务任务；
 - 它建立的是会话运行条件，不是一次业务操作。
 
-设备绑定与临时认证属于每次会话的 `SESSION_PREPARE` 阶段，固定在 Outbox 之前执行。隐秘指令拉取仍是
-普通网络任务，但旧域名当前不可用，已退出自动触发，只保留显式任务入口等待迁移。
+已绑定设备的临时认证属于每次会话的 `SESSION_PREPARE` 阶段，固定在 Outbox 之前执行。首次身份绑定是设置页
+显式发起的在线任务，不会因为普通联网自动发生。隐秘指令拉取仍是普通网络任务，但旧域名当前不可用，
+已退出自动触发，只保留显式任务入口等待迁移。
 
 ## 分层
 
@@ -23,11 +24,12 @@ apps / 业务生产者
     v                                v
 NetService                    NetOutbox（独立 NVS）
     | WiFi + NTP                     |
-    | 绑定/临时 Token                |
+    | 已绑定设备临时 Token           |
     |                                | 下次联网领取
     +----------> NetTaskRegistry <---+
                        |
-                       +-- 设备绑定与认证
+                       +-- 设备身份绑定（显式在线任务）
+                       +-- 已绑定设备认证准备
                        +-- 隐秘指令拉取
                        +-- 后续上传、下载、状态上报等任务
 ```
@@ -70,7 +72,7 @@ src/net/
   -> 校验 WiFi 配置
   -> 连接 AP
   -> NTP 获取可信 UTC，并等待主线程把它真正写入系统时钟
-  -> SESSION_PREPARE：未绑定则挑战应答并保存永久 Key；随后用 Key 换取本轮 RAM Token
+  -> SESSION_PREPARE：已绑定则用永久 Key 换取本轮 RAM Token；未绑定设备跳过
   -> 消费本轮到期 Outbox（默认最多 8 项）
   -> 执行匹配 trigger_mask 的普通任务
   -> 执行请求显式列出的 task_ids
@@ -90,7 +92,8 @@ src/net/
 | 形态 | 是否持久化 | 执行时机 | 例子 |
 |---|---:|---|---|
 | 会话基础阶段 | 否 | 每次会话固定执行 | WiFi、NTP |
-| 会话准备任务 | 否 | NTP 后、Outbox 前 | 设备绑定、临时认证 |
+| 会话准备任务 | 否 | NTP 后、Outbox 前 | 已绑定设备临时认证 |
+| 显式在线任务 | 否 | 常驻 WiFi 上由 UI 点名 | 首次设备身份绑定 |
 | 触发标签任务 | 否 | 匹配本轮 `trigger_mask` | 后续远程指令同步 |
 | Outbox 任务 | 是 | 任意成功联网会话中到期后执行 | 后续用户操作上传、状态上报 |
 
@@ -148,14 +151,15 @@ Outbox 使用分区表中的独立 64 KiB `outbox` NVS：
 任务若声明 `auth_requirement=DeviceSession`，注册表会在调用业务执行器前统一保证本轮 Token 可用。
 业务执行器不读取永久 Key，Token 也不写入 Outbox 或身份分区。
 
-## 自动绑定与 HTTPS 边界
+## 显式绑定与 HTTPS 边界
 
 固件只通过校验证书的 HTTPS 访问新服务端。NTP 结果必须先由主线程确认应用，之后 TLS 才能开始。
 响应必须带 `Content-Length` 且不得超过调用方上限，避免不受控 JSON 占满内部堆。
 
-未绑定设备用 eFuse 基础 MAC 生成 `PT-XXXXXXXXXXXX` 机器码，再按协议 v1 对服务器随机挑战执行
+未绑定设备只有在系统设置页按主键确认后，才用 eFuse 基础 MAC 生成 `PT-XXXXXXXXXXXX` 机器码，再按协议 v1 对服务器随机挑战执行
 HMAC-SHA256。服务器返回的永久 Key 原子写入独立 `identity` NVS；正常联网只用该 Key 换取临时
-Bearer Token。Token 仅存在于当前 WiFi 会话 RAM，断网、失败或中止都会清除。
+Bearer Token。Token 仅存在于当前 WiFi 会话 RAM，断网、失败或中止都会清除。身份绑定在线任务复用
+当前常驻 WiFi，不重复连接 AP 或执行 NTP。
 
 测试固件通过构建环境变量 `PRESCRIPT_DEVICE_BINDING_MASTER_SECRET` 注入批次主密钥，脚本只在
 `.pio` 构建目录生成临时头文件，不把秘密放进仓库或编译命令行。量产前必须改成工厂逐机秘密并开启

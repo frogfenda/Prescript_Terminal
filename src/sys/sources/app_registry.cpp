@@ -45,6 +45,7 @@ extern AppBase *appCaduceusActionTest;
 extern AppBase *appHumanFrameDrift;
 extern AppBase *appMagDiagnostics;
 extern AppBase *appSensorCalibrationTest;
+extern AppBase *appDeviceBinding;
 
 // 时间设置相关 App 在 app_time_setting.cpp 中定义。
 extern AppBase *appTimeSetting;
@@ -96,6 +97,7 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::HumanFrameDriftTest: return appHumanFrameDrift;
         case AppId::MagDiagnostics: return appMagDiagnostics;
         case AppId::SensorCalibrationTest: return appSensorCalibrationTest;
+        case AppId::DeviceBinding: return appDeviceBinding;
         default: return nullptr;
     }
 }
@@ -145,6 +147,7 @@ const char* AppRegistry_Name(AppId id)
         case AppId::HumanFrameDriftTest: return "HumanFrameDriftTest";
         case AppId::MagDiagnostics: return "MagDiagnostics";
         case AppId::SensorCalibrationTest: return "SensorCalibrationTest";
+        case AppId::DeviceBinding: return "DeviceBinding";
         default: return "Unknown";
     }
 }

@@ -93,7 +93,7 @@ enum class NetTaskAuthRequirement : uint8_t
 
 /** 会话触发标签可以按位组合；任务自行声明参与哪些会话策略。 */
 constexpr uint8_t NET_TASK_TRIGGER_NONE = 0;
-/** 每次 WiFi+NTP 成功后、Outbox 之前运行，用于绑定与建立本轮认证上下文。 */
+/** 每次 WiFi+NTP 成功后、Outbox 之前运行，仅用于建立已有设备的本轮认证上下文。 */
 constexpr uint8_t NET_TASK_TRIGGER_SESSION_PREPARE = 1U << 0;
 constexpr uint8_t NET_TASK_TRIGGER_STANDARD_SYNC = 1U << 1;
 

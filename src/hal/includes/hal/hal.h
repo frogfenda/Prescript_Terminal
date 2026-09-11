@@ -62,7 +62,6 @@ bool HAL_Is_Key_Pressed(void);
 int  HAL_Get_Knob_Delta(void);
 
 void HAL_Screen_Clear(void);
-void HAL_Screen_DrawHeader(void);
 void HAL_Screen_DrawStandbyImage(void);
 
 void HAL_Screen_ShowTextLine(int32_t x, int32_t y, const char* str);

@@ -6,12 +6,72 @@
 
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
 
 namespace
 {
     constexpr char kServerBaseUrl[] = "https://test.prescript.cloud";
     constexpr uint32_t kMaximumRequestTimeoutMs = 8000;
     constexpr uint32_t kMinimumRequestBudgetMs = 1200;
+
+    /** 将 HTTPClient 的稳定负错误码翻译成中文，避免业务日志只有无法解释的数字。 */
+    const char *DescribeTransportError(int error)
+    {
+        switch (error)
+        {
+        case HTTPC_ERROR_CONNECTION_REFUSED:
+            return "连接服务器失败";
+        case HTTPC_ERROR_SEND_HEADER_FAILED:
+            return "发送请求头失败";
+        case HTTPC_ERROR_SEND_PAYLOAD_FAILED:
+            return "发送请求正文失败";
+        case HTTPC_ERROR_NOT_CONNECTED:
+            return "连接未建立";
+        case HTTPC_ERROR_CONNECTION_LOST:
+            return "连接中途断开";
+        case HTTPC_ERROR_NO_STREAM:
+            return "响应数据流不可用";
+        case HTTPC_ERROR_NO_HTTP_SERVER:
+            return "服务端未返回 HTTP 响应";
+        case HTTPC_ERROR_TOO_LESS_RAM:
+            return "可用内存不足";
+        case HTTPC_ERROR_ENCODING:
+            return "响应编码不支持";
+        case HTTPC_ERROR_STREAM_WRITE:
+            return "响应流写入失败";
+        case HTTPC_ERROR_READ_TIMEOUT:
+            return "读取响应超时";
+        default:
+            return "未知传输错误";
+        }
+    }
+
+    NetHttpFailureDetail ClassifyTransportFailure(int transport_error, int secure_error)
+    {
+        /* 明确的 mbedTLS 错误优先，-1 同时可能代表 TCP 或握手超时，不能冒充证书错误。 */
+        if (secure_error < -1)
+            return NetHttpFailureDetail::SecureConnectionFailed;
+        switch (transport_error)
+        {
+        case HTTPC_ERROR_READ_TIMEOUT:
+            return NetHttpFailureDetail::ReadTimeout;
+        case HTTPC_ERROR_CONNECTION_REFUSED:
+        case HTTPC_ERROR_NOT_CONNECTED:
+        case HTTPC_ERROR_NO_STREAM:
+        case HTTPC_ERROR_NO_HTTP_SERVER:
+            return NetHttpFailureDetail::ServerConnectionFailed;
+        case HTTPC_ERROR_SEND_HEADER_FAILED:
+        case HTTPC_ERROR_SEND_PAYLOAD_FAILED:
+        case HTTPC_ERROR_STREAM_WRITE:
+            return NetHttpFailureDetail::RequestSendFailed;
+        case HTTPC_ERROR_CONNECTION_LOST:
+            return NetHttpFailureDetail::ConnectionLost;
+        case HTTPC_ERROR_TOO_LESS_RAM:
+            return NetHttpFailureDetail::InsufficientMemory;
+        default:
+            return NetHttpFailureDetail::Unknown;
+        }
+    }
 
     /* Let's Encrypt ISRG Root X1；服务器证书链必须最终落到该受信根。 */
     constexpr char kIsrgRootX1[] PROGMEM = R"CERT(-----BEGIN CERTIFICATE-----
@@ -58,6 +118,9 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
     {
         response.status_code = 0;
         response.body = "";
+        response.transport_error_code = 0;
+        response.secure_error_code = 0;
+        response.failure_detail = NetHttpFailureDetail::None;
         const uint32_t remaining_ms = context.RemainingMs();
         if (remaining_ms <= kMinimumRequestBudgetMs)
             return NetHttpResult::DeadlineExceeded;
@@ -67,7 +130,12 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
                                         : kMaximumRequestTimeoutMs;
         WiFiClientSecure client;
         client.setCACert(kIsrgRootX1);
-        client.setTimeout(timeout_ms);
+        /*
+        WiFiClientSecure::setTimeout() 的参数单位是秒，不能直接传 timeout_ms。
+        HTTPClient 会在连接后设置读写超时；这里单独限制 TLS 握手，确保 Core 0
+        不会被框架默认的 120 秒握手时限拖过当前网络任务截止时间。
+        */
+        client.setHandshakeTimeout((timeout_ms + 999UL) / 1000UL);
 
         HTTPClient http;
         http.setConnectTimeout(static_cast<int32_t>(timeout_ms));
@@ -92,6 +160,28 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 
         if (status_code <= 0)
         {
+            response.transport_error_code = status_code;
+            char secure_error_text[128] = {};
+            const int raw_secure_error = client.lastError(
+                secure_error_text,
+                sizeof(secure_error_text));
+            /* 成功连接时该字段可能保存正的 socket 描述符，只有负数才是底层错误。 */
+            response.secure_error_code = raw_secure_error < 0 ? raw_secure_error : 0;
+            response.failure_detail = ClassifyTransportFailure(
+                response.transport_error_code,
+                response.secure_error_code);
+
+            Serial.printf(
+                "[网络/HTTPS] 请求失败：传输错误=%d（%s），TLS错误=%d，内部堆=%u，最大内部块=%u。\n",
+                status_code,
+                DescribeTransportError(status_code),
+                response.secure_error_code,
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+            if (response.secure_error_code < 0 && secure_error_text[0] != '\0')
+            {
+                Serial.printf("[网络/HTTPS] TLS底层说明：%s。\n", secure_error_text);
+            }
             http.end();
             return NetHttpResult::TransportFailed;
         }
