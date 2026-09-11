@@ -176,8 +176,6 @@ bool NetTlsMemory_InstallAllocator()
     portENTER_CRITICAL(&s_statsMux);
     s_installed = true;
     portEXIT_CRITICAL(&s_statsMux);
-    Serial.printf("[网络/TLS内存] 已启用PSRAM分配器，逻辑预算=%u字节。\n",
-                  static_cast<unsigned>(kTlsPsramBudgetBytes));
     return true;
 }
 

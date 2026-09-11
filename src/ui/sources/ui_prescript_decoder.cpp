@@ -18,9 +18,6 @@ AppPrescript 只负责“抽取哪条指令、什么时候进入 CHAOS/DECODE/DO
 
 namespace UIPrescript {
 
-// C++11 中被跨编译单元按引用使用的静态 constexpr 成员仍需要一个存储定义。
-constexpr int DecodeOverlayAnimator::MaxPageLines;
-
 namespace {
 
 // 四种阻塞式解码动画的原有节奏参数。这里保留节奏，只把坐标和行列改为响应式。

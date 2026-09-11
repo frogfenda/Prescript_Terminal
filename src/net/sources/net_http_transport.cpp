@@ -7,38 +7,12 @@
 
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#include <esp_heap_caps.h>
 
 namespace
 {
     constexpr char kServerBaseUrl[] = "https://test.prescript.cloud";
     constexpr uint32_t kMaximumRequestTimeoutMs = 8000;
     constexpr uint32_t kMinimumRequestBudgetMs = 1200;
-
-    class TlsMemoryRequestGuard
-    {
-    public:
-        TlsMemoryRequestGuard()
-        {
-            NetTlsMemory_BeginRequest();
-        }
-
-        ~TlsMemoryRequestGuard()
-        {
-            /*
-             * 本对象先于 WiFiClientSecure 创建，因而析构顺序在客户端之后；此时快照中的
-             * current_bytes 应回落到请求前基线，可以同时发现第三方库遗留的 TLS 对象。
-             */
-            const NetTlsMemorySnapshot snapshot = NetTlsMemory_GetSnapshot();
-            Serial.printf(
-                "[网络/TLS内存] 请求结束：本次峰值=%u，当前占用=%u，预算=%u，失败=%s，失败申请=%u。\n",
-                static_cast<unsigned>(snapshot.request_peak_bytes),
-                static_cast<unsigned>(snapshot.current_bytes),
-                static_cast<unsigned>(snapshot.budget_bytes),
-                NetTlsMemory_DescribeFailure(snapshot.last_failure),
-                static_cast<unsigned>(snapshot.last_failed_request_bytes));
-        }
-    };
 
     /** 将 HTTPClient 的稳定负错误码翻译成中文，避免业务日志只有无法解释的数字。 */
     const char *DescribeTransportError(int error)
@@ -161,7 +135,7 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
             return NetHttpResult::TlsInitializationFailed;
         }
 
-        TlsMemoryRequestGuard memoryGuard;
+        NetTlsMemory_BeginRequest();
         WiFiClientSecure client;
         client.setCACert(kIsrgRootX1);
         /*
@@ -205,15 +179,20 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
                 response.transport_error_code,
                 response.secure_error_code);
 
-            Serial.printf(
-                "[网络/HTTPS] 请求失败：传输错误=%d（%s），TLS错误=%d，内部堆=%u，最大内部块=%u，PSRAM=%u，最大PSRAM块=%u。\n",
-                status_code,
-                DescribeTransportError(status_code),
-                response.secure_error_code,
-                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+            Serial.printf("[网络/HTTPS] 请求失败：传输错误=%d（%s），TLS错误=%d。\n",
+                          status_code,
+                          DescribeTransportError(status_code),
+                          response.secure_error_code);
+            const NetTlsMemorySnapshot tlsMemory = NetTlsMemory_GetSnapshot();
+            if (tlsMemory.last_failure != NetTlsMemoryFailure::None)
+            {
+                Serial.printf(
+                    "[网络/TLS内存] 分配失败：原因=%s，申请=%u，本次峰值=%u，预算=%u。\n",
+                    NetTlsMemory_DescribeFailure(tlsMemory.last_failure),
+                    static_cast<unsigned>(tlsMemory.last_failed_request_bytes),
+                    static_cast<unsigned>(tlsMemory.request_peak_bytes),
+                    static_cast<unsigned>(tlsMemory.budget_bytes));
+            }
             if (response.secure_error_code < 0 && secure_error_text[0] != '\0')
             {
                 Serial.printf("[网络/HTTPS] TLS底层说明：%s。\n", secure_error_text);
