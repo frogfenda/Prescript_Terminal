@@ -157,9 +157,10 @@ namespace BSP::W25n01
 
     /**
      * 读取物理块第一页的出厂坏块标记：主区Byte0和Spare Byte0..1任一非FF即为坏块。
+     * markerBytes可为空；非空时依次返回上述三个原始字节，供首次扫描区分主区已有数据与备用区标记。
      * 该判断只适用于首次编程前；主区Byte0被用户数据写过以后不能再重建原始出厂标记。
      */
-    bool ReadFactoryBadBlockMarker(uint16_t block, bool *isBad);
+    bool ReadFactoryBadBlockMarker(uint16_t block, bool *isBad, uint8_t markerBytes[3] = nullptr);
 
     /** 一次读出芯片内固定20项BBM LUT；未使用项也会返回，状态由enabled/invalid表示。 */
     bool ReadBadBlockLut(BadBlockLink *entries, size_t entryCount = BBM_LUT_ENTRY_COUNT);

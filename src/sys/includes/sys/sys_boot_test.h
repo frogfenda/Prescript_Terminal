@@ -2,12 +2,12 @@
 
 namespace SysBootTest
 {
-    /** 返回是否启用了任一隔离测试固件。 */
+    /** 返回是否启用了TM6605、IMU采集或NAND诊断中的任一隔离测试固件。 */
     bool Enabled();
 
     /**
      * 【接口说明】返回当前测试固件是否允许侧键启动 USB MSC。
-     * IMU 脱线采集需要从 FAT 导出文件，因此允许；纯硬件时序测试继续固定 CDC-only。
+     * IMU脱线采集需要从FAT导出文件，因此允许；TM6605和NAND串口诊断继续固定CDC-only。
      */
     bool AllowsMscBoot();
 

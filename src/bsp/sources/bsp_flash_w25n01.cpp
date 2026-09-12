@@ -35,7 +35,8 @@ namespace
     static constexpr uint8_t CONFIG_OTP_MODE = 0x40;
     static constexpr uint8_t CONFIG_SR1_LOCK = 0x20;
     static constexpr uint8_t CONFIG_ECC_ENABLE = 0x10;
-    static constexpr uint8_t CONFIG_BUFFER_MODE = 0x01;
+    // W25N01GV Status Register-2 的 BUF 位位于 S3；S0 是保留位，不能拿来判断读模式。
+    static constexpr uint8_t CONFIG_BUFFER_MODE = 0x08;
 
     static constexpr uint8_t STATUS_LUT_FULL = 0x40;
     static constexpr uint8_t STATUS_ECC_MASK = 0x30;
@@ -573,7 +574,7 @@ namespace BSP::W25n01
         return true;
     }
 
-    bool ReadFactoryBadBlockMarker(uint16_t block, bool *isBad)
+    bool ReadFactoryBadBlockMarker(uint16_t block, bool *isBad, uint8_t markerBytes[3])
     {
         if (!isBad || block >= BLOCK_COUNT)
             return Fail(Error::InvalidArgument);
@@ -588,6 +589,8 @@ namespace BSP::W25n01
         uint8_t markers[3] = {};
         ReadBuffer(0, &markers[0], 1);
         ReadBuffer(PAGE_DATA_SIZE, &markers[1], 2);
+        if (markerBytes)
+            memcpy(markerBytes, markers, sizeof(markers));
         *isBad = markers[0] != 0xFF || markers[1] != 0xFF || markers[2] != 0xFF;
         s_diagnostics.lastBlock = block;
         ClearError();

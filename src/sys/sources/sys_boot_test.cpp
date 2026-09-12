@@ -1,8 +1,8 @@
 /*
 【模块职责】编译期开启的隔离硬件诊断入口。测试模式会阻止正常 APP 启动，避免屏幕、网络和后台任务
 干扰 I2C、串口时序或传感器数据。
-【使用约束】默认所有测试均关闭；PRESCRIPT_TM6605_BOOT_TEST 和 PRESCRIPT_IMU_CAPTURE_TEST
-不应同时启用。IMU 测试委托给独立脱线采集模块，正常固件不会挂载采集目录或产生采样文件。
+【使用约束】默认所有测试均关闭；TM6605、IMU采集和NAND诊断宏不应同时启用。IMU测试委托给
+独立脱线采集模块，NAND测试委托给串口诊断模块，正常固件不会进入任一隔离测试流程。
 */
 #include "sys/sys_boot_test.h"
 
@@ -14,6 +14,7 @@
 #include "sys/sys_constants.h"
 #include "sys/sys_imu_capture.h"
 #include "sys/sys_motion.h"
+#include "sys/sys_nand_diagnostic.h"
 
 #ifndef PRESCRIPT_TM6605_BOOT_TEST
 #define PRESCRIPT_TM6605_BOOT_TEST 0
@@ -21,6 +22,10 @@
 
 #ifndef PRESCRIPT_IMU_CAPTURE_TEST
 #define PRESCRIPT_IMU_CAPTURE_TEST 0
+#endif
+
+#ifndef PRESCRIPT_NAND_DIAGNOSTIC_TEST
+#define PRESCRIPT_NAND_DIAGNOSTIC_TEST 0
 #endif
 
 namespace
@@ -113,7 +118,9 @@ namespace SysBootTest
 {
     bool Enabled()
     {
-        return PRESCRIPT_TM6605_BOOT_TEST != 0 || PRESCRIPT_IMU_CAPTURE_TEST != 0;
+        return PRESCRIPT_TM6605_BOOT_TEST != 0 ||
+               PRESCRIPT_IMU_CAPTURE_TEST != 0 ||
+               PRESCRIPT_NAND_DIAGNOSTIC_TEST != 0;
     }
 
     bool AllowsMscBoot()
@@ -131,6 +138,12 @@ namespace SysBootTest
         if (PRESCRIPT_IMU_CAPTURE_TEST != 0)
         {
             SysImuCapture::Setup();
+            return;
+        }
+
+        if (PRESCRIPT_NAND_DIAGNOSTIC_TEST != 0)
+        {
+            SysNandDiagnostic::Setup();
             return;
         }
 
@@ -158,6 +171,12 @@ namespace SysBootTest
         if (PRESCRIPT_IMU_CAPTURE_TEST != 0)
         {
             SysImuCapture::Loop();
+            return;
+        }
+
+        if (PRESCRIPT_NAND_DIAGNOSTIC_TEST != 0)
+        {
+            SysNandDiagnostic::Loop();
             return;
         }
 
