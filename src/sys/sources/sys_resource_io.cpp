@@ -5,7 +5,6 @@
 #include "sys/sys_resource_io.h"
 
 #include "hal/hal_fat_storage.h"
-#include <FFat.h>
 #include <math.h>
 #include <string.h>
 
@@ -248,7 +247,7 @@ bool SysResourceIO::OpenRead(const SysResourcePath &resourcePath,
     if (!resourcePath.path || resourcePath.path[0] == '\0')
         return false;
 
-    fs::File candidate = FFat.open(resourcePath.path, FILE_READ);
+    fs::File candidate = HAL::FatStorage::FileSystem().open(resourcePath.path, FILE_READ);
     if (!candidate || candidate.isDirectory())
     {
         if (candidate)

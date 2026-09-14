@@ -10,7 +10,6 @@
 #include "sys/sys_fs.h"
 #include "sys/sys_usb_mode.h"
 
-#include <FFat.h>
 #include <LittleFS.h>
 #include <Update.h>
 #include <esp_ota_ops.h>
@@ -24,6 +23,11 @@ namespace
     constexpr size_t IO_BUFFER_SIZE = 4096;
     uint8_t s_ioBuffer[IO_BUFFER_SIZE];
     bool s_updateUiReady = false;
+
+    fs::FS &FatFs()
+    {
+        return HAL::FatStorage::FileSystem();
+    }
 
     struct Candidate
     {
@@ -73,7 +77,7 @@ namespace
 
     bool isDirectory(const char *path)
     {
-        fs::File file = FFat.open(path, FILE_READ);
+        fs::File file = FatFs().open(path, FILE_READ);
         if (!file)
             return false;
         const bool directory = file.isDirectory();
@@ -83,7 +87,7 @@ namespace
 
     bool fatPathMatchesType(const String &path, bool expectedDirectory)
     {
-        fs::File file = FFat.open(path, FILE_READ);
+        fs::File file = FatFs().open(path, FILE_READ);
         if (!file)
             return false;
         const bool matches = file.isDirectory() == expectedDirectory;
@@ -119,7 +123,7 @@ namespace
     bool detectPackage(Package &package)
     {
         package = Package{};
-        fs::File dir = FFat.open(SysFatUpdate::UPDATE_DIR, FILE_READ);
+        fs::File dir = FatFs().open(SysFatUpdate::UPDATE_DIR, FILE_READ);
         if (!dir || !dir.isDirectory())
         {
             if (dir)
@@ -254,7 +258,7 @@ namespace
 
     bool readFirstByte(const String &path, uint8_t &value)
     {
-        fs::File file = FFat.open(path, FILE_READ);
+        fs::File file = FatFs().open(path, FILE_READ);
         if (!file || file.isDirectory())
         {
             if (file)
@@ -329,7 +333,7 @@ namespace
     bool applyImage(const Candidate &image, int command, const char *label,
                     uint8_t stage, uint8_t stageCount)
     {
-        fs::File file = FFat.open(image.path, FILE_READ);
+        fs::File file = FatFs().open(image.path, FILE_READ);
         if (!file || file.isDirectory())
         {
             if (file)
@@ -408,8 +412,8 @@ namespace
     {
         for (uint8_t attempt = 0; attempt < 3; ++attempt)
         {
-            (void)FFat.remove(path.c_str());
-            if (!FFat.exists(path.c_str()))
+            (void)FatFs().remove(path.c_str());
+            if (!FatFs().exists(path.c_str()))
             {
                 Serial.printf("[FATFS][删除] 已移除完成的更新文件：%s。\n", path.c_str());
                 return true;
@@ -424,7 +428,7 @@ namespace
     {
         if (!path.length() || path == "/")
             return true;
-        if (FFat.exists(path.c_str()))
+        if (FatFs().exists(path.c_str()))
             return isDirectory(path.c_str());
 
         String normalized = path;
@@ -435,9 +439,9 @@ namespace
         {
             const int slash = normalized.indexOf('/', cursor);
             const String partial = slash >= 0 ? normalized.substring(0, slash) : normalized;
-            if (partial.length() && !FFat.exists(partial.c_str()))
+            if (partial.length() && !FatFs().exists(partial.c_str()))
             {
-                if (!FFat.mkdir(partial.c_str()))
+                if (!FatFs().mkdir(partial.c_str()))
                 {
                     Serial.printf("[FATFS][目录] 创建失败：%s。\n", partial.c_str());
                     return false;
@@ -504,7 +508,7 @@ namespace
             source.close();
             return false;
         }
-        fs::File target = FFat.open(targetPath, FILE_WRITE);
+        fs::File target = FatFs().open(targetPath, FILE_WRITE);
         if (!target)
         {
             source.close();
@@ -527,7 +531,7 @@ namespace
         target.close();
         source.close();
         if (!ok)
-            (void)FFat.remove(targetPath.c_str());
+            (void)FatFs().remove(targetPath.c_str());
         Serial.printf("[FATFS][恢复] 文件复制%s：%s。\n", ok ? "完成" : "失败", targetPath.c_str());
         return ok;
     }
@@ -571,7 +575,7 @@ namespace
                      * 新FAT结构按应用划分顶级目录，同一应用目录内可能只缺少audio/text中的一部分。
                      * 因此不能再以“顶级目录已有任意文件”为由跳过整棵树，而要逐层进入并只补缺失文件。
                      */
-                    if (FFat.exists(targetChild.c_str()) && !fatPathMatchesType(targetChild, true))
+                    if (FatFs().exists(targetChild.c_str()) && !fatPathMatchesType(targetChild, true))
                     {
                         Serial.printf("[FATFS][恢复] 目录类型冲突，保留现有路径并停止：%s。\n", targetChild.c_str());
                         ok = false;
@@ -585,7 +589,7 @@ namespace
             }
             else
             {
-                if (FFat.exists(targetChild.c_str()))
+                if (FatFs().exists(targetChild.c_str()))
                 {
                     if (!fatPathMatchesType(targetChild, false))
                     {
@@ -637,7 +641,7 @@ namespace SysFatUpdate
         }
         else
         {
-            Serial.println("[FATFS] 挂载失败；请按住 BTN2 启动，并由 Windows 格式化磁盘。");
+            Serial.println("[FATFS] 外挂NAND卷挂载失败；不会自动格式化，请运行隔离初始化固件检查或建卷。");
         }
 
         // 更新扫描完成后才挂载 LittleFS，确保刷写镜像时不存在旧文件句柄。
@@ -650,7 +654,7 @@ namespace SysFatUpdate
     {
         if (!HAL::FatStorage::IsMountedForEsp())
             return false;
-        if (FFat.exists(UPDATE_DIR))
+        if (FatFs().exists(UPDATE_DIR))
         {
             if (isDirectory(UPDATE_DIR))
             {
@@ -660,7 +664,7 @@ namespace SysFatUpdate
             Serial.println("[FATFS][目录] /Update 存在，但不是目录。");
             return false;
         }
-        if (!FFat.mkdir(UPDATE_DIR))
+        if (!FatFs().mkdir(UPDATE_DIR))
         {
             Serial.println("[FATFS][目录] 无法创建 /Update。");
             return false;

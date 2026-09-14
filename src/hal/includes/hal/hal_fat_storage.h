@@ -1,19 +1,20 @@
 #pragma once
 
 #include <Arduino.h>
+#include <FS.h>
 
 /*
-【模块职责】管理分区表中 fatfs 分区的唯一访问权。
+【模块职责】管理外挂W25N01GV上FAT卷的唯一访问权。
 
-- ESP 应用模式：通过 FFat 挂载文件系统；formatOnFail 永远为 false，格式化只交给 Windows。
-- PC 磁盘模式：通过 wear-levelling 暴露原始逻辑块读写，供 USB MSC 驱动调用。
+- ESP应用模式：把Dhara固定逻辑块注册为FatFs/VFS并挂载到/fat；失败时绝不自动格式化。
+- PC磁盘模式：卸载VFS后把同一组固定逻辑块直接提供给USB MSC。
 - 两种模式严格互斥，避免 Windows 与 ESP 同时写入导致 FAT 卷损坏。
+- 正式固件只接受已完成卷身份提交的介质，不保留格式化或整区擦除入口。
 
 本模块不包含 USB、CDC、按键或启动策略，也没有静态初始化副作用。
 */
 namespace HAL::FatStorage
 {
-    constexpr const char *DEFAULT_PARTITION_LABEL = "fatfs";
     constexpr const char *DEFAULT_MOUNT_POINT = "/fat";
 
     enum class Owner : uint8_t
@@ -30,14 +31,13 @@ namespace HAL::FatStorage
         uint16_t blockSize = 0;
     };
 
-    // ESP 侧挂载。失败时绝不格式化；空白卷必须先由 Windows 创建 FAT 文件系统。
+    // ESP侧挂载。失败时绝不格式化，也不会修改没有正式卷身份的介质。
     bool MountForEsp(const char *mountPoint = DEFAULT_MOUNT_POINT,
-                     uint8_t maxOpenFiles = 10,
-                     const char *partitionLabel = DEFAULT_PARTITION_LABEL);
+                     uint8_t maxOpenFiles = 10);
     void UnmountFromEsp();
 
-    // PC 侧原始块后端。仅挂载 wear-levelling，不解析或格式化 FAT 文件系统。
-    bool OpenForUsb(const char *partitionLabel = DEFAULT_PARTITION_LABEL);
+    // PC侧原始块后端。不挂载FatFs，仅恢复Dhara映射并暴露固定2048字节逻辑块。
+    bool OpenForUsb();
     void CloseForUsb();
 
     // USB MSC 回调使用的逻辑块读写接口。
@@ -48,4 +48,11 @@ namespace HAL::FatStorage
     bool IsMountedForEsp();
     bool IsOpenForUsb();
     Geometry GetGeometry();
+
+    /**
+     * 返回当前FAT卷的Arduino FS视图。只有IsMountedForEsp()为true时才允许打开文件；
+     * 调用方不得保存跨越UnmountFromEsp()的File对象。
+     */
+    fs::FS &FileSystem();
+
 }

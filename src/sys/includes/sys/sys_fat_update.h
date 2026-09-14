@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 /*
- * FAT 拖拽更新与初始数据恢复。
+ * 外挂NAND FAT拖拽更新与初始数据恢复。
  *
  * - 更新包目录固定为 FAT 根目录下的 /Update；目录不存在时自动创建。
  * - firmware.bin/app.bin 写入下一个 OTA App 分区。

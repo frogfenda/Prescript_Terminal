@@ -1,6 +1,6 @@
 /*
 【模块职责】开机 USB 选择、MSC 连接页、FAT 所有权切换以及弹出后的更新/重启编排。
-【安全边界】MSC 活跃期间绝不挂载 FFat；只有收到可信安全弹出并关闭原始块后端后，ESP 才重新挂载 FAT。
+【安全边界】MSC活跃期间绝不挂载ESP侧FAT；只有收到可信安全弹出并关闭NAND块后端后，ESP才重新挂载FAT。
 */
 #include "sys/sys_usb_session.h"
 
@@ -120,7 +120,7 @@ namespace SysUsbSession
         }
 
         // MSC 必须走最短枚举路径。/Update 已在普通启动和上一次安全弹出后的扫描中
-        // 自动创建；这里不允许为了检查目录而先执行耗时的 FFat 挂载。
+        // 自动创建；这里不允许为了检查目录而先执行耗时的NAND FAT挂载。
         SysUsbMode::Config usbConfig = {};
         if (bootTestEnabled)
         {

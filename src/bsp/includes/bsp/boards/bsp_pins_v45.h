@@ -42,7 +42,7 @@ namespace BSP::Pins
     constexpr int RTC_INT = 2;
 
     /*
-     * W25N01GV使用独立SPI3；它是原始NAND，由专用BSP访问，不能冒充现有内部FFat分区。
+     * W25N01GV使用独立SPI3；它是原始NAND，由BSP+Dhara管理后再提供统一FAT块设备。
      * 原理图网络名把STG_MOSI/STG_MISO写反：GPIO39实际连到芯片DO/IO1，GPIO40实际连到DI/IO0。
      * 这里按芯片引脚的真实数据方向命名，不能再次按错误网络名交换。
      */

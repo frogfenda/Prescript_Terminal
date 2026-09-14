@@ -51,7 +51,6 @@ namespace SysUsbMode
         const char *mscVendorId = "FOGFENDA";
         const char *mscProductId = "ESP32S3 FAT";
         const char *mscRevision = "1.0";
-        const char *fatPartitionLabel = "fatfs";
     };
 
     // 读取 BTN2（BSP::Pins::BTN_SIDE，低电平按下）并锁定本次启动模式。

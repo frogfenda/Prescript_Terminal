@@ -57,7 +57,7 @@ namespace
 
     /**
      * 【函数说明】为越界LUN写入SCSI“逻辑单元不受支持”状态，防止未来描述符或主机异常请求
-     * 被静默映射到同一个FAT wear-levelling后端。
+     * 被静默映射到同一个外挂NAND FAT后端。
      */
     void setUnsupportedLunSense(uint8_t lun)
     {
@@ -501,7 +501,7 @@ namespace SysUsbMode
             return false;
         }
 
-        if (mode == Mode::CdcWithMsc && !HAL::FatStorage::OpenForUsb(config.fatPartitionLabel))
+        if (mode == Mode::CdcWithMsc && !HAL::FatStorage::OpenForUsb())
         {
             s_error = Error::FatBackendUnavailable;
             return false;
@@ -685,7 +685,7 @@ namespace SysUsbMode
         case Error::AlreadyStartedWithDifferentMode:
             return "USB already started with another mode";
         case Error::FatBackendUnavailable:
-            return "FAT wear-levelling backend unavailable";
+            return "外挂NAND FAT后端不可用";
         case Error::AllocationFailed:
             return "USB object allocation failed";
         case Error::MscConfigurationFailed:

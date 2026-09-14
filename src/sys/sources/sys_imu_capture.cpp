@@ -8,7 +8,6 @@
 #include "sys/sys_imu_capture.h"
 
 #include <Arduino.h>
-#include <FFat.h>
 #include <stdarg.h>
 
 #include "hal/hal.h"
@@ -191,11 +190,12 @@ namespace
 
     bool EnsureCaptureDirectory()
     {
-        if (!FFat.exists("/Resources") && !FFat.mkdir("/Resources"))
+        fs::FS &fat = HAL::FatStorage::FileSystem();
+        if (!fat.exists("/Resources") && !fat.mkdir("/Resources"))
             return false;
-        if (!FFat.exists(CAPTURE_ROOT) && !FFat.mkdir(CAPTURE_ROOT))
+        if (!fat.exists(CAPTURE_ROOT) && !fat.mkdir(CAPTURE_ROOT))
             return false;
-        if (!FFat.exists(CAPTURE_DIR) && !FFat.mkdir(CAPTURE_DIR))
+        if (!fat.exists(CAPTURE_DIR) && !fat.mkdir(CAPTURE_DIR))
             return false;
         return true;
     }
@@ -267,7 +267,7 @@ namespace
         {
             snprintf(s_file_path, sizeof(s_file_path), "%s/label%02u_session%04u.csv",
                      CAPTURE_DIR, label.id, session);
-            if (!FFat.exists(s_file_path))
+            if (!HAL::FatStorage::FileSystem().exists(s_file_path))
             {
                 s_session_index = session;
                 return true;
@@ -298,7 +298,7 @@ namespace
             return false;
         }
 
-        s_file = FFat.open(s_file_path, FILE_WRITE);
+        s_file = HAL::FatStorage::FileSystem().open(s_file_path, FILE_WRITE);
         if (!s_file || s_file.isDirectory())
         {
             SetError("无法创建采集文件");

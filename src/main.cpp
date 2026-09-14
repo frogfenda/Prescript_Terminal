@@ -52,7 +52,7 @@ void setup()
 
     /*
      * 独立板级外设在文件系统和APP之前完成只读探测。W25N01初始化默认保持阵列写保护，
-     * 探测失败不会影响内部Flash上的LittleFS/FFat启动。
+     * 探测失败不会影响内部Flash上的LittleFS启动；外挂FAT会在后续统一挂载时独立报告失败。
      */
     BSP::Board::Begin();
 

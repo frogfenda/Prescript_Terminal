@@ -8,7 +8,7 @@
 
 namespace SysImuCapture
 {
-    /** 初始化 HAL、FATFS 目录和 SysMotion；失败时留在可见错误页，不格式化 FAT 分区。 */
+    /** 初始化HAL、外挂NAND FAT目录和SysMotion；失败时留在可见错误页，不格式化存储。 */
     void Setup();
 
     /** 推进输入、倒计时和120Hz定长原始样本缓存；结束采集后才统一格式化CSV并写入FAT。只能在Arduino主循环调用。 */
