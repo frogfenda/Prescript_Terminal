@@ -1,9 +1,10 @@
-/* 【模块职责】注册只能由用户从设置页显式启动的设备首次绑定任务。 */
+/* 【模块职责】注册只能由用户从设置页显式启动的设备首次绑定/服务器恢复绑定任务。 */
 #pragma once
 
 #include <Arduino.h>
 
 constexpr uint16_t NET_TASK_DEVICE_BINDING = 2;
+constexpr uint16_t NET_TASK_DEVICE_REBIND = 5;
 
 /**
  * 首次身份绑定的稳定失败分类。网络任务只发布类型，不把服务端响应正文或秘密材料暴露给 UI。
@@ -23,12 +24,14 @@ enum class NetDeviceBindingFailure : uint8_t
     InsufficientMemory,
     NetworkTransportFailed,
     ServerAlreadyBound,
+    DeviceDisabled,
     ServerRejected,
     ServerUnavailable,
     InvalidServerResponse,
     ProofGenerationFailed,
     CredentialSaveFailed,
     SessionAuthenticationFailed,
+    RebindAuthorizationFailed,
 };
 
 bool NetDeviceBinding_Register();

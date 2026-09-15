@@ -6,13 +6,110 @@
 #include "net/net_tls_memory.h"
 
 #include <HTTPClient.h>
+#include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
 
 namespace
 {
     constexpr char kServerBaseUrl[] = "https://test.prescript.cloud";
     constexpr uint32_t kMaximumRequestTimeoutMs = 8000;
     constexpr uint32_t kMinimumRequestBudgetMs = 1200;
+    constexpr uint32_t kConnectionRetryDelayMs = 350;
+    constexpr uint8_t kMaximumAttempts = 2;
+
+    struct HttpsEndpoint
+    {
+        String host;
+        uint16_t port = 443;
+    };
+
+    /**
+     * 从已经通过 HTTPS 前缀检查的 URL 中提取主机和端口。
+     * 传输层目前只使用普通域名，不接受 URL 用户信息或 IPv6 字面量，避免诊断解析器
+     * 与 HTTPClient 对同一个地址产生不同理解。
+     */
+    bool ParseHttpsEndpoint(const String &url, HttpsEndpoint &endpoint)
+    {
+        if (!url.startsWith("https://"))
+            return false;
+
+        const int authority_start = 8;
+        int authority_end = url.indexOf('/', authority_start);
+        if (authority_end < 0)
+            authority_end = url.length();
+        String authority = url.substring(authority_start, authority_end);
+        if (authority.isEmpty() || authority.indexOf('@') >= 0 || authority.indexOf('[') >= 0)
+            return false;
+
+        const int colon = authority.lastIndexOf(':');
+        if (colon >= 0)
+        {
+            const long parsed_port = authority.substring(colon + 1).toInt();
+            if (parsed_port <= 0 || parsed_port > 65535)
+                return false;
+            endpoint.port = static_cast<uint16_t>(parsed_port);
+            authority.remove(colon);
+        }
+        if (authority.isEmpty())
+            return false;
+
+        endpoint.host = authority;
+        return true;
+    }
+
+    /** 只有明确发生在连接建立前后的框架错误才允许自动重试 POST。 */
+    bool IsConnectionStageFailure(int transport_error)
+    {
+        /*
+         * HTTPClient 只在 connect()（含 TCP 与 TLS）尚未完成时返回 -1。
+         * -4/-7 可能发生在请求已发出、等待响应期间，自动重发 POST 会有重复副作用，不能重试。
+         */
+        return transport_error == HTTPC_ERROR_CONNECTION_REFUSED;
+    }
+
+    /**
+     * 输出一次低频网络快照。这里只记录链路元数据，绝不记录 URL 路径、正文、Token 或永久 Key。
+     * DNS 结果由本轮真实解析取得，便于把域名故障与后续 TCP/TLS 故障分开。
+     */
+    void PrintNetworkSnapshot(
+        uint8_t attempt,
+        const HttpsEndpoint &endpoint,
+        bool dns_ok,
+        const IPAddress &server_ip)
+    {
+        const wl_status_t wifi_status = WiFi.status();
+        const String local_ip = WiFi.localIP().toString();
+        const String resolved_ip = dns_ok ? server_ip.toString() : String("未解析");
+        const int32_t rssi = wifi_status == WL_CONNECTED ? WiFi.RSSI() : 0;
+        Serial.printf(
+            "[网络/HTTPS] 请求前快照：尝试=%u，WiFi状态=%d，本机IP=%s，RSSI=%ld dBm，目标=%s:%u，DNS=%s。\n",
+            static_cast<unsigned>(attempt),
+            static_cast<int>(wifi_status),
+            local_ip.c_str(),
+            static_cast<long>(rssi),
+            endpoint.host.c_str(),
+            static_cast<unsigned>(endpoint.port),
+            resolved_ip.c_str());
+    }
+
+    /**
+     * 在同一请求的关键生命周期点输出内存快照。TLS 当前占用与本次峰值同时保留，
+     * 可判断失败是否已经越过 TCP 建连并进入 mbedTLS 动态分配阶段。
+     */
+    void PrintMemorySnapshot(const char *stage, const NetTlsMemorySnapshot &tls_memory)
+    {
+        Serial.printf(
+            "[网络/HTTPS] %s内存：内部堆=%u，最大内部块=%u，PSRAM=%u，最大PSRAM块=%u，TLS当前=%u，本次峰值=%u/%u。\n",
+            stage,
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(tls_memory.current_bytes),
+            static_cast<unsigned>(tls_memory.request_peak_bytes),
+            static_cast<unsigned>(tls_memory.budget_bytes));
+    }
 
     /** 将 HTTPClient 的稳定负错误码翻译成中文，避免业务日志只有无法解释的数字。 */
     const char *DescribeTransportError(int error)
@@ -121,13 +218,10 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
         response.transport_error_code = 0;
         response.secure_error_code = 0;
         response.failure_detail = NetHttpFailureDetail::None;
-        const uint32_t remaining_ms = context.RemainingMs();
-        if (remaining_ms <= kMinimumRequestBudgetMs)
-            return NetHttpResult::DeadlineExceeded;
+        HttpsEndpoint endpoint;
+        if (!ParseHttpsEndpoint(url, endpoint))
+            return NetHttpResult::TlsInitializationFailed;
 
-        const uint32_t timeout_ms = remaining_ms - 500 < kMaximumRequestTimeoutMs
-                                        ? remaining_ms - 500
-                                        : kMaximumRequestTimeoutMs;
         const NetTlsMemorySnapshot memory = NetTlsMemory_GetSnapshot();
         if (!memory.installed)
         {
@@ -135,44 +229,110 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
             return NetHttpResult::TlsInitializationFailed;
         }
 
-        NetTlsMemory_BeginRequest();
-        WiFiClientSecure client;
-        client.setCACert(kIsrgRootX1);
-        /*
-        WiFiClientSecure::setTimeout() 的参数单位是秒，不能直接传 timeout_ms。
-        HTTPClient 会在连接后设置读写超时；这里单独限制 TLS 握手，确保 Core 0
-        不会被框架默认的 120 秒握手时限拖过当前网络任务截止时间。
-        */
-        client.setHandshakeTimeout((timeout_ms + 999UL) / 1000UL);
-
-        HTTPClient http;
-        http.setConnectTimeout(static_cast<int32_t>(timeout_ms));
-        http.setTimeout(static_cast<uint16_t>(timeout_ms));
-        if (!http.begin(client, url))
-            return NetHttpResult::TlsInitializationFailed;
-
-        http.addHeader("Accept", "application/json");
-        if (!bearer.isEmpty())
-            http.addHeader("Authorization", String("Bearer ") + bearer);
-
-        int status_code = 0;
-        if (strcmp(method, "POST") == 0)
+        for (uint8_t attempt = 1; attempt <= kMaximumAttempts; ++attempt)
         {
-            http.addHeader("Content-Type", "application/json");
-            status_code = http.POST(body);
-        }
-        else
-        {
-            status_code = http.GET();
-        }
+            const uint32_t remaining_ms = context.RemainingMs();
+            if (remaining_ms <= kMinimumRequestBudgetMs)
+                return NetHttpResult::DeadlineExceeded;
+            const uint32_t timeout_ms = remaining_ms - 500 < kMaximumRequestTimeoutMs
+                                            ? remaining_ms - 500
+                                            : kMaximumRequestTimeoutMs;
 
-        if (status_code <= 0)
-        {
+            if (WiFi.status() != WL_CONNECTED)
+            {
+                IPAddress empty_ip;
+                PrintNetworkSnapshot(attempt, endpoint, false, empty_ip);
+                response.transport_error_code = HTTPC_ERROR_NOT_CONNECTED;
+                response.failure_detail = NetHttpFailureDetail::WifiUnavailable;
+                Serial.println("[网络/HTTPS] 请求失败阶段：WiFi 已不在连接状态。 ");
+                return NetHttpResult::TransportFailed;
+            }
+
+            IPAddress server_ip;
+            const bool dns_ok = WiFi.hostByName(endpoint.host.c_str(), server_ip) == 1;
+            PrintNetworkSnapshot(attempt, endpoint, dns_ok, server_ip);
+            PrintMemorySnapshot("请求前", NetTlsMemory_GetSnapshot());
+            if (!dns_ok)
+            {
+                response.transport_error_code = HTTPC_ERROR_CONNECTION_REFUSED;
+                response.failure_detail = NetHttpFailureDetail::DnsResolutionFailed;
+                Serial.println("[网络/HTTPS] 请求失败阶段：DNS 域名解析失败。 ");
+                if (attempt < kMaximumAttempts && context.RemainingMs() > kMinimumRequestBudgetMs + kConnectionRetryDelayMs)
+                {
+                    Serial.printf("[网络/HTTPS] DNS 失败，%lu ms 后进行第 2 次尝试。\n",
+                                  static_cast<unsigned long>(kConnectionRetryDelayMs));
+                    vTaskDelay(pdMS_TO_TICKS(kConnectionRetryDelayMs));
+                    continue;
+                }
+                return NetHttpResult::TransportFailed;
+            }
+
+            NetTlsMemory_BeginRequest();
+            const size_t tls_bytes_before_attempt = NetTlsMemory_GetSnapshot().current_bytes;
+            WiFiClientSecure client;
+            client.setCACert(kIsrgRootX1);
+            /*
+            WiFiClientSecure::setTimeout() 的参数单位是秒，不能直接传 timeout_ms。
+            HTTPClient 会在连接后设置读写超时；这里单独限制 TLS 握手，确保 Core 0
+            不会被框架默认的 120 秒握手时限拖过当前网络任务截止时间。
+            */
+            client.setHandshakeTimeout((timeout_ms + 999UL) / 1000UL);
+
+            HTTPClient http;
+            http.setConnectTimeout(static_cast<int32_t>(timeout_ms));
+            http.setTimeout(static_cast<uint16_t>(timeout_ms));
+            if (!http.begin(client, url))
+                return NetHttpResult::TlsInitializationFailed;
+
+            http.addHeader("Accept", "application/json");
+            if (!bearer.isEmpty())
+                http.addHeader("Authorization", String("Bearer ") + bearer);
+
+            int status_code = 0;
+            if (strcmp(method, "POST") == 0)
+            {
+                http.addHeader("Content-Type", "application/json");
+                status_code = http.POST(body);
+            }
+            else
+            {
+                status_code = http.GET();
+            }
+
+            if (status_code > 0)
+            {
+                response.status_code = status_code;
+                const int content_length = http.getSize();
+                if (content_length < 0 || static_cast<size_t>(content_length) > response_limit)
+                {
+                    http.end();
+                    return NetHttpResult::ResponseTooLarge;
+                }
+                if (content_length > 0)
+                {
+                    response.body.reserve(static_cast<size_t>(content_length) + 1);
+                    response.body = http.getString();
+                    if (response.body.length() != static_cast<size_t>(content_length) ||
+                        response.body.length() > response_limit)
+                    {
+                        response.body = "";
+                        http.end();
+                        return NetHttpResult::TransportFailed;
+                    }
+                }
+                http.end();
+                client.stop();
+                vTaskDelay(pdMS_TO_TICKS(20));
+                PrintMemorySnapshot("请求释放后", NetTlsMemory_GetSnapshot());
+                if (attempt > 1)
+                    Serial.printf("[网络/HTTPS] 第 %u 次尝试成功：HTTP=%d。\n",
+                                  static_cast<unsigned>(attempt), status_code);
+                return NetHttpResult::Ok;
+            }
+
             response.transport_error_code = status_code;
             char secure_error_text[128] = {};
-            const int raw_secure_error = client.lastError(
-                secure_error_text,
-                sizeof(secure_error_text));
+            const int raw_secure_error = client.lastError(secure_error_text, sizeof(secure_error_text));
             /* 成功连接时该字段可能保存正的 socket 描述符，只有负数才是底层错误。 */
             response.secure_error_code = raw_secure_error < 0 ? raw_secure_error : 0;
             response.failure_detail = ClassifyTransportFailure(
@@ -183,45 +343,60 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
                           status_code,
                           DescribeTransportError(status_code),
                           response.secure_error_code);
-            const NetTlsMemorySnapshot tlsMemory = NetTlsMemory_GetSnapshot();
-            if (tlsMemory.last_failure != NetTlsMemoryFailure::None)
+            const NetTlsMemorySnapshot tls_memory = NetTlsMemory_GetSnapshot();
+            PrintMemorySnapshot("失败时", tls_memory);
+            if (tls_memory.last_failure != NetTlsMemoryFailure::None)
             {
                 Serial.printf(
                     "[网络/TLS内存] 分配失败：原因=%s，申请=%u，本次峰值=%u，预算=%u。\n",
-                    NetTlsMemory_DescribeFailure(tlsMemory.last_failure),
-                    static_cast<unsigned>(tlsMemory.last_failed_request_bytes),
-                    static_cast<unsigned>(tlsMemory.request_peak_bytes),
-                    static_cast<unsigned>(tlsMemory.budget_bytes));
+                    NetTlsMemory_DescribeFailure(tls_memory.last_failure),
+                    static_cast<unsigned>(tls_memory.last_failed_request_bytes),
+                    static_cast<unsigned>(tls_memory.request_peak_bytes),
+                    static_cast<unsigned>(tls_memory.budget_bytes));
             }
             if (response.secure_error_code < 0 && secure_error_text[0] != '\0')
-            {
                 Serial.printf("[网络/HTTPS] TLS底层说明：%s。\n", secure_error_text);
-            }
+
+            /* 先完整释放失败连接，再判断阶段并退避，避免旧 socket 干扰下一次尝试。 */
             http.end();
+            client.stop();
+            vTaskDelay(pdMS_TO_TICKS(20));
+            PrintMemorySnapshot("失败释放后", NetTlsMemory_GetSnapshot());
+
+            const bool connection_stage_failure = IsConnectionStageFailure(status_code);
+            if (connection_stage_failure)
+            {
+                const bool entered_tls_allocation =
+                    tls_memory.request_peak_bytes > tls_bytes_before_attempt;
+                if (entered_tls_allocation)
+                {
+                    Serial.println(
+                        "[网络/HTTPS] 连接分段诊断：DNS=成功，TCP 已建立并进入 TLS；故障位于 TLS 握手或 HTTPS 建连阶段。 ");
+                }
+                else
+                {
+                    Serial.println(
+                        "[网络/HTTPS] 连接分段诊断：DNS=成功，TLS 未产生动态分配；故障位于 socket/TCP 建连阶段。 ");
+                }
+                if (response.secure_error_code >= -1)
+                {
+                    response.failure_detail = entered_tls_allocation
+                                                  ? NetHttpFailureDetail::SecureConnectionFailed
+                                                  : NetHttpFailureDetail::TcpConnectionFailed;
+                }
+
+                if (attempt < kMaximumAttempts &&
+                    context.RemainingMs() > kMinimumRequestBudgetMs + kConnectionRetryDelayMs)
+                {
+                    Serial.printf("[网络/HTTPS] 连接阶段失败，%lu ms 后进行第 2 次尝试。\n",
+                                  static_cast<unsigned long>(kConnectionRetryDelayMs));
+                    vTaskDelay(pdMS_TO_TICKS(kConnectionRetryDelayMs));
+                    continue;
+                }
+            }
             return NetHttpResult::TransportFailed;
         }
-
-        response.status_code = status_code;
-        const int content_length = http.getSize();
-        if (content_length < 0 || static_cast<size_t>(content_length) > response_limit)
-        {
-            http.end();
-            return NetHttpResult::ResponseTooLarge;
-        }
-        if (content_length > 0)
-        {
-            response.body.reserve(static_cast<size_t>(content_length) + 1);
-            response.body = http.getString();
-            if (response.body.length() != static_cast<size_t>(content_length) ||
-                response.body.length() > response_limit)
-            {
-                response.body = "";
-                http.end();
-                return NetHttpResult::TransportFailed;
-            }
-        }
-        http.end();
-        return NetHttpResult::Ok;
+        return NetHttpResult::TransportFailed;
     }
 }
 

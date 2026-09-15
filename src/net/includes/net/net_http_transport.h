@@ -20,6 +20,9 @@ enum class NetHttpResult : uint8_t
 enum class NetHttpFailureDetail : uint8_t
 {
     None,
+    WifiUnavailable,
+    DnsResolutionFailed,
+    TcpConnectionFailed,
     SecureConnectionFailed,
     ServerConnectionFailed,
     RequestSendFailed,

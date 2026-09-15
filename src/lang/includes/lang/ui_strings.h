@@ -390,6 +390,16 @@ namespace UIStrings
         return IsZh(lang) ? "正在验证设备身份" : "VERIFYING DEVICE IDENTITY";
     }
 
+    inline const char *DeviceBindingAuthenticating(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "获取认证中...." : "CHECKING AUTHENTICATION...";
+    }
+
+    inline const char *DeviceBindingAuthenticationFailed(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "认证失败，请进行绑定" : "AUTH FAILED - BIND DEVICE";
+    }
+
     inline const char *DeviceBindingSuccess(SystemLang_t lang)
     {
         return IsZh(lang) ? "绑定成功" : "DEVICE BOUND";
@@ -455,6 +465,11 @@ namespace UIStrings
         return IsZh(lang) ? "服务器已绑定，需恢复凭据" : "SERVER BOUND - RECOVERY NEEDED";
     }
 
+    inline const char *DeviceBindingDeviceDisabled(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "设备已被服务器禁用" : "DEVICE DISABLED BY SERVER";
+    }
+
     inline const char *DeviceBindingServerRejected(SystemLang_t lang)
     {
         return IsZh(lang) ? "服务器拒绝绑定校验" : "SERVER REJECTED VERIFICATION";
@@ -485,6 +500,11 @@ namespace UIStrings
         return IsZh(lang) ? "凭据已保存，会话验证失败" : "SAVED - SESSION VERIFY FAILED";
     }
 
+    inline const char *DeviceBindingRebindAuthorizationFailed(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "旧会话失效，请重新进入此页" : "SESSION EXPIRED - REOPEN PAGE";
+    }
+
     inline const char *DeviceBindingTaskBusy(SystemLang_t lang)
     {
         return IsZh(lang) ? "网络任务正忙，请稍后重试" : "NETWORK BUSY - RETRY LATER";
@@ -513,6 +533,11 @@ namespace UIStrings
     inline const char *DeviceBindingWaitingHint(SystemLang_t lang)
     {
         return IsZh(lang) ? "请稍候 / 长按返回" : "PLEASE WAIT / HOLD BACK";
+    }
+
+    inline const char *DeviceBindingRebindHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "短按关闭 / 长按主键8秒重新绑定" : "CLICK CLOSE / HOLD MAIN 8S TO REBIND";
     }
 
     // 【传感器校准测试】集中承载动作、人体坐标与地磁维护入口，避免系统设置一级菜单过长。

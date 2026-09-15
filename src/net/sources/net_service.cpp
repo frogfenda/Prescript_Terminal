@@ -51,6 +51,8 @@ namespace
     /* 连接、三台 NTP 服务器及有限数量业务任务共用的最后保险。 */
     constexpr uint32_t kSessionTotalTimeoutMs = 60UL * 1000UL;
     constexpr uint32_t kTimeResyncRetryAfterFailMs = 5UL * 60UL * 1000UL;
+    constexpr uint32_t kTlsSettleAfterNtpMs = 250;
+    constexpr size_t kExternalMallocInternalThresholdBytes = 1024;
 
     /* 实机内部连续堆限制下，网络任务固定使用 7 KiB 栈；HTTP/JSON 大对象均在堆上。 */
     constexpr uint32_t kNetworkTaskStackBytes = 7U * 1024U;
@@ -318,6 +320,12 @@ namespace
                 continue;
             }
 
+            /*
+             * NTP 使用 UDP，HTTPS 紧接着建立 TCP/TLS。给协议栈一个很短的调度窗口，
+             * 让 UDP socket 释放和系统时间更新完成传播；它不承担失败重试，也不改变会话语义。
+             */
+            vTaskDelay(pdMS_TO_TICKS(kTlsSettleAfterNtpMs));
+
             NetTaskContext context;
             context.network_epoch = static_cast<int64_t>(network_epoch);
             s_currentNetworkEpoch = context.network_epoch;
@@ -391,6 +399,25 @@ void NetService_Init()
     s_lastOnlineTaskResult.task_found = false;
     s_lastOnlineTaskResult.disposition = NetTaskDisposition::Retry;
     s_currentNetworkEpoch = 0;
+
+    /*
+     * Arduino 框架默认让不超过 4096 字节的普通 malloc 优先占用内部 SRAM，而当前设备同时
+     * 常驻显示、音频、BLE、NFC 与网络任务，实机已经观察到 HTTPS 后内部连续块不足 3 KiB。
+     * 这里复用 ESP-IDF 官方运行时策略，把大于 1 KiB 的普通缓冲优先放入 PSRAM：显式要求
+     * MALLOC_CAP_INTERNAL/DMA 的 WiFi、lwIP 和硬件内存仍留在内部，不改编译环境和分区。
+     */
+    const size_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (total_psram > 0)
+    {
+        heap_caps_malloc_extmem_enable(kExternalMallocInternalThresholdBytes);
+        Serial.printf("[网络/内存] 已启用官方 PSRAM 分流：普通分配内部优先阈值=%u 字节。\n",
+                      static_cast<unsigned>(kExternalMallocInternalThresholdBytes));
+    }
+    else
+    {
+        Serial.println("[网络/内存] 未检测到 PSRAM，保持框架默认普通堆策略。 ");
+    }
+
     WiFi.persistent(false);
     WiFi.setAutoReconnect(false);
     WiFi.disconnect(true, false);

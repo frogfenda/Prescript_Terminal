@@ -191,6 +191,65 @@ namespace
         }
         return true;
     }
+
+    /**
+     * 将一组完整服务器凭据作为单个 NVS Blob 原子提交。
+     * allow_replace=false 保留旧的首次绑定单写语义；显式服务器恢复流程才传 true。
+     */
+    SysDeviceIdentityBindResult SaveBindingRecord(
+        const String &public_id,
+        const String &device_key,
+        uint32_t credential_version,
+        bool allow_replace)
+    {
+        if (!s_storageReady)
+            return SysDeviceIdentityBindResult::StorageUnavailable;
+        if (s_machineCode.length() == 0)
+            return SysDeviceIdentityBindResult::MachineCodeUnavailable;
+        if (s_provisioned && !allow_replace)
+            return SysDeviceIdentityBindResult::AlreadyBound;
+        if (!IsPublicIdValid(public_id))
+            return SysDeviceIdentityBindResult::InvalidPublicId;
+        if (!IsDeviceKeyValid(device_key) || credential_version == 0)
+            return SysDeviceIdentityBindResult::InvalidDeviceKey;
+
+        DeviceIdentityRecord pending = {};
+        pending.magic = kRecordMagic;
+        pending.schema_version = kSchemaVersion;
+        pending.public_id_length = static_cast<uint16_t>(public_id.length());
+        pending.device_key_length = static_cast<uint16_t>(device_key.length());
+        pending.credential_version = credential_version;
+        memcpy(pending.public_id, public_id.c_str(), pending.public_id_length);
+        memcpy(pending.device_key, device_key.c_str(), pending.device_key_length);
+        pending.public_id[pending.public_id_length] = '\0';
+        pending.device_key[pending.device_key_length] = '\0';
+        pending.checksum = CalculateChecksum(pending);
+
+        nvs_handle_t handle = 0;
+        esp_err_t error = nvs_open_from_partition(kPartitionLabel, kNamespace, NVS_READWRITE, &handle);
+        if (error == ESP_OK)
+        {
+            error = nvs_set_blob(handle, kRecordKey, &pending, sizeof(pending));
+            if (error == ESP_OK)
+                error = nvs_commit(handle);
+            nvs_close(handle);
+        }
+
+        if (error != ESP_OK)
+        {
+            Serial.printf("[设备身份] 身份凭据写入失败：%s。\n", esp_err_to_name(error));
+            return SysDeviceIdentityBindResult::SaveFailed;
+        }
+
+        const bool replaced = s_provisioned;
+        s_record = pending;
+        s_provisioned = true;
+        Serial.printf("[设备身份] 已%s身份凭据，公开身份为 %s，凭据版本 %lu；通行码未写入日志。\n",
+                      replaced ? "更新" : "完成首次绑定并保存",
+                      s_record.public_id,
+                      static_cast<unsigned long>(s_record.credential_version));
+        return SysDeviceIdentityBindResult::Ok;
+    }
 }
 
 bool SysDeviceIdentity_Init()
@@ -276,49 +335,15 @@ String SysDeviceIdentity_BuildPublicResponse()
 
 SysDeviceIdentityBindResult SysDeviceIdentity_Bind(const String &public_id, const String &device_key)
 {
-    if (!s_storageReady)
-        return SysDeviceIdentityBindResult::StorageUnavailable;
-    if (s_machineCode.length() == 0)
-        return SysDeviceIdentityBindResult::MachineCodeUnavailable;
-    if (s_provisioned)
-        return SysDeviceIdentityBindResult::AlreadyBound;
-    if (!IsPublicIdValid(public_id))
-        return SysDeviceIdentityBindResult::InvalidPublicId;
-    if (!IsDeviceKeyValid(device_key))
-        return SysDeviceIdentityBindResult::InvalidDeviceKey;
+    return SaveBindingRecord(public_id, device_key, 1, false);
+}
 
-    DeviceIdentityRecord pending = {};
-    pending.magic = kRecordMagic;
-    pending.schema_version = kSchemaVersion;
-    pending.public_id_length = static_cast<uint16_t>(public_id.length());
-    pending.device_key_length = static_cast<uint16_t>(device_key.length());
-    pending.credential_version = 1;
-    memcpy(pending.public_id, public_id.c_str(), pending.public_id_length);
-    memcpy(pending.device_key, device_key.c_str(), pending.device_key_length);
-    pending.public_id[pending.public_id_length] = '\0';
-    pending.device_key[pending.device_key_length] = '\0';
-    pending.checksum = CalculateChecksum(pending);
-
-    nvs_handle_t handle = 0;
-    esp_err_t error = nvs_open_from_partition(kPartitionLabel, kNamespace, NVS_READWRITE, &handle);
-    if (error == ESP_OK)
-    {
-        error = nvs_set_blob(handle, kRecordKey, &pending, sizeof(pending));
-        if (error == ESP_OK)
-            error = nvs_commit(handle);
-        nvs_close(handle);
-    }
-
-    if (error != ESP_OK)
-    {
-        Serial.printf("[设备身份] 首次绑定写入失败：%s。\n", esp_err_to_name(error));
-        return SysDeviceIdentityBindResult::SaveFailed;
-    }
-
-    s_record = pending;
-    s_provisioned = true;
-    Serial.printf("[设备身份] 已完成首次绑定，公开身份为 %s；通行码未写入日志。\n", s_record.public_id);
-    return SysDeviceIdentityBindResult::Ok;
+SysDeviceIdentityBindResult SysDeviceIdentity_ReplaceBinding(
+    const String &public_id,
+    const String &device_key,
+    uint32_t credential_version)
+{
+    return SaveBindingRecord(public_id, device_key, credential_version, true);
 }
 
 bool SysDeviceIdentity_CopyAuthCredentials(String &machine_code, String &device_key)

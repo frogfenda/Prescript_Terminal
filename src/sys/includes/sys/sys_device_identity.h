@@ -40,8 +40,16 @@ String SysDeviceIdentity_BuildPublicResponse();
 SysDeviceIdentityBindResult SysDeviceIdentity_Bind(const String &public_id, const String &device_key);
 
 /*
+ * 【接口说明】在服务器明确允许重新绑定后，原子替换公开 ID、永久通行码和凭据版本。
+ * 该入口只供显式 HTTPS 重新绑定流程使用；在新凭据完整通过格式校验并成功写入前，旧记录保持不变。
+ */
+SysDeviceIdentityBindResult SysDeviceIdentity_ReplaceBinding(
+    const String &public_id,
+    const String &device_key,
+    uint32_t credential_version);
+
+/*
  * 【接口说明】供未来 HTTPS 会话创建流程复制认证材料。
  * 该函数不会联网；machine_code/device_key 都属于认证材料，调用方使用后应尽快清空且严禁写日志。
  */
 bool SysDeviceIdentity_CopyAuthCredentials(String &machine_code, String &device_key);
-
