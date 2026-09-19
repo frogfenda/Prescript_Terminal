@@ -56,10 +56,10 @@ void PushNotify_Trigger_Random(bool keep_stack)
     }
 }
 
-void PushNotify_Trigger_Custom(const char *text, bool keep_stack)
+void PushNotify_Trigger_Custom(const char *text, bool keep_stack, uint16_t font_color)
 {
     // BLE/NFC/日程/闹钟传来的正文先塞入特殊指令缓冲区，再复用同一个弹窗和解码流程。
-    sysSpecials.setCustom(text);
+    sysSpecials.setCustom(text, font_color);
 
     g_push_notify_keep_stack = keep_stack;
     appManager.resetIdleTimer();

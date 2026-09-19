@@ -28,3 +28,10 @@ NetHttpResult NetAuthSession_PostJson(
     const NetTaskContext &context,
     size_t response_limit,
     NetHttpResponse &response);
+
+/** 发送已认证 GET；供收件箱等只读设备接口使用。 */
+NetHttpResult NetAuthSession_GetJson(
+    const char *path,
+    const NetTaskContext &context,
+    size_t response_limit,
+    NetHttpResponse &response);

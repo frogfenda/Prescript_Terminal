@@ -12,6 +12,7 @@ App、BLE 和网络命令不得直接写 RTC 闹钟，也不得自行调用休�
 enum class SysCalendarEventKind : uint8_t
 {
     Schedule = 0,
+    RemoteSchedule,
     Alarm,
 };
 

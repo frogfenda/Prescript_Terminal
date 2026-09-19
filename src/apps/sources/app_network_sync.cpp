@@ -58,7 +58,7 @@ public:
         m_state = 0;
         
         // 同样是打响指！如果守护神没跑就跑起来，如果在跑了就不会重复触发
-        NetService_StartStandardSync();
+        NetService_StartCommonCycle();
     }
 
     void onLoop() override {

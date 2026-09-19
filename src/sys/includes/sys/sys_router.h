@@ -10,9 +10,6 @@
 // 【接口说明】处理 WebBLE 和 NFC 复用的文本命令入口；内部会拆宏命令、解析协议、发布事件和回传 ACK。
 void SysRouter_ProcessBLE(const String& msg);
 
-// 处理网络 API 截获的隐秘指令
-// 【接口说明】处理网络 API 拉取到的隐藏日程，直接转换为 EVT_SCHEDULE_ADD 并标记 hidden。
-void SysRouter_ProcessAPI(uint32_t tt, const String& title, const String& text);
 // 初始化路由器内部事件订阅，例如 NFC 物理卡片入口。
 // 【接口说明】注册 NFC 扫描事件回调，使实体 NFC 卡片内容进入与 BLE 相同的命令路由。
 void SysRouter_Init();

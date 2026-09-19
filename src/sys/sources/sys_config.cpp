@@ -57,8 +57,6 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
     cfg.auto_push_enable = false;
     cfg.auto_push_min_min = 30;
     cfg.auto_push_max_min = 120;
-    cfg.time_auto_resync = true;
-    cfg.time_resync_interval_min = 15;
     cfg.coin_data.mode = 0;
     cfg.coin_data.sanity = 0;
     cfg.coin_data.coin_count = 1;
@@ -169,15 +167,6 @@ void SysConfig::load()
     auto_push_enable = doc["auto_push_enable"] | false;
     auto_push_min_min = doc["auto_push_min_min"] | 30;
     auto_push_max_min = doc["auto_push_max_min"] | 120;
-    // 时间系统策略。
-    // 旧配置文件没有这些字段时，默认开启周期校时，间隔 15 分钟。
-    time_auto_resync = doc["time_auto_resync"] | true;
-    time_resync_interval_min = doc["time_resync_interval_min"] | 15;
-
-    // 防止公共配置被手动改坏后出现过短或过长的校时间隔。
-    if (time_resync_interval_min < 5) time_resync_interval_min = 5;
-    if (time_resync_interval_min > 240) time_resync_interval_min = 240;
-
     volume = doc["volume"] | 40;
     if (volume > 100)
         volume = 100;
@@ -381,9 +370,6 @@ void SysConfig::saveCommon()
     doc["auto_push_enable"] = auto_push_enable;
     doc["auto_push_min_min"] = auto_push_min_min;
     doc["auto_push_max_min"] = auto_push_max_min;
-    // 只保存周期网络校时策略；当前时间由 RTC 负责断电保持，不在 LittleFS 中保存副本。
-    doc["time_auto_resync"] = time_auto_resync;
-    doc["time_resync_interval_min"] = time_resync_interval_min;
     doc["volume"] = volume; // 【新增】：打包音量数据
 
     JsonObject coin_node = doc["coin_app"].to<JsonObject>();

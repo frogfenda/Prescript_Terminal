@@ -85,7 +85,10 @@ void Prescript_Launch_Custom_Wait(const char *custom_text);
 
 // 【接口说明】拉起随机推送弹窗；keep_stack 为 true 时保留当前页面返回关系。
 void PushNotify_Trigger_Random(bool keep_stack = false);
-void PushNotify_Trigger_Custom(const char *custom_text, bool keep_stack = false);
+void PushNotify_Trigger_Custom(
+    const char *custom_text,
+    bool keep_stack = false,
+    uint16_t font_color = 0x07FF);
 // 【接口说明】协议层删除闹钟入口；按名称删除配置中的闹钟并写业务 ACK。
 void Alarm_DeleteMobile(const char *name);
 void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text);

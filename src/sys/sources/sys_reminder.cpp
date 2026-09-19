@@ -5,6 +5,7 @@
 #include "sys/sys_reminder.h"
 #include "sys/app_manager.h"
 #include "sys/sys_constants.h"
+#include "sys/sys_mailbox.h"
 
 namespace
 {
@@ -16,6 +17,8 @@ namespace
         SysReminderKind kind = SysReminderKind::Custom;
         String text;
         bool keep_stack = false;
+        uint16_t font_color = 0x07FF;
+        uint64_t mailbox_sequence = 0;
     };
 
     PendingReminder s_pending[MAX_PENDING_REMINDERS];
@@ -23,7 +26,12 @@ namespace
     size_t s_count = 0;
 }
 
-bool SysReminder_Submit(SysReminderKind kind, const char *text, bool keep_stack)
+bool SysReminder_Submit(
+    SysReminderKind kind,
+    const char *text,
+    bool keep_stack,
+    uint16_t font_color,
+    uint64_t mailbox_sequence)
 {
     if (s_count >= MAX_PENDING_REMINDERS)
     {
@@ -35,6 +43,8 @@ bool SysReminder_Submit(SysReminderKind kind, const char *text, bool keep_stack)
     s_pending[tail].kind = kind;
     s_pending[tail].text = text ? text : "";
     s_pending[tail].keep_stack = keep_stack;
+    s_pending[tail].font_color = font_color;
+    s_pending[tail].mailbox_sequence = mailbox_sequence;
     ++s_count;
     return true;
 }
@@ -52,5 +62,9 @@ void SysReminder_Update()
     if (item.kind == SysReminderKind::Random)
         PushNotify_Trigger_Random(item.keep_stack);
     else
-        PushNotify_Trigger_Custom(item.text.c_str(), item.keep_stack);
+        PushNotify_Trigger_Custom(item.text.c_str(), item.keep_stack, item.font_color);
+
+    /* 只有弹窗已经取得正文以后才删除本地邮件；更早掉电只会在重启后重复，不会漏信。 */
+    if (item.mailbox_sequence != 0)
+        SysMailbox_ConfirmDispatched(item.mailbox_sequence);
 }

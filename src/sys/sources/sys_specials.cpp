@@ -215,11 +215,11 @@ void SysSpecials::rollRandom()
 }
 
 // 【函数说明】把外部文本直接设为当前抽取结果，用于 TXT、闹钟、日程这类指定内容。
-void SysSpecials::setCustom(const char *custom_text)
+void SysSpecials::setCustom(const char *custom_text, uint16_t font_color)
 {
     SystemLang_t current_lang = appManager.getLanguage();
     current_draw.is_special = false;
-    current_draw.color = 0x07FF;
+    current_draw.color = font_color;
     current_draw.title = (current_lang == LANG_ZH) ? "【 接受都市意志 】" : "[ OVERRIDE PRESCRIPT ]";
     current_draw.text = String(custom_text);
 

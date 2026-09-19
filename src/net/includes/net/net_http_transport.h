@@ -54,6 +54,14 @@ NetHttpResult NetHttp_PostJson(
     size_t response_limit,
     NetHttpResponse &response);
 
+/** 从主服务端相对路径读取 JSON；bearer 为空时不附带 Authorization。 */
+NetHttpResult NetHttp_GetJson(
+    const char *path,
+    const String &bearer,
+    const NetTaskContext &context,
+    size_t response_limit,
+    NetHttpResponse &response);
+
 /** 从完整 HTTPS URL 获取 JSON，供仍在迁移中的只读旧服务使用。 */
 NetHttpResult NetHttp_GetJsonUrl(
     const char *url,

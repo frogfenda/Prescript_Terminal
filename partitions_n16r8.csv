@@ -1,11 +1,13 @@
 # ESP32-S3 N16R8 partition table: 16MB Flash, dual 4MB OTA and 2MB LittleFS.
 # Large FAT content has moved to the external W25N01GV; internal Flash keeps only firmware,
-# critical LittleFS/NVS state and coredump. The 0x810000..0xDCFFFF gap is reserved for future use.
+# critical LittleFS/NVS state and coredump. Mailbox uses only the first 256KiB of the
+# 0x810000..0xDCFFFF reserved gap; existing app/LittleFS/outbox/identity offsets do not move.
 # Name,   Type, SubType, Offset,   Size,     Flags
 nvs,      data, nvs,     0x9000,   0x5000,
 otadata,  data, ota,     0xe000,   0x2000,
 app0,     app,  ota_0,   0x10000,  0x400000,
 app1,     app,  ota_1,   0x410000, 0x400000,
+mailbox,  data, nvs,     0x810000, 0x40000,
 # Arduino LittleFS.begin() uses the default partition label "spiffs".
 spiffs,   data, spiffs,  0xDD0000, 0x200000,
 outbox,   data, nvs,     0xFD0000, 0x10000,

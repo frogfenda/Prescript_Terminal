@@ -2,7 +2,7 @@
 /*
 【模块职责】顶层网络服务入口与联网会话编排。
 
-一次联网会话固定经过：WiFi 连接 -> NTP 基础校时 -> 已绑定设备认证准备 -> Outbox -> 本轮普通任务 -> 断网/保持在线。
+一次公共联网周期固定经过：确保 WiFi -> NTP 基础校时 -> 已绑定设备认证准备 -> Outbox -> 例行任务 -> 断网/保持在线。
 NetService 不包含具体 HTTP 业务。新增网络业务应注册到 NetTaskRegistry，再由会话 task_ids 点名
 或写入 NetOutbox 等到下次联网执行。
 */
@@ -63,11 +63,11 @@ void NetService_Init();
  */
 bool NetService_StartSession(const NetSessionRequest &request);
 
-/** 请求标准同步：校时、消费 Outbox、执行所有声明 STANDARD_SYNC 标签的任务。 */
-bool NetService_StartStandardSync(bool keep_alive = false);
-
-/** 请求轻量校时：仍会顺带消费 Outbox，但不执行额外会话任务。 */
-bool NetService_StartTimeSyncOnly();
+/**
+ * 立即执行一轮公共联网周期。keep_alive=true 表示完成后保持 WiFi 在线，并每 5 分钟
+ * 复用同一连接再次执行完整周期；false 表示完成后关闭 WiFi，按普通 15 分钟周期重连。
+ */
+bool NetService_StartCommonCycle(bool keep_alive = false);
 
 /**
  * 在手动保持在线的 WiFi 会话上执行一个非持久化任务。
@@ -92,7 +92,7 @@ bool NetService_IsBusy();
 /** 统一关闭 WiFi 并清理会话状态。 */
 void NetService_Disconnect();
 
-/** 登记延迟开机标准同步，避免 setup/首屏阶段直接联网。 */
+/** 登记延迟开机公共联网周期，避免 setup/首屏阶段直接联网。 */
 void NetService_RequestBootSync(uint32_t delay_ms);
 
 /** 主循环维护：落地任务结果、触发延迟/周期会话并执行总超时兜底。 */

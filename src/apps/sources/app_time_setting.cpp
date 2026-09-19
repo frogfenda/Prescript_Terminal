@@ -10,53 +10,20 @@
 - 时间设置一级菜单首项显示当前 YYYY-MM-DD HH:MM，复用非阻塞 SysTime 接口并随菜单分钟刷新更新；
 - “设置当日时间”后面新增“日期设置”；
 - 当日时间设置通过 SysTime 的统一写入口设置指定时分，不做偏置叠加；
-- “周期校时”和“校时间隔”改为复用指令推送配置那套三段式菜单值编辑动画；
-- 三段式动画引擎已经从 AppBase 移到 src/ui/ui_value_animator.h，AppBase 只保留兼容封装。
+- 时间设置只保留当前时间、手动时分、日期和立即网络校时；周期联网由网络服务固定调度。
 
 交互约定：
-- 一级菜单：短按进入/编辑，长按保存策略并返回；
+- 一级菜单：短按进入，长按返回；
 - 链路编辑页：短按下一步/保存，长按上一步/返回；
 - 旋钮：菜单选项切换或字段数值调整。
 */
 #include "sys/app_base.h"
 #include "apps/app_menu_base.h"
 #include "sys/app_manager.h"
-#include "sys/sys_config.h"
 #include "sys/sys_time.h"
 #include "sys/sys_audio.h"
 #include "ui/ui_frame.h"
 #include "lang/ui_strings.h"
-
-/*
- * 周期校时的可选间隔。
- *
- * 不开放任意分钟输入，原因是：
- * - 旋钮小屏操作更快；
- * - 避免用户误设 1 分钟导致 WiFi 频繁唤醒；
- * - 后台 NetService_Update 只需要处理有限的策略档位。
- */
-static const uint16_t kResyncIntervalsMin[] = {5, 15, 30, 60};
-static constexpr int kResyncIntervalCount = sizeof(kResyncIntervalsMin) / sizeof(kResyncIntervalsMin[0]);
-
-/** 根据配置中的分钟数找到预设下标；异常值回退到 15 分钟。 */
-static int _FindIntervalIndex(uint16_t min_value)
-{
-    for (int i = 0; i < kResyncIntervalCount; i++)
-    {
-        if (kResyncIntervalsMin[i] == min_value)
-            return i;
-    }
-
-    return 1; // 默认 15 分钟
-}
-
-/** 把下标按 [0, count) 循环，供旋钮连续滚动使用。 */
-static int _WrapIndex(int value, int count)
-{
-    while (value < 0) value += count;
-    while (value >= count) value -= count;
-    return value;
-}
 
 /** 把日字段钳制到当前年月的最大天数，防止出现非法日期。 */
 static uint8_t _ClampDay(uint16_t year, uint8_t month, uint8_t day)
@@ -373,39 +340,23 @@ AppBase *appTimeDateSet = &instanceTimeDateSet;
  * 0 当前时间：只读显示 YYYY-MM-DD HH:MM，不执行设置动作；
  * 1 设置当日时间：进入 AppTimeManualSet；
  * 2 日期设置：进入 AppTimeDateSet；
- * 3 网络校时：复用 AppNetworkSync，执行完整同步 NTP + API；
- * 4 周期校时：使用三段式菜单值编辑动画，在本页直接开关；
- * 5 校时间隔：使用三段式菜单值编辑动画，在本页选择 5/15/30/60 分钟。
+ * 3 网络校时：复用 AppNetworkSync，立即执行一轮公共联网周期。
  */
 class AppTimeSetting : public AppMenuBase
 {
-private:
-    bool is_editing = false;
-    bool temp_auto_resync = true;
-    int temp_interval_idx = 1;
-
-    /** 把当前临时策略写入 sysConfig。 */
-    void savePolicy()
-    {
-        sysConfig.time_auto_resync = temp_auto_resync;
-        sysConfig.time_resync_interval_min = kResyncIntervalsMin[temp_interval_idx];
-        sysConfig.save();
-    }
-
 protected:
-    int getMenuCount() override { return 6; }
+    int getMenuCount() override { return 4; }
 
     const char *getTitle() override
     {
         return UIStrings::TimeSettingTitle(appManager.getLanguage());
     }
 
-    /** 返回菜单项文本；编辑中的条目会在末尾显示“<”提示。 */
+    /** 返回时间设置菜单文本；周期联网策略不再暴露在时间页面。 */
     const char *getItemText(int index) override
     {
         static char buf[64];
         SystemLang_t lang = appManager.getLanguage();
-        const char *edit_mark = (is_editing && index == current_selection) ? " <" : "";
 
         if (index == 0)
         {
@@ -421,85 +372,16 @@ protected:
             return buf;
         }
 
-        if (index == 1)
-            return UIStrings::TimeSettingItem(lang, index);
-
-        if (index == 2)
-            return UIStrings::TimeSettingItem(lang, index);
-
-        if (index == 3)
-            return UIStrings::TimeSettingItem(lang, index);
-
-        if (index == 4)
-        {
-            snprintf(buf, sizeof(buf), "%s%s%s", UIStrings::AutoResyncLabel(lang), UIStrings::OnOff(lang, temp_auto_resync), edit_mark);
-            return buf;
-        }
-
-        snprintf(buf, sizeof(buf), "%s%u%s%s",
-                 UIStrings::SyncPeriodLabel(lang),
-                 (unsigned)kResyncIntervalsMin[temp_interval_idx],
-                 UIStrings::PushMinuteSuffix(lang),
-                 edit_mark);
-        return buf;
-    }
-
-    /**
-     * 为周期校时和校时间隔提供三段式动态值。
-     *
-     * AppMenuBase 会调用 UIValueAnimator，只让中间的“开启/15”等值跳动，
-     * 这和指令推送配置里的开关、最短潜伏时间编辑效果一致。
-     */
-    bool getItemEditParts(int index, const char **prefix, const char **anim_val, const char **suffix) override
-    {
-        if (!is_editing || index != current_selection)
-            return false;
-
-        static char pref[32];
-        static char val[16];
-        static char suff[24];
-        SystemLang_t lang = appManager.getLanguage();
-
-        if (index == 4)
-        {
-            strcpy(pref, UIStrings::AutoResyncLabel(lang));
-            strcpy(val, UIStrings::OnOff(lang, temp_auto_resync));
-            strcpy(suff, " <");
-        }
-        else if (index == 5)
-        {
-            strcpy(pref, UIStrings::SyncPeriodLabel(lang));
-            snprintf(val, sizeof(val), "%u", (unsigned)kResyncIntervalsMin[temp_interval_idx]);
-            snprintf(suff, sizeof(suff), "%s <", UIStrings::PushMinuteSuffix(lang));
-        }
-        else
-        {
-            return false;
-        }
-
-        *prefix = pref;
-        *anim_val = val;
-        *suffix = suff;
-        return true;
+        return UIStrings::TimeSettingItem(lang, index);
     }
 
     /**
      * 短按动作。
      *
-     * - 普通条目进入对应页面；
-     * - 周期校时/校时间隔进入或退出编辑状态；
-     * - 退出编辑状态时立即保存策略，避免用户忘记长按返回导致设置丢失。
+     * 当前时间只读，其余三项分别进入时分、日期和立即网络同步页面。
      */
     void onItemClicked(int index) override
     {
-        if (is_editing)
-        {
-            is_editing = false;
-            savePolicy();
-            drawMenuUI(visual_selection);
-            return;
-        }
-
         if (index == 0)
         {
             /* 当前时间条目只负责展示；短按不进入页面，也不改动任何时间源。 */
@@ -517,60 +399,12 @@ protected:
         {
             appManager.push(AppId::NetworkSync);
         }
-        else if (index == 4 || index == 5)
-        {
-            is_editing = true;
-            drawMenuUI(visual_selection);
-        }
     }
 
-    /** 长按保存当前周期校时策略并返回系统设置。 */
+    /** 长按返回系统设置；本页不再维护网络周期策略。 */
     void onLongPressed() override
     {
-        savePolicy();
-        is_editing = false;
         appManager.popApp();
-    }
-
-public:
-    /** 进入页面时从 sysConfig 读取策略到临时变量，编辑期间先不立即污染配置。 */
-    void onCreate() override
-    {
-        is_editing = false;
-        temp_auto_resync = sysConfig.time_auto_resync;
-        temp_interval_idx = _FindIntervalIndex(sysConfig.time_resync_interval_min);
-        AppMenuBase::onCreate();
-    }
-
-    /**
-     * 旋钮处理。
-     *
-     * 编辑状态：
-     * - 周期校时：任意旋钮步进都会翻转 ON/OFF；
-     * - 校时间隔：在 5/15/30/60 分钟之间循环。
-     *
-     * 非编辑状态：交给 AppMenuBase 做滚轮菜单切换。
-     */
-    void onKnob(int delta) override
-    {
-        if (is_editing)
-        {
-            if (current_selection == 4)
-            {
-                temp_auto_resync = !temp_auto_resync;
-            }
-            else if (current_selection == 5)
-            {
-                temp_interval_idx = _WrapIndex(temp_interval_idx + delta, kResyncIntervalCount);
-            }
-
-            SYS_SOUND_GLITCH();
-            triggerEditAnimation(delta);
-            drawMenuUI(visual_selection);
-            return;
-        }
-
-        AppMenuBase::onKnob(delta);
     }
 };
 

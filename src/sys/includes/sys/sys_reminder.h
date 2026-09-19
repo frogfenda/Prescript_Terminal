@@ -20,7 +20,12 @@ enum class SysReminderKind : uint8_t
  * 调用者必须位于主循环；服务会复制 text，不保留调用方指针。
  * 队列满时返回 false，并保留已经排队的较早提醒。
  */
-bool SysReminder_Submit(SysReminderKind kind, const char *text = nullptr, bool keep_stack = false);
+bool SysReminder_Submit(
+    SysReminderKind kind,
+    const char *text = nullptr,
+    bool keep_stack = false,
+    uint16_t font_color = 0x07FF,
+    uint64_t mailbox_sequence = 0);
 
 /** 主循环消费提醒队列；PushNotify/Prescript 正在展示时会等待，不覆盖当前提醒。 */
 void SysReminder_Update();

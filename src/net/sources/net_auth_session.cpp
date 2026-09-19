@@ -93,3 +93,14 @@ NetHttpResult NetAuthSession_PostJson(
         return NetHttpResult::TransportFailed;
     return NetHttp_PostJson(path, body, s_accessToken, context, response_limit, response);
 }
+
+NetHttpResult NetAuthSession_GetJson(
+    const char *path,
+    const NetTaskContext &context,
+    size_t response_limit,
+    NetHttpResponse &response)
+{
+    if (s_accessToken.isEmpty())
+        return NetHttpResult::TransportFailed;
+    return NetHttp_GetJson(path, s_accessToken, context, response_limit, response);
+}

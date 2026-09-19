@@ -413,6 +413,18 @@ NetHttpResult NetHttp_PostJson(
     return Perform("POST", String(kServerBaseUrl) + path, body, bearer, context, response_limit, response);
 }
 
+NetHttpResult NetHttp_GetJson(
+    const char *path,
+    const String &bearer,
+    const NetTaskContext &context,
+    size_t response_limit,
+    NetHttpResponse &response)
+{
+    if (!path || path[0] != '/')
+        return NetHttpResult::TlsInitializationFailed;
+    return Perform("GET", String(kServerBaseUrl) + path, String(), bearer, context, response_limit, response);
+}
+
 NetHttpResult NetHttp_GetJsonUrl(
     const char *url,
     const NetTaskContext &context,

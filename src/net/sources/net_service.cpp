@@ -27,7 +27,6 @@
 #include "sys/sys_config.h"
 #include "sys/sys_event.h"
 #include "sys/sys_sleep_scheduler.h"
-#include "sys/sys_time.h"
 
 namespace
 {
@@ -42,7 +41,8 @@ namespace
     volatile bool s_bootSyncPending = false;
     uint32_t s_bootSyncDueMs = 0;
     uint32_t s_sessionStartedMs = 0;
-    uint32_t s_nextTimeResyncAllowedMs = 0;
+    uint32_t s_nextCommonCycleDueMs = 0;
+    volatile bool s_keepOnlineRequested = false;
     uint32_t s_onlineTaskSequence = 0;
     NetOnlineTaskResult s_lastOnlineTaskResult;
     portMUX_TYPE s_onlineTaskResultMux = portMUX_INITIALIZER_UNLOCKED;
@@ -50,7 +50,9 @@ namespace
 
     /* 连接、三台 NTP 服务器及有限数量业务任务共用的最后保险。 */
     constexpr uint32_t kSessionTotalTimeoutMs = 60UL * 1000UL;
-    constexpr uint32_t kTimeResyncRetryAfterFailMs = 5UL * 60UL * 1000UL;
+    constexpr uint32_t kDisconnectedCycleIntervalMs = 15UL * 60UL * 1000UL;
+    constexpr uint32_t kConnectedCycleIntervalMs = 5UL * 60UL * 1000UL;
+    constexpr uint32_t kCommonCycleRetryAfterFailMs = 5UL * 60UL * 1000UL;
     constexpr uint32_t kTlsSettleAfterNtpMs = 250;
     constexpr size_t kExternalMallocInternalThresholdBytes = 1024;
 
@@ -67,6 +69,7 @@ namespace
     {
         NetSessionRequest request;
         bool online_task = false;
+        bool reuse_wifi = false;
         uint16_t online_task_id = 0;
         char ssid[kWifiSsidCapacity] = {};
         char password[kWifiPasswordCapacity] = {};
@@ -90,6 +93,25 @@ namespace
     bool IsAbortRequested()
     {
         return s_abortRequested;
+    }
+
+    /**
+     * 同时维护清醒主循环与 Light Sleep 的下一周期截止时间。网络周期可能拉取立即消息，且必须
+     * 返回主循环启动 WiFi，因此使用 Foreground 唤醒；完成或失败后必须通过本函数重建截止时间。
+     */
+    void ScheduleNextCommonCycle(uint32_t delay_ms)
+    {
+        s_nextCommonCycleDueMs = millis() + delay_ms;
+        if (sysConfig.wifi_ssid.isEmpty() || sysConfig.wifi_ssid == "Your_WiFi_Name")
+        {
+            /* 未配网设备不登记休眠唤醒，否则截止后会被一个永远无法执行的计划反复叫醒。 */
+            SysSleep_Cancel(SysSleepSource::NetworkCycle);
+            return;
+        }
+        SysSleep_ScheduleAfterMs(
+            SysSleepSource::NetworkCycle,
+            delay_ms,
+            SysSleepWakeAction::Foreground);
     }
 
     /** 在线任务结果跨 Core 0 与主循环共享，使用短临界区保证快照字段来自同一次完成事件。 */
@@ -135,7 +157,7 @@ namespace
     void FailAndShutdown(NetServiceState state)
     {
         s_sessionStartedMs = 0;
-        s_nextTimeResyncAllowedMs = millis() + kTimeResyncRetryAfterFailMs;
+        ScheduleNextCommonCycle(kCommonCycleRetryAfterFailMs);
         WiFi.disconnect(true, false);
         WiFi.mode(WIFI_OFF);
         NetAuthSession_Clear();
@@ -165,9 +187,9 @@ namespace
         sysConfig.wifi_pass = request->pass ? String(request->pass) : String();
         sysConfig.save();
 
-        Serial.printf("[网络服务] WiFi 配置已保存，SSID=%s，开始标准同步。\n", request->ssid);
+        Serial.printf("[网络服务] WiFi 配置已保存，SSID=%s，开始公共联网周期。\n", request->ssid);
         SysCmdResult_Ok("SAVED", sysConfig.wifi_ssid);
-        NetService_StartStandardSync(false);
+        NetService_StartCommonCycle(false);
     }
 
     void MergeSummary(NetTaskRunSummary &target, const NetTaskRunSummary &source)
@@ -288,21 +310,26 @@ namespace
             if (queued.ssid[0] == '\0')
             {
                 Serial.println("[网络服务] 未配置真实 WiFi，跳过会话。 ");
-                s_nextTimeResyncAllowedMs = millis() + kTimeResyncRetryAfterFailMs;
+                ScheduleNextCommonCycle(kCommonCycleRetryAfterFailMs);
                 s_sessionStartedMs = 0;
                 s_workerActive = false;
                 SetState(NetServiceState::Disconnected);
                 continue;
             }
 
-            if (!ConnectWifi(queued))
+            const bool can_reuse_wifi = queued.reuse_wifi && WiFi.status() == WL_CONNECTED;
+            if (can_reuse_wifi)
+            {
+                Serial.println("[网络服务] 复用常驻 WiFi，开始下一轮公共联网周期。 ");
+            }
+            else if (!ConnectWifi(queued))
             {
                 Serial.println("[网络服务] WiFi 连接超时。 ");
                 FailAndShutdown(s_abortRequested ? s_abortTargetState : NetServiceState::ConnectFailed);
                 continue;
             }
 
-            /* Token 只属于当前 WiFi 会话；即使上轮异常结束，也不得跨会话复用。 */
+            /* 每轮公共周期都重新校时并换取 Token，常驻 WiFi 也不沿用上一轮的认证上下文。 */
             NetAuthSession_Clear();
 
             SetState(NetServiceState::SyncingTime);
@@ -343,8 +370,8 @@ namespace
                                 : NetSessionOutcome::Succeeded;
             SetState(NetServiceState::SyncSuccess);
             s_sessionStartedMs = 0;
-            s_nextTimeResyncAllowedMs =
-                millis() + static_cast<uint32_t>(sysConfig.time_resync_interval_min) * 60UL * 1000UL;
+            ScheduleNextCommonCycle(
+                queued.request.keep_alive ? kConnectedCycleIntervalMs : kDisconnectedCycleIntervalMs);
 
             Serial.println("[网络服务] 本轮会话完成。 ");
             vTaskDelay(pdMS_TO_TICKS(2000));
@@ -366,7 +393,7 @@ namespace
             {
                 s_workerActive = false;
                 SetState(NetServiceState::SyncSuccess);
-                Serial.println("[网络服务] 手动连接模式，保持 WiFi 在线。 ");
+                Serial.println("[网络服务] 手动连接模式，保持 WiFi 在线；5 分钟后执行下一轮公共联网周期。 ");
             }
         }
     }
@@ -387,6 +414,46 @@ namespace
         }
         return true;
     }
+
+    /**
+     * 常驻连接到达周期截止时间时，不经过对外 StartSession 的“忙碌”判定，直接把同一份公共
+     * 周期请求投递给 Core 0。若 WiFi 已在两轮之间掉线，守护任务会使用随请求复制的配置重连。
+     */
+    bool QueueConnectedCommonCycle()
+    {
+        if (!s_daemonTaskHandle || !s_sessionQueue || s_workerActive ||
+            s_state != NetServiceState::SyncSuccess || !s_keepOnlineRequested)
+            return false;
+
+        QueuedSession queued;
+        queued.request.keep_alive = true;
+        queued.request.drain_outbox = true;
+        queued.request.task_trigger_mask = NET_TASK_TRIGGER_COMMON_CYCLE;
+        queued.reuse_wifi = true;
+        strlcpy(queued.ssid, sysConfig.wifi_ssid.c_str(), sizeof(queued.ssid));
+        strlcpy(queued.password, sysConfig.wifi_pass.c_str(), sizeof(queued.password));
+
+        s_abortRequested = false;
+        s_abortTargetState = NetServiceState::SyncFailed;
+        s_lastOutcome = NetSessionOutcome::None;
+        s_sessionStartedMs = millis();
+        s_workerActive = true;
+        SetState(NetServiceState::SyncingTime);
+
+        if (xQueueSend(s_sessionQueue, &queued, 0) != pdTRUE)
+        {
+            s_sessionStartedMs = 0;
+            s_workerActive = false;
+            ScheduleNextCommonCycle(kCommonCycleRetryAfterFailMs);
+            SetState(NetServiceState::SyncSuccess);
+            Serial.println("[网络服务] 常驻连接的公共联网周期入队失败，5 分钟后重试。 ");
+            return false;
+        }
+
+        SysSleep_Cancel(SysSleepSource::NetworkCycle);
+        Serial.println("[网络服务] 常驻连接已到 5 分钟周期，投递公共联网清单。 ");
+        return true;
+    }
 }
 
 void NetService_Init()
@@ -399,6 +466,7 @@ void NetService_Init()
     s_lastOnlineTaskResult.task_found = false;
     s_lastOnlineTaskResult.disposition = NetTaskDisposition::Retry;
     s_currentNetworkEpoch = 0;
+    s_keepOnlineRequested = false;
 
     /*
      * Arduino 框架默认让不超过 4096 字节的普通 malloc 优先占用内部 SRAM，而当前设备同时
@@ -432,8 +500,7 @@ void NetService_Init()
     NetOutbox_Init();
     NetBuiltinTasks_RegisterAll();
 
-    s_nextTimeResyncAllowedMs =
-        millis() + static_cast<uint32_t>(sysConfig.time_resync_interval_min) * 60UL * 1000UL;
+    ScheduleNextCommonCycle(kDisconnectedCycleIntervalMs);
     SysEvent_Subscribe(EVT_WIFI_SET, OnWifiSet);
 
     s_sessionQueue = xQueueCreate(1, sizeof(QueuedSession));
@@ -494,6 +561,7 @@ bool NetService_StartSession(const NetSessionRequest &request)
     s_bootSyncPending = false;
     s_abortRequested = false;
     s_abortTargetState = NetServiceState::SyncFailed;
+    s_keepOnlineRequested = request.keep_alive;
     s_lastOutcome = NetSessionOutcome::None;
     s_sessionStartedMs = millis();
     s_workerActive = true;
@@ -508,28 +576,21 @@ bool NetService_StartSession(const NetSessionRequest &request)
     {
         s_workerActive = false;
         s_sessionStartedMs = 0;
+        ScheduleNextCommonCycle(kCommonCycleRetryAfterFailMs);
         SetState(NetServiceState::SyncFailed);
-        Serial.println("[网络服务] 会话请求入队失败。 ");
+        Serial.println("[网络服务] 会话请求入队失败，5 分钟后重试。 ");
         return false;
     }
+    SysSleep_Cancel(SysSleepSource::NetworkCycle);
     return true;
 }
 
-bool NetService_StartStandardSync(bool keep_alive)
+bool NetService_StartCommonCycle(bool keep_alive)
 {
     NetSessionRequest request;
     request.keep_alive = keep_alive;
     request.drain_outbox = true;
-    request.task_trigger_mask = NET_TASK_TRIGGER_STANDARD_SYNC;
-    return NetService_StartSession(request);
-}
-
-bool NetService_StartTimeSyncOnly()
-{
-    Serial.println("[网络服务] 请求轻量校时会话。 ");
-    NetSessionRequest request;
-    request.keep_alive = false;
-    request.drain_outbox = true;
+    request.task_trigger_mask = NET_TASK_TRIGGER_COMMON_CYCLE;
     return NetService_StartSession(request);
 }
 
@@ -602,7 +663,7 @@ void NetService_RequestBootSync(uint32_t delay_ms)
 
     s_bootSyncPending = true;
     s_bootSyncDueMs = millis() + delay_ms;
-    Serial.printf("[网络服务] 开机标准同步将在 %lu ms 后触发。\n",
+    Serial.printf("[网络服务] 开机公共联网周期将在 %lu ms 后触发。\n",
                   static_cast<unsigned long>(delay_ms));
 }
 
@@ -616,8 +677,8 @@ void NetService_Update()
     if (s_bootSyncPending && static_cast<int32_t>(now - s_bootSyncDueMs) >= 0)
     {
         s_bootSyncPending = false;
-        Serial.println("[网络服务] 触发延迟开机标准同步。 ");
-        NetService_StartStandardSync(false);
+        Serial.println("[网络服务] 触发延迟开机公共联网周期。 ");
+        NetService_StartCommonCycle(false);
     }
 
     if (NetService_IsBusy() &&
@@ -628,21 +689,26 @@ void NetService_Update()
         NetService_Abort();
     }
 
-    if (sysConfig.time_auto_resync &&
-        IsWifiConfigured() &&
+    if (IsWifiConfigured() &&
         !s_bootSyncPending &&
-        !NetService_IsBusy())
+        !s_workerActive &&
+        static_cast<int32_t>(now - s_nextCommonCycleDueMs) >= 0)
     {
-        const uint32_t interval_ms =
-            static_cast<uint32_t>(sysConfig.time_resync_interval_min) * 60UL * 1000UL;
-        const bool window_due = static_cast<int32_t>(now - s_nextTimeResyncAllowedMs) >= 0;
-        const bool clock_due = SysTime_ShouldPeriodicResync(interval_ms);
-
-        if (window_due && clock_due)
+        /*
+         * 手动常驻和普通定时联网共享同一周期。常驻状态复用 WiFi；其他空闲状态重新连接，
+         * 但两者都会从 NTP 开始并执行完全相同的认证、Outbox 和例行任务清单。
+         */
+        if (s_state == NetServiceState::SyncSuccess && s_keepOnlineRequested)
         {
-            Serial.println("[网络服务] 已到周期校时间隔，启动轻量会话。 ");
-            s_nextTimeResyncAllowedMs = now + kTimeResyncRetryAfterFailMs;
-            NetService_StartTimeSyncOnly();
+            QueueConnectedCommonCycle();
+        }
+        else if (s_state == NetServiceState::Disconnected ||
+                 s_state == NetServiceState::ConnectFailed ||
+                 s_state == NetServiceState::SyncFailed)
+        {
+            Serial.println("[网络服务] 已到 15 分钟周期，启动公共联网清单。 ");
+            ScheduleNextCommonCycle(kCommonCycleRetryAfterFailMs);
+            NetService_StartCommonCycle(s_keepOnlineRequested);
         }
     }
 }
@@ -651,7 +717,7 @@ void NetService_Abort()
 {
     s_bootSyncPending = false;
     s_sessionStartedMs = 0;
-    s_nextTimeResyncAllowedMs = millis() + kTimeResyncRetryAfterFailMs;
+    ScheduleNextCommonCycle(kCommonCycleRetryAfterFailMs);
     s_abortTargetState = NetServiceState::SyncFailed;
     s_abortRequested = true;
 
@@ -668,6 +734,7 @@ void NetService_Disconnect()
 {
     s_bootSyncPending = false;
     s_sessionStartedMs = 0;
+    s_keepOnlineRequested = false;
     s_abortTargetState = NetServiceState::Disconnected;
     s_abortRequested = true;
 

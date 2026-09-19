@@ -11,6 +11,7 @@
 #include "bsp/bsp_pcf8563.h"
 #include "sys/sys_config.h"
 #include "sys/sys_constants.h"
+#include "sys/sys_mailbox.h"
 #include "sys/sys_reminder.h"
 #include "sys/sys_sleep_scheduler.h"
 #include "sys/sys_time.h"
@@ -18,7 +19,7 @@
 namespace
 {
     constexpr size_t MAX_OCCURRENCES =
-        PrescriptConst::MAX_SCHEDULES + PrescriptConst::MAX_ALARMS;
+        PrescriptConst::MAX_SCHEDULES + PrescriptConst::MAX_ALARMS + SYS_MAILBOX_CAPACITY;
     constexpr uint32_t DUE_CHECK_INTERVAL_MS = 250;
     constexpr uint32_t RTC_RETRY_INTERVAL_MS = 5000;
     constexpr uint32_t RTC_ERROR_LOG_INTERVAL_MS = 60000;
@@ -79,7 +80,7 @@ namespace
         if (left.trigger_epoch != right.trigger_epoch)
             return left.trigger_epoch < right.trigger_epoch;
         if (left.kind != right.kind)
-            return left.kind == SysCalendarEventKind::Schedule;
+            return static_cast<uint8_t>(left.kind) < static_cast<uint8_t>(right.kind);
         return left.stable_id < right.stable_id;
     }
 
@@ -174,6 +175,9 @@ namespace
                 return true;
         }
 
+        if (SysMailbox_HasDueScheduled(snapshot.epoch))
+            return true;
+
         time_t current_minute = snapshot.epoch / 60;
         if (current_minute == s_last_alarm_triggered_minute)
             return false;
@@ -194,8 +198,8 @@ namespace
      */
     bool ProcessDueEvents(const SysTimeSnapshot &snapshot)
     {
-        bool data_changed = DisableDuplicateActiveAlarms();
-        data_changed |= RemoveExpiredSchedules(snapshot.epoch);
+        bool config_changed = DisableDuplicateActiveAlarms();
+        config_changed |= RemoveExpiredSchedules(snapshot.epoch);
 
         // 第一阶段：日程。所有到期日程都先于同分钟闹钟进入 SysReminder FIFO。
         for (int i = 0; i < sysConfig.schedule_count; ++i)
@@ -213,8 +217,11 @@ namespace
             item.is_expired = true;
             item.expire_time = (uint32_t)snapshot.epoch;
             item.is_restored = false;
-            data_changed = true;
+            config_changed = true;
         }
+
+        /* 远程日期消息与本地日程同属日历优先级，但事实数据保存在独立 mailbox 分区。 */
+        const bool mailbox_changed = SysMailbox_ProcessDueScheduled(snapshot.epoch);
 
         // 第二阶段：每日闹钟。同一分钟最多触发一个，精确 epoch 分钟键防止 AF 锁存和回环重复提醒。
         time_t current_minute = snapshot.epoch / 60;
@@ -237,13 +244,15 @@ namespace
             }
         }
 
-        if (data_changed)
+        if (config_changed)
         {
             /* 一轮内批量落盘一次；配置层只递增 generation，真正重建仍由本模块稍后统一完成。 */
             sysConfig.save();
             s_rebuild_requested = true;
         }
-        return data_changed;
+        if (mailbox_changed)
+            s_rebuild_requested = true;
+        return config_changed || mailbox_changed;
     }
 
     time_t BuildNextAlarmEpoch(const AlarmPreset &alarm, const SysTimeSnapshot &snapshot)
@@ -289,6 +298,17 @@ namespace
             const ScheduleItem &schedule = sysConfig.schedules[i];
             if (!schedule.is_expired && schedule.target_time > 0)
                 AddOccurrence(SysCalendarEventKind::Schedule, i, (time_t)schedule.target_time);
+        }
+
+        SysMailboxScheduledEvent mailbox_events[SYS_MAILBOX_CAPACITY] = {};
+        const size_t mailbox_count =
+            SysMailbox_CopyScheduledEvents(mailbox_events, SYS_MAILBOX_CAPACITY);
+        for (size_t index = 0; index < mailbox_count; ++index)
+        {
+            AddOccurrence(
+                SysCalendarEventKind::RemoteSchedule,
+                mailbox_events[index].slot,
+                mailbox_events[index].trigger_epoch);
         }
 
         for (uint8_t i = 0; i < sysConfig.alarm_count; ++i)

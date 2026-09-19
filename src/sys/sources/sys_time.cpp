@@ -26,9 +26,7 @@ namespace
     constexpr time_t NETWORK_TIME_MIN_EPOCH = 1577836800; // 2020-01-01 00:00:00 UTC
     constexpr time_t NETWORK_TIME_MAX_EPOCH = 2147483647; // 2038-01-19 23:59:59 UTC
 
-    uint32_t s_last_network_sync_millis = 0;
     uint32_t s_last_rtc_refresh_millis = 0;
-    bool s_has_network_sync = false;
     bool s_rtc_write_failed = false;
     QueueHandle_t s_network_time_queue = nullptr;
     EventGroupHandle_t s_network_time_apply_event = nullptr;
@@ -193,9 +191,7 @@ void SysTime_Init()
     setenv("TZ", "CST-8", 1);
     tzset();
 
-    s_last_network_sync_millis = 0;
     s_last_rtc_refresh_millis = millis();
-    s_has_network_sync = false;
     s_rtc_write_failed = false;
     s_time_revision = 0;
     s_time_status = {SysTimeSource::Uncalibrated, false, false, false, false};
@@ -330,8 +326,6 @@ void SysTime_Update()
         const bool applied = SetSystemEpoch(network_epoch);
         if (applied)
         {
-            s_has_network_sync = true;
-            s_last_network_sync_millis = millis();
             s_time_status.source = SysTimeSource::Network;
             SysTime_SyncRtcFromSystem();
             s_last_rtc_refresh_millis = millis();
@@ -479,14 +473,4 @@ time_t SysTime_NowEpoch()
 uint32_t SysTime_GetRevision()
 {
     return s_time_revision;
-}
-
-uint32_t SysTime_GetLastNetworkSyncAgeMs()
-{
-    return s_has_network_sync ? (uint32_t)(millis() - s_last_network_sync_millis) : UINT32_MAX;
-}
-
-bool SysTime_ShouldPeriodicResync(uint32_t interval_ms)
-{
-    return !s_has_network_sync || (uint32_t)(millis() - s_last_network_sync_millis) >= interval_ms;
 }

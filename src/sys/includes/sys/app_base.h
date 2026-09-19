@@ -69,7 +69,6 @@ protected:
      * 调用场景：
      * - 指令推送配置编辑“开启/关闭、最短潜伏、最长潜伏”；
      * - 硬币设置编辑数值；
-     * - 时间设置编辑“周期校时、校时间隔”。
      */
     void triggerEditAnimation(int delta) {
         value_animator.trigger(delta);

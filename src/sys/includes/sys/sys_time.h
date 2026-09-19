@@ -155,10 +155,4 @@ bool SysTime_SetTodayClock(uint8_t hour, uint8_t minute);
 /** 保留当前时分秒，只替换年月日并通过统一完整时间接口写入系统和 RTC。 */
 bool SysTime_SetDate(uint16_t year, uint8_t month, uint8_t day);
 
-/** 返回距本次开机最近一次真实网络对时经过的毫秒；从未成功时返回 UINT32_MAX。 */
-uint32_t SysTime_GetLastNetworkSyncAgeMs();
-
-/** 判断真实网络对时是否已经超过指定间隔；本次开机从未成功时返回 true。 */
-bool SysTime_ShouldPeriodicResync(uint32_t interval_ms);
-
 #endif

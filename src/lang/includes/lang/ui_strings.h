@@ -662,7 +662,7 @@ namespace UIStrings
         return IsZh(lang) ? "正在删除指令..." : "PURGING RECORD...";
     }
 
-    // 【时间设置】时间/日期链路编辑页和周期校时菜单。月份/日期后缀也从这里分语言取值。
+    // 【时间设置】时间/日期链路编辑页与立即网络校时入口。月份/日期后缀也从这里分语言取值。
     inline const char **TimeManualStepNames(SystemLang_t lang)
     {
         static const char *zh_items[] = {"设定小时", "设定分钟"};
@@ -709,30 +709,16 @@ namespace UIStrings
             "",
             "设置当日时间",
             "日期设置",
-            "网络校时",
-            "",
-            ""};
+            "网络校时"};
         static const char *en_items[] = {
             "",
             "SET TODAY TIME",
             "SET DATE",
-            "NETWORK SYNC",
-            "",
-            ""};
+            "NETWORK SYNC"};
 
-        if (index < 0 || index >= 6)
+        if (index < 0 || index >= 4)
             return "";
         return IsZh(lang) ? zh_items[index] : en_items[index];
-    }
-
-    inline const char *AutoResyncLabel(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "周期校时: " : "AUTO RESYNC: ";
-    }
-
-    inline const char *SyncPeriodLabel(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "校时间隔: " : "SYNC PERIOD: ";
     }
 
     // 【解码动画配置】指令解码动画选择页。
@@ -1005,7 +991,7 @@ namespace UIStrings
         return IsZh(lang) ? "网络连接异常!" : "NETWORK ERROR!";
     }
 
-    // 【网络同步】完整同步页的两行状态文本，包含连接、NTP、API、成功和失败状态。
+    // 【网络同步】完整同步页的两行状态文本，包含连接、NTP、设备信箱、成功和失败状态。
     inline const char *NetworkSyncPrimary(SystemLang_t lang, int state)
     {
         if (state == 0)
@@ -1017,7 +1003,7 @@ namespace UIStrings
         if (state == 3)
             return IsZh(lang) ? "同步失败" : "SYNC FAILED";
         if (state == 4)
-            return IsZh(lang) ? "获取隐秘指令" : "FETCHING API";
+            return IsZh(lang) ? "收取设备信件" : "FETCHING MAIL";
         return "";
     }
 

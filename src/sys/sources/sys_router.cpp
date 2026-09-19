@@ -377,19 +377,6 @@ void SysRouter_ProcessBLE(const String &msg)
 }
 
 // ==========================================
-// 网络 API 隐秘指令入口
-// ==========================================
-// 【函数说明】把网络 API 拉取到的隐藏日程直接发布为 SCHEDULE_ADD，隐藏标志固定为 true。
-void SysRouter_ProcessAPI(uint32_t tt, const String &title, const String &text)
-{
-    if (tt > 0)
-    {
-        Evt_SchAdd_t payload = {tt, title.c_str(), text.c_str(), true};
-        SysEvent_Publish(EVT_SCHEDULE_ADD, &payload);
-    }
-}
-
-// ==========================================
 // NFC 物理卡片路由分发中心
 // ==========================================
 // 【函数说明】NFC 扫描事件回调；把实体卡读出的文本交给 BLE 协议入口，实现 NFC 与 WebBLE 共用协议。

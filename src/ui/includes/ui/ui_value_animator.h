@@ -4,7 +4,6 @@
 这个文件把原来写在 AppBase 里的“三段式数值跳动动画”抽到 UI 层：
 - AppPushSetting 的“指令推送: 开启 / 最短潜伏: 15 分钟”；
 - AppCoinSettings 的数值编辑；
-- AppTimeSetting 的“周期校时: 开启 / 校时间隔: 15 分钟”；
 都会使用同一套 UIValueAnimator。
 
 动画规则：
@@ -84,7 +83,7 @@ public:
      *
      * 参数：
      * - x/y：整段文本左上角坐标；
-     * - prefix：固定前缀，例如“周期校时: ”；
+     * - prefix：固定前缀，例如“自动推送: ”；
      * - value：正在编辑的动态值，例如“开启”或“15”；
      * - suffix：固定后缀，例如“ 分钟 <”；
      * - distance：AppMenuBase 的滚轮淡出距离。

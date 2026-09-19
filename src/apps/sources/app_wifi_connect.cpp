@@ -71,7 +71,7 @@ public:
         }
 
         // 3. 只有断网或失败时 -> 发起手动常驻连接 (传入 true)
-        NetService_StartStandardSync(true);
+        NetService_StartCommonCycle(true);
         drawUI(UIStrings::WifiInit(appManager.getLanguage()));
     }
 

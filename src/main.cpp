@@ -5,6 +5,7 @@
 #include "net/net_service.h"
 #include "sys/sys_time.h"
 #include "sys/sys_calendar.h"
+#include "sys/sys_mailbox.h"
 #include "sys/sys_auto_push.h"
 #include "sys/sys_ble.h"
 #include "sys/sys_fs.h"
@@ -74,6 +75,8 @@ void setup()
      * 网络对时由 NetService_Init + NetService_RequestBootSync 延迟完成。
      */
     SysTime_Init();
+    /* 收件箱是设备级独立事实数据，必须先于日历建立，避免远程日期消息漏进首轮 RTC 计划。 */
+    SysMailbox_Init();
     /*
      * 日历服务必须在配置与时间服务之后建立：它只读取闹钟/日程事实数据，
      * 后续由主循环统一生成 RTC 单槽闹钟和 ESP 定时器兜底计划。
@@ -104,7 +107,7 @@ void setup()
 
     /*
      * 保留“开机自动同步”体验，但延迟 4 秒触发。
-     * 同步内容仍然是完整流程：WiFi -> NTP -> 隐秘指令 API。
+     * 同步内容仍然是完整流程：WiFi -> NTP -> 设备认证 -> 收件箱。
      * 延迟触发的好处是 UI 先进入 loop，用户不会在无网环境下看到首屏卡住。
      */
     NetService_RequestBootSync(4000);
@@ -121,14 +124,17 @@ void loop()
     }
 
     /*
-     * 网络轻量维护：
-     * - 到点触发开机自动同步；
+     * 网络周期维护：
+     * - 到点触发开机公共联网周期；
      * - 网络总超时兜底；
-     * - 如果用户开启周期校时，到间隔后启动轻量 NTP 校时。
+     * - 普通模式每 15 分钟重连，手动常驻模式每 5 分钟复用 WiFi；两者执行同一份公共清单。
      *
      * 这里不执行 WiFi.begin 或 HTTP，只做状态判断和任务通知。
      */
     NetService_Update();
+
+    /* 网络核只移交消息；主循环在这里按序持久化并把普通文本送入统一提醒队列。 */
+    SysMailbox_Update();
 
     /*
      * 时间服务只在主循环消费网络结果和访问 RTC。

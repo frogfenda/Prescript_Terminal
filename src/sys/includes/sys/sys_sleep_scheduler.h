@@ -17,6 +17,8 @@ enum class SysSleepSource : uint8_t
     Countdown,
     Pomodoro,
     AutoPush,
+    /** 公共联网周期需要返回主循环启动 WiFi，不能在 Standby 的静默续睡循环内执行。 */
+    NetworkCycle,
     Count,
 };
 
