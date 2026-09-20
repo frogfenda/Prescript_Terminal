@@ -78,7 +78,6 @@ NetAuthEnsureResult NetAuthSession_Ensure(const NetTaskContext &context)
     }
 
     s_accessToken = token;
-    Serial.println("[设备认证] 已建立本轮临时会话；Token 未写入日志。 ");
     return NetAuthEnsureResult::Ready;
 }
 

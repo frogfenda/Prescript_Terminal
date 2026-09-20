@@ -8,7 +8,6 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <esp_heap_caps.h>
 
 namespace
 {
@@ -25,8 +24,8 @@ namespace
     };
 
     /**
-     * 从已经通过 HTTPS 前缀检查的 URL 中提取主机和端口。
-     * 传输层目前只使用普通域名，不接受 URL 用户信息或 IPv6 字面量，避免诊断解析器
+     * 从已经通过 HTTPS 前缀检查的 URL 中提取主机和端口，供请求前 DNS 检查使用。
+     * 传输层目前只使用普通域名，不接受 URL 用户信息或 IPv6 字面量，避免本地解析
      * 与 HTTPClient 对同一个地址产生不同理解。
      */
     bool ParseHttpsEndpoint(const String &url, HttpsEndpoint &endpoint)
@@ -66,49 +65,6 @@ namespace
          * -4/-7 可能发生在请求已发出、等待响应期间，自动重发 POST 会有重复副作用，不能重试。
          */
         return transport_error == HTTPC_ERROR_CONNECTION_REFUSED;
-    }
-
-    /**
-     * 输出一次低频网络快照。这里只记录链路元数据，绝不记录 URL 路径、正文、Token 或永久 Key。
-     * DNS 结果由本轮真实解析取得，便于把域名故障与后续 TCP/TLS 故障分开。
-     */
-    void PrintNetworkSnapshot(
-        uint8_t attempt,
-        const HttpsEndpoint &endpoint,
-        bool dns_ok,
-        const IPAddress &server_ip)
-    {
-        const wl_status_t wifi_status = WiFi.status();
-        const String local_ip = WiFi.localIP().toString();
-        const String resolved_ip = dns_ok ? server_ip.toString() : String("未解析");
-        const int32_t rssi = wifi_status == WL_CONNECTED ? WiFi.RSSI() : 0;
-        Serial.printf(
-            "[网络/HTTPS] 请求前快照：尝试=%u，WiFi状态=%d，本机IP=%s，RSSI=%ld dBm，目标=%s:%u，DNS=%s。\n",
-            static_cast<unsigned>(attempt),
-            static_cast<int>(wifi_status),
-            local_ip.c_str(),
-            static_cast<long>(rssi),
-            endpoint.host.c_str(),
-            static_cast<unsigned>(endpoint.port),
-            resolved_ip.c_str());
-    }
-
-    /**
-     * 在同一请求的关键生命周期点输出内存快照。TLS 当前占用与本次峰值同时保留，
-     * 可判断失败是否已经越过 TCP 建连并进入 mbedTLS 动态分配阶段。
-     */
-    void PrintMemorySnapshot(const char *stage, const NetTlsMemorySnapshot &tls_memory)
-    {
-        Serial.printf(
-            "[网络/HTTPS] %s内存：内部堆=%u，最大内部块=%u，PSRAM=%u，最大PSRAM块=%u，TLS当前=%u，本次峰值=%u/%u。\n",
-            stage,
-            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
-            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
-            static_cast<unsigned>(tls_memory.current_bytes),
-            static_cast<unsigned>(tls_memory.request_peak_bytes),
-            static_cast<unsigned>(tls_memory.budget_bytes));
     }
 
     /** 将 HTTPClient 的稳定负错误码翻译成中文，避免业务日志只有无法解释的数字。 */
@@ -240,8 +196,6 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 
             if (WiFi.status() != WL_CONNECTED)
             {
-                IPAddress empty_ip;
-                PrintNetworkSnapshot(attempt, endpoint, false, empty_ip);
                 response.transport_error_code = HTTPC_ERROR_NOT_CONNECTED;
                 response.failure_detail = NetHttpFailureDetail::WifiUnavailable;
                 Serial.println("[网络/HTTPS] 请求失败阶段：WiFi 已不在连接状态。 ");
@@ -250,8 +204,6 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 
             IPAddress server_ip;
             const bool dns_ok = WiFi.hostByName(endpoint.host.c_str(), server_ip) == 1;
-            PrintNetworkSnapshot(attempt, endpoint, dns_ok, server_ip);
-            PrintMemorySnapshot("请求前", NetTlsMemory_GetSnapshot());
             if (!dns_ok)
             {
                 response.transport_error_code = HTTPC_ERROR_CONNECTION_REFUSED;
@@ -323,7 +275,6 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
                 http.end();
                 client.stop();
                 vTaskDelay(pdMS_TO_TICKS(20));
-                PrintMemorySnapshot("请求释放后", NetTlsMemory_GetSnapshot());
                 if (attempt > 1)
                     Serial.printf("[网络/HTTPS] 第 %u 次尝试成功：HTTP=%d。\n",
                                   static_cast<unsigned>(attempt), status_code);
@@ -344,7 +295,6 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
                           DescribeTransportError(status_code),
                           response.secure_error_code);
             const NetTlsMemorySnapshot tls_memory = NetTlsMemory_GetSnapshot();
-            PrintMemorySnapshot("失败时", tls_memory);
             if (tls_memory.last_failure != NetTlsMemoryFailure::None)
             {
                 Serial.printf(
@@ -361,23 +311,12 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
             http.end();
             client.stop();
             vTaskDelay(pdMS_TO_TICKS(20));
-            PrintMemorySnapshot("失败释放后", NetTlsMemory_GetSnapshot());
 
             const bool connection_stage_failure = IsConnectionStageFailure(status_code);
             if (connection_stage_failure)
             {
                 const bool entered_tls_allocation =
                     tls_memory.request_peak_bytes > tls_bytes_before_attempt;
-                if (entered_tls_allocation)
-                {
-                    Serial.println(
-                        "[网络/HTTPS] 连接分段诊断：DNS=成功，TCP 已建立并进入 TLS；故障位于 TLS 握手或 HTTPS 建连阶段。 ");
-                }
-                else
-                {
-                    Serial.println(
-                        "[网络/HTTPS] 连接分段诊断：DNS=成功，TLS 未产生动态分配；故障位于 socket/TCP 建连阶段。 ");
-                }
                 if (response.secure_error_code >= -1)
                 {
                     response.failure_detail = entered_tls_allocation
