@@ -6,12 +6,38 @@
 #include "sys/sys_ble.h"
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+#include <vector>
 #include "sys/sys_constants.h"
 #include "sys/sys_ble_queue.h"
 #include "sys/sys_runtime_status.h"
 
 // 【关键 1】：全局特征值指针，保存下来以便随时调用 notify()
 NimBLECharacteristic *g_ble_char = nullptr;
+
+namespace
+{
+    // 默认 ATT MTU 为 23，Notify 可携带 20 字节。身份 JSON 较长，不能依赖
+    // 手机一定会成功协商大 MTU；所有长响应都使用分片帧，交给客户端重组。
+    constexpr size_t kBleNotifyPayload = 20;
+    constexpr size_t kChunkPayload = 9;
+    uint8_t g_chunk_sequence = 0;
+
+    bool isUtf8Continuation(uint8_t value)
+    {
+        return (value & 0xC0u) == 0x80u;
+    }
+
+    void notifyFrame(const char *data, size_t length, bool pace)
+    {
+        if (g_ble_char == nullptr || data == nullptr || length == 0)
+            return;
+        g_ble_char->setValue(reinterpret_cast<const uint8_t *>(data), length);
+        g_ble_char->notify();
+        // 连续 Notify 之间留出一个连接事件窗口，避免手机端只收到最后一帧。
+        if (pace)
+            delay(15);
+    }
+}
 
 class TerminalBLECallbacks : public NimBLECharacteristicCallbacks
 {
@@ -77,9 +103,50 @@ void SysBLE_Init()
 // 【函数说明】向已连接网页发送一条文本 Notify，ACK、SYNC、LANG、SPC_META 都通过这个出口返回。
 void SysBLE_Notify(const char *data)
 {
-    if (g_ble_char != nullptr)
+    if (g_ble_char == nullptr || data == nullptr)
+        return;
+
+    const size_t length = strlen(data);
+    if (length <= kBleNotifyPayload)
     {
-        g_ble_char->setValue((uint8_t *)data, strlen(data));
-        g_ble_char->notify();
+        notifyFrame(data, length, false);
+        return;
+    }
+
+    // 先按 UTF-8 边界计算真实分片数，再把总数写进每个帧头；不能直接用
+    // length/9，因为避开字符边界后某些帧可能少于 9 个字节。
+    std::vector<std::pair<size_t, size_t>> chunks;
+    for (size_t offset = 0; offset < length;)
+    {
+        size_t count = (length - offset) < kChunkPayload
+                           ? (length - offset)
+                           : kChunkPayload;
+        while (count > 1 && offset + count < length &&
+               isUtf8Continuation(static_cast<uint8_t>(data[offset + count])))
+        {
+            --count;
+        }
+        chunks.emplace_back(offset, count);
+        offset += count;
+    }
+
+    const size_t total = chunks.size();
+    if (total > 99)
+    {
+        // 当前协议头最多容纳两位总帧数；异常超长消息保留原始帧供诊断。
+        notifyFrame(data, length, false);
+        return;
+    }
+
+    const uint8_t sequence = g_chunk_sequence++ % 10;
+    for (size_t index = 0; index < total; ++index)
+    {
+        const size_t offset = chunks[index].first;
+        const size_t count = chunks[index].second;
+        // "CH:<seq>:<index>:<total>:" 最长 11 字节，配合 9 字节载荷不超过 20 字节。
+        String frame = "CH:" + String(sequence) + ":" + String(index) + ":" +
+                       String(total) + ":";
+        frame.concat(data + offset, count);
+        notifyFrame(frame.c_str(), frame.length(), true);
     }
 }
