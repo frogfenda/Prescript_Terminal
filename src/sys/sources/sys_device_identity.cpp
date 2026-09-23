@@ -328,9 +328,11 @@ String SysDeviceIdentity_BuildPublicResponse()
     document["machine_code"] = snapshot.machine_code;
     document["public_id"] = snapshot.public_id;
 
-    String response = "IDENTITY:";
-    serializeJson(document, response);
-    return response;
+    // ArduinoJson 写入 String 时会从头覆盖目标内容，不能先把协议前缀放进
+    // 同一个 String，否则设备实际只会发出 JSON，App 无法识别消息类型。
+    String payload;
+    serializeJson(document, payload);
+    return "IDENTITY:" + payload;
 }
 
 SysDeviceIdentityBindResult SysDeviceIdentity_Bind(const String &public_id, const String &device_key)
