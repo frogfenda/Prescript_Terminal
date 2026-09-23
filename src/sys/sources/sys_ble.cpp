@@ -55,6 +55,10 @@ class TerminalBLECallbacks : public NimBLECharacteristicCallbacks
     {
         std::string value = pCharacteristic->getValue();
 
+        // 兼容尚未升级的旧 App：丢弃历史 BD:* 诊断回执，不进入业务协议，也不打印日志。
+        if (value.rfind("BD:", 0) == 0)
+            return;
+
         if (value.find("CMD:PUSH_NOW") != std::string::npos)
         {
             SysRuntime_RequestPushNotify();
