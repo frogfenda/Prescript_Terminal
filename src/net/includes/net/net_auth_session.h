@@ -1,5 +1,5 @@
 /*
-【模块职责】用 identity 分区中的机器码与永久通行码换取短期 Bearer Token，并只在 RAM 中维护本轮会话。
+【模块职责】用账号认领后写入 identity 分区的机器码与设备长期凭据换取短期 Bearer Token，并只在 RAM 中维护本轮会话。
 【安全边界】业务模块不直接读取 Token；只允许通过本模块发送带认证头的 HTTPS JSON。
 */
 #pragma once

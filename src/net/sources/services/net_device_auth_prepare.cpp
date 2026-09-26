@@ -42,15 +42,6 @@ namespace
         return EnsureBoundDeviceSession(context);
     }
 
-    /**
-     * 身份绑定页必须取得服务器的当前判断，不能沿用 RAM 中可能早于后台重置的 Token。
-     * 因此先清除本轮 Token，再用 identity 分区中的永久凭据重新创建一次设备会话。
-     */
-    NetTaskExecutionResult ExecuteVerify(const NetTaskInvocation &, const NetTaskContext &context)
-    {
-        NetAuthSession_Clear();
-        return EnsureBoundDeviceSession(context);
-    }
 }
 
 bool NetDeviceAuthPrepare_Register()
@@ -63,10 +54,5 @@ bool NetDeviceAuthPrepare_Register()
     if (!NetTaskRegistry_Register(prepare))
         return false;
 
-    NetTaskDefinition verify;
-    verify.task_id = NET_TASK_DEVICE_AUTH_VERIFY;
-    verify.name = "设备身份在线验证";
-    verify.execute = ExecuteVerify;
-    verify.trigger_mask = NET_TASK_TRIGGER_NONE;
-    return NetTaskRegistry_Register(verify);
+    return true;
 }

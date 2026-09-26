@@ -4,6 +4,9 @@
 量产时应把输入替换为工厂逐机写入且受 eFuse/Flash Encryption 保护的设备秘密。
 */
 #include "sys/sys_device_binding.h"
+#include "sys/sys_device_identity.h"
+#include "sys/sys_ble.h"
+#include "sys/sys_sleep_scheduler.h"
 
 #include <cstring>
 #include <mbedtls/base64.h>
@@ -12,6 +15,12 @@
 
 namespace
 {
+    constexpr uint32_t kBindingModeTimeoutMs = 10UL * 60UL * 1000UL;
+    bool s_modeActive = false;
+    bool s_commitAllowed = false;
+    uint32_t s_modeStartedMs = 0;
+    String s_lastChallengeId;
+    String s_lastChallenge;
     constexpr char kClaimKeyDomain[] = "PRESCRIPT-CLAIM-KEY-V1\n";
     constexpr char kProofDomain[] = "PRESCRIPT-BIND-PROOF-V1\n";
 
@@ -46,6 +55,71 @@ namespace
         encoded[encoded_length] = '\0';
         return String(reinterpret_cast<const char *>(encoded));
     }
+}
+
+void SysDeviceBinding_EnterMode()
+{
+    s_modeActive = true;
+    s_commitAllowed = false;
+    s_modeStartedMs = millis();
+    s_lastChallengeId = "";
+    s_lastChallenge = "";
+    SysSleep_SetBlocker(SysSleepBlocker::BindingMode, true);
+    Serial.println("[设备绑定] 已进入账号认领模式，等待 App 完成账号流程。");
+}
+
+void SysDeviceBinding_ExitMode()
+{
+    s_modeActive = false;
+    s_commitAllowed = false;
+    s_lastChallengeId = "";
+    s_lastChallenge = "";
+    SysSleep_SetBlocker(SysSleepBlocker::BindingMode, false);
+}
+
+void SysDeviceBinding_Update()
+{
+    if (s_modeActive && millis() - s_modeStartedMs >= kBindingModeTimeoutMs)
+    {
+        SysDeviceBinding_ExitMode();
+        SysBLE_Notify("BIND_MODE:INACTIVE");
+        Serial.println("[设备绑定] 账号认领模式已超时关闭。");
+    }
+}
+
+bool SysDeviceBinding_IsModeActive()
+{
+    return s_modeActive;
+}
+
+bool SysDeviceBinding_BuildModeProof(
+    const String &challenge_id,
+    const String &challenge,
+    String &verification_code)
+{
+    verification_code = "";
+    if (!s_modeActive || challenge_id.isEmpty() || challenge.isEmpty())
+        return false;
+    const SysDeviceIdentitySnapshot identity = SysDeviceIdentity_GetSnapshot();
+    if (!SysDeviceBinding_BuildVerificationCode(
+            identity.machine_code, challenge_id, challenge, verification_code))
+        return false;
+    s_lastChallengeId = challenge_id;
+    s_lastChallenge = challenge;
+    s_commitAllowed = true;
+    return true;
+}
+
+bool SysDeviceBinding_IsCredentialCommitAllowed()
+{
+    return s_modeActive && s_commitAllowed;
+}
+
+void SysDeviceBinding_ConsumeCredentialCommit()
+{
+    s_commitAllowed = false;
+    s_lastChallengeId = "";
+    s_lastChallenge = "";
 }
 
 bool SysDeviceBinding_IsProofAvailable()

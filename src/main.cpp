@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include "sys/sys_config.h"
 #include "sys/sys_device_identity.h"
+#include "sys/sys_device_binding.h"
 #include "net/net_service.h"
 #include "sys/sys_time.h"
 #include "sys/sys_calendar.h"
@@ -132,6 +133,7 @@ void loop()
      * 这里不执行 WiFi.begin 或 HTTP，只做状态判断和任务通知。
      */
     NetService_Update();
+    SysDeviceBinding_Update();
 
     /* 网络核只移交消息；主循环在这里按序持久化并把普通文本送入统一提醒队列。 */
     SysMailbox_Update();

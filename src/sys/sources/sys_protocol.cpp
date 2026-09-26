@@ -127,21 +127,39 @@ SysParsedCommand SysProtocol_ParseSingle(const String &raw)
         return out;
     }
 
-    if (msg.startsWith("DEV_BIND:"))
+    if (msg.startsWith("BIND_PROOF:"))
     {
-        const int separator = msg.indexOf(':', 9);
+        const int separator = msg.indexOf(':', 11);
         if (separator < 0)
-            return MakeInvalid(msg, "DEV_BIND_FORMAT");
+            return MakeInvalid(msg, "BIND_PROOF_FORMAT");
+        out.type = SysCommandType::BindingProof;
+        out.challenge_id = msg.substring(11, separator);
+        out.challenge = msg.substring(separator + 1);
+        out.challenge_id.trim();
+        out.challenge.trim();
+        if (out.challenge_id.isEmpty() || out.challenge.isEmpty())
+            return MakeInvalid(msg, "BIND_PROOF_EMPTY");
+        return out;
+    }
 
-        out.type = SysCommandType::DeviceBind;
-        out.public_id = msg.substring(9, separator);
-        out.device_key = msg.substring(separator + 1);
+    if (msg.startsWith("DEV_BIND_V2:"))
+    {
+        const int p1 = msg.indexOf(':', 12);
+        const int p2 = p1 < 0 ? -1 : msg.indexOf(':', p1 + 1);
+        if (p1 < 0 || p2 < 0)
+            return MakeInvalid(msg, "DEV_BIND_V2_FORMAT");
+        out.type = SysCommandType::DeviceBindV2;
+        out.public_id = msg.substring(12, p1);
+        out.credential_version = static_cast<uint32_t>(msg.substring(p1 + 1, p2).toInt());
+        out.device_key = msg.substring(p2 + 1);
         out.public_id.trim();
         out.device_key.trim();
         if (out.public_id.length() == 0)
-            return MakeInvalid(msg, "DEV_BIND_EMPTY_ID");
+            return MakeInvalid(msg, "DEV_BIND_V2_EMPTY_ID");
+        if (out.credential_version == 0)
+            return MakeInvalid(msg, "DEV_BIND_VERSION_INVALID");
         if (out.device_key.length() == 0)
-            return MakeInvalid(msg, "DEV_BIND_EMPTY_KEY");
+            return MakeInvalid(msg, "DEV_BIND_V2_EMPTY_KEY");
         return out;
     }
 
@@ -474,8 +492,10 @@ const char *SysProtocol_CommandName(SysCommandType type)
         return "TGT_SET";
     case SysCommandType::GetIdentity:
         return "GET_IDENTITY";
-    case SysCommandType::DeviceBind:
-        return "DEV_BIND";
+    case SysCommandType::BindingProof:
+        return "BIND_PROOF";
+    case SysCommandType::DeviceBindV2:
+        return "DEV_BIND_V2";
     case SysCommandType::Invalid:
         return "INVALID";
     case SysCommandType::Unknown:
@@ -504,7 +524,8 @@ bool SysProtocol_IsMutating(SysCommandType type)
     case SysCommandType::TargetAdd:
     case SysCommandType::TargetDel:
     case SysCommandType::TargetSet:
-    case SysCommandType::DeviceBind:
+    case SysCommandType::DeviceBindV2:
+    case SysCommandType::BindingProof:
         return true;
     default:
         return false;

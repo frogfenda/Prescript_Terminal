@@ -4,6 +4,5 @@
 #include <Arduino.h>
 
 constexpr uint16_t NET_TASK_DEVICE_AUTH_PREPARE = 3;
-constexpr uint16_t NET_TASK_DEVICE_AUTH_VERIFY = 4;
 
 bool NetDeviceAuthPrepare_Register();

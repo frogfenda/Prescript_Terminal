@@ -33,7 +33,8 @@ enum class SysCommandType : uint8_t
     TargetDel,
     TargetSet,
     GetIdentity,
-    DeviceBind
+    BindingProof,
+    DeviceBindV2
 };
 
 struct SysParsedCommand
@@ -51,6 +52,8 @@ struct SysParsedCommand
     String pass;
     String public_id;
     String device_key;
+    String challenge_id;
+    String challenge;
     String colors;
     String sync_lang;
 
@@ -65,6 +68,7 @@ struct SysParsedCommand
     int coin_power = 0;
     int coin_count = 0;
     uint32_t timestamp = 0;
+    uint32_t credential_version = 0;
     bool hidden = false;
 };
 

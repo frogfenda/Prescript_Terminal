@@ -9,6 +9,22 @@
 /** 当前固件是否注入了可用的产品绑定主密钥。 */
 bool SysDeviceBinding_IsProofAvailable();
 
+/** 进入一次性的 App 账号认领模式；只保留在 RAM，默认十分钟后失效。 */
+void SysDeviceBinding_EnterMode();
+void SysDeviceBinding_ExitMode();
+void SysDeviceBinding_Update();
+bool SysDeviceBinding_IsModeActive();
+
+/** 在绑定模式中为当前账号挑战生成一次性证明；证明本身只通过 BLE 返回。 */
+bool SysDeviceBinding_BuildModeProof(
+    const String &challenge_id,
+    const String &challenge,
+    String &verification_code);
+
+/** 只有刚刚生成过的证明才能提交 V2 永久凭据，成功后立即消费。 */
+bool SysDeviceBinding_IsCredentialCommitAllowed();
+void SysDeviceBinding_ConsumeCredentialCommit();
+
 /**
  * 按协议 v1 生成 URL-safe、无填充的校验码。
  * machine_code、challenge_id 和 challenge 均来自本轮绑定上下文，调用方不得自行改写规范格式。

@@ -349,7 +349,7 @@ namespace UIStrings
             "音量与振动",
             "解码动画配置",
             "传感器校准测试",
-            "身份绑定",
+            "进入绑定模式",
             "返回上一级"};
         static const char *en_items[] = {
             "",
@@ -360,7 +360,7 @@ namespace UIStrings
             "VOL&HAPTIC",
             "ANIMATION SETUP",
             "SENSOR CAL & TEST",
-            "DEVICE BINDING",
+            "ENTER BINDING MODE",
             "BACK TO MAIN"};
 
         if (index < 0 || index >= 10)
@@ -372,172 +372,27 @@ namespace UIStrings
 
     inline const char *DeviceBindingTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "身份绑定" : "DEVICE BINDING";
+        return IsZh(lang) ? "进入绑定模式" : "ENTER BINDING MODE";
     }
 
     inline const char *DeviceBindingPrompt(SystemLang_t lang)
     {
-        return IsZh(lang) ? "按主键开始绑定" : "CLICK MAIN BUTTON TO BIND";
-    }
-
-    inline const char *DeviceBindingOffline(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "请先连接无线网络" : "CONNECT WIFI BEFORE BINDING";
+        return IsZh(lang) ? "按主键让 App 开始认领" : "CLICK MAIN BUTTON FOR APP";
     }
 
     inline const char *DeviceBindingRunning(SystemLang_t lang)
     {
-        return IsZh(lang) ? "正在验证设备身份" : "VERIFYING DEVICE IDENTITY";
-    }
-
-    inline const char *DeviceBindingAuthenticating(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "获取认证中...." : "CHECKING AUTHENTICATION...";
-    }
-
-    inline const char *DeviceBindingAuthenticationFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "认证失败，请进行绑定" : "AUTH FAILED - BIND DEVICE";
-    }
-
-    inline const char *DeviceBindingSuccess(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "绑定成功" : "DEVICE BOUND";
-    }
-
-    inline const char *DeviceBindingFailure(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "绑定失败" : "BINDING FAILED";
-    }
-
-    inline const char *DeviceBindingFailureUnknown(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "原因未知，请稍后重试" : "UNKNOWN ERROR - RETRY LATER";
-    }
-
-    inline const char *DeviceBindingIdentityUnavailable(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "设备身份存储不可用" : "IDENTITY STORAGE UNAVAILABLE";
-    }
-
-    inline const char *DeviceBindingSecretUnavailable(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "固件缺少绑定密钥" : "BINDING SECRET MISSING";
-    }
-
-    inline const char *DeviceBindingRequestTimeout(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "服务器请求超时" : "SERVER REQUEST TIMED OUT";
-    }
-
-    inline const char *DeviceBindingSecureConnectionFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "无法建立安全连接" : "SECURE CONNECTION FAILED";
-    }
-
-    inline const char *DeviceBindingServerConnectionFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "无法连接绑定服务器" : "CANNOT REACH BINDING SERVER";
-    }
-
-    inline const char *DeviceBindingRequestSendFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "绑定请求发送失败" : "BINDING REQUEST SEND FAILED";
-    }
-
-    inline const char *DeviceBindingConnectionLost(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "连接中途断开" : "CONNECTION LOST";
-    }
-
-    inline const char *DeviceBindingInsufficientMemory(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "安全连接内存不足" : "NOT ENOUGH TLS MEMORY";
-    }
-
-    inline const char *DeviceBindingNetworkFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "网络传输失败" : "NETWORK TRANSFER FAILED";
-    }
-
-    inline const char *DeviceBindingServerAlreadyBound(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "服务器已绑定，需恢复凭据" : "SERVER BOUND - RECOVERY NEEDED";
-    }
-
-    inline const char *DeviceBindingDeviceDisabled(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "设备已被服务器禁用" : "DEVICE DISABLED BY SERVER";
-    }
-
-    inline const char *DeviceBindingServerRejected(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "服务器拒绝绑定校验" : "SERVER REJECTED VERIFICATION";
-    }
-
-    inline const char *DeviceBindingServerUnavailable(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "绑定服务暂时不可用" : "BINDING SERVICE UNAVAILABLE";
-    }
-
-    inline const char *DeviceBindingInvalidResponse(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "服务器响应格式异常" : "INVALID SERVER RESPONSE";
-    }
-
-    inline const char *DeviceBindingProofFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "无法生成设备校验码" : "DEVICE PROOF FAILED";
-    }
-
-    inline const char *DeviceBindingSaveFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "永久凭据保存失败" : "CREDENTIAL SAVE FAILED";
-    }
-
-    inline const char *DeviceBindingSessionFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "凭据已保存，会话验证失败" : "SAVED - SESSION VERIFY FAILED";
-    }
-
-    inline const char *DeviceBindingRebindAuthorizationFailed(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "旧会话失效，请重新进入此页" : "SESSION EXPIRED - REOPEN PAGE";
-    }
-
-    inline const char *DeviceBindingTaskBusy(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "网络任务正忙，请稍后重试" : "NETWORK BUSY - RETRY LATER";
-    }
-
-    inline const char *DeviceBindingDisconnected(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "连接已断开，请重新联网" : "CONNECTION LOST - RECONNECT";
-    }
-
-    inline const char *DeviceBindingAlreadyBound(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "已经绑定过" : "ALREADY BOUND";
+        return IsZh(lang) ? "绑定模式已开启" : "BINDING MODE ACTIVE";
     }
 
     inline const char *DeviceBindingReadyHint(SystemLang_t lang)
     {
-        return IsZh(lang) ? "主键绑定 / 长按返回" : "MAIN BIND / HOLD BACK";
-    }
-
-    inline const char *DeviceBindingCloseHint(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "主键关闭 / 长按返回" : "MAIN CLOSE / HOLD BACK";
+        return IsZh(lang) ? "主键开启 / 长按退出" : "MAIN OPEN / HOLD EXIT";
     }
 
     inline const char *DeviceBindingWaitingHint(SystemLang_t lang)
     {
-        return IsZh(lang) ? "请稍候 / 长按返回" : "PLEASE WAIT / HOLD BACK";
-    }
-
-    inline const char *DeviceBindingRebindHint(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "短按关闭 / 长按主键8秒重新绑定" : "CLICK CLOSE / HOLD MAIN 8S TO REBIND";
+        return IsZh(lang) ? "请在 App 中完成认领 / 长按退出" : "CLAIM IN APP / HOLD EXIT";
     }
 
     // 【传感器校准测试】集中承载动作、人体坐标与地磁维护入口，避免系统设置一级菜单过长。

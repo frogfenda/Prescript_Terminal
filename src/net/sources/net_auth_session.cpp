@@ -1,5 +1,5 @@
 /*
-【模块职责】设备会话认证实现。永久通行码只在创建会话的局部变量中短暂存在，Token 仅保留到 WiFi 会话结束。
+【模块职责】设备会话认证实现。账号认领后得到的长期设备凭据只在创建会话的局部变量中短暂存在，Token 仅保留到 WiFi 会话结束。
 【失败语义】401/403 表示已存凭据被服务端拒绝；网络错误和 5xx 留待后续会话重试。
 */
 #include "net/net_auth_session.h"
@@ -44,7 +44,7 @@ NetAuthEnsureResult NetAuthSession_Ensure(const NetTaskContext &context)
 
     NetHttpResponse response;
     const NetHttpResult transport = NetHttp_PostJson(
-        "/api/v1/device/session",
+        "/api/v1/auth/devices/session",
         request_body,
         String(),
         context,
@@ -57,7 +57,19 @@ NetAuthEnsureResult NetAuthSession_Ensure(const NetTaskContext &context)
                       static_cast<unsigned>(transport));
         return NetAuthEnsureResult::TemporaryFailure;
     }
-    if (response.status_code == 401 || response.status_code == 403)
+    if (response.device_error_code == "DEVICE_UNBOUND")
+    {
+        (void)SysDeviceIdentity_ClearBinding();
+        Serial.println("[设备认证] 服务端确认设备已解绑，已清除本地长期凭据。 ");
+        return NetAuthEnsureResult::DeviceUnbound;
+    }
+    if (response.device_error_code == "DEVICE_DISABLED")
+    {
+        Serial.println("[设备认证] 服务端已禁用设备，暂停自动认证。 ");
+        return NetAuthEnsureResult::CredentialsRejected;
+    }
+    if (response.status_code == 401 || response.status_code == 403 ||
+        response.device_error_code == "INVALID_DEVICE_CREDENTIALS")
     {
         Serial.println("[设备认证] 服务端拒绝已存设备凭据。 ");
         return NetAuthEnsureResult::CredentialsRejected;

@@ -17,6 +17,7 @@
 #include "sys/sys_runtime_status.h"
 #include "sys/sys_reminder.h"
 #include "sys/sys_gesture.h"
+#include "sys/sys_device_binding.h"
 
 void _Cb_SysNotify(void *payload)
 {
@@ -300,7 +301,7 @@ void AppManager::run()
     }
     currentApp->onLoop(); // 继续执行 UI 刷新
 
-    if (!isCurrent(AppId::Standby))
+    if (!isCurrent(AppId::Standby) && !SysDeviceBinding_IsModeActive())
     {
         if (config_sleep_time_ms != PrescriptConst::NEVER_SLEEP_MS && (millis() - idle_timer > config_sleep_time_ms))
         {

@@ -348,6 +348,32 @@ SysDeviceIdentityBindResult SysDeviceIdentity_ReplaceBinding(
     return SaveBindingRecord(public_id, device_key, credential_version, true);
 }
 
+bool SysDeviceIdentity_ClearBinding()
+{
+    if (!s_storageReady)
+        return false;
+    nvs_handle_t handle = 0;
+    esp_err_t error = nvs_open_from_partition(kPartitionLabel, kNamespace, NVS_READWRITE, &handle);
+    if (error == ESP_OK)
+    {
+        error = nvs_erase_key(handle, kRecordKey);
+        if (error == ESP_ERR_NVS_NOT_FOUND)
+            error = ESP_OK;
+        if (error == ESP_OK)
+            error = nvs_commit(handle);
+        nvs_close(handle);
+    }
+    if (error != ESP_OK)
+    {
+        Serial.printf("[设备身份] 清除服务器凭据失败：%s。\n", esp_err_to_name(error));
+        return false;
+    }
+    memset(&s_record, 0, sizeof(s_record));
+    s_provisioned = false;
+    Serial.println("[设备身份] 已清除服务器凭据，机器码保留。");
+    return true;
+}
+
 bool SysDeviceIdentity_CopyAuthCredentials(String &machine_code, String &device_key)
 {
     machine_code = "";

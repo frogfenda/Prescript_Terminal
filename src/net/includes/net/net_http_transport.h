@@ -36,6 +36,7 @@ struct NetHttpResponse
 {
     int status_code = 0;
     String body;
+    String device_error_code;
     /*
     HTTPClient 在拿不到 HTTP 状态码时返回负数；WiFiClientSecure 则保留更底层的
     mbedTLS 错误。二者只用于失败分类和串口诊断，绝不能承载响应正文或凭据。

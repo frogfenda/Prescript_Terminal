@@ -9,6 +9,7 @@
 #include "sys/sys_ble.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_device_identity.h"
+#include "sys/sys_device_binding.h"
 #include "lang/terminal_lang.h"
 
 #include "hal/hal.h"
@@ -133,17 +134,58 @@ static bool SysRouter_Dispatch(const SysParsedCommand &cmd)
 
     case SysCommandType::GetIdentity:
     {
+        // 身份查询同时回传实时绑定模式，App 不必依赖可能丢失的历史通知。
+        SysBLE_Notify(SysDeviceBinding_IsModeActive()
+                          ? "BIND_MODE:ACTIVE"
+                          : "BIND_MODE:INACTIVE");
+        // NimBLE 不保证同一主循环内连续两次 Notify 都能被手机端收到，给前一帧留出发送窗口。
+        delay(50);
         const String response = SysDeviceIdentity_BuildPublicResponse();
         SysBLE_Notify(response.c_str());
+        Serial.printf("[设备绑定] 已回复实时绑定状态和设备身份信息，长度=%u。\n",
+                      static_cast<unsigned>(response.length()));
         return true;
     }
 
-    case SysCommandType::DeviceBind:
+    case SysCommandType::BindingProof:
     {
-        const SysDeviceIdentityBindResult result = SysDeviceIdentity_Bind(cmd.public_id, cmd.device_key);
+        Serial.printf("[设备绑定] 收到 App 挑战证明请求，挑战 ID 长度=%u。\n",
+                      static_cast<unsigned>(cmd.challenge_id.length()));
+        if (!SysDeviceBinding_IsModeActive())
+        {
+            SysCmdResult_Error("BINDING_MODE_REQUIRED");
+            return true;
+        }
+        String verification_code;
+        if (!SysDeviceBinding_BuildModeProof(cmd.challenge_id, cmd.challenge, verification_code))
+        {
+            SysCmdResult_Error("PROOF_GENERATION_FAILED");
+            return true;
+        }
+        String response = "BIND_PROOF_RESULT:" + cmd.challenge_id + ":" + verification_code;
+        SysBLE_Notify(response.c_str());
+        Serial.println("[设备绑定] 已生成一次性认领证明，证明内容未写入日志。");
+        SysCmdResult_Ok("PROOF_READY");
+        return true;
+    }
+
+    case SysCommandType::DeviceBindV2:
+    {
+        Serial.printf("[设备绑定] 收到 App 凭据提交，公开 ID=%s，凭据版本=%lu。\n",
+                      cmd.public_id.c_str(),
+                      static_cast<unsigned long>(cmd.credential_version));
+        if (!SysDeviceBinding_IsCredentialCommitAllowed())
+        {
+            SysCmdResult_Error("BINDING_PROOF_REQUIRED");
+            return true;
+        }
+        const SysDeviceIdentityBindResult result = SysDeviceIdentity_ReplaceBinding(
+            cmd.public_id, cmd.device_key, cmd.credential_version);
         switch (result)
         {
         case SysDeviceIdentityBindResult::Ok:
+            SysDeviceBinding_ConsumeCredentialCommit();
+            Serial.println("[设备绑定] 账号认领凭据已原子保存。");
             SysCmdResult_Ok("BOUND", cmd.public_id);
             break;
         case SysDeviceIdentityBindResult::AlreadyBound:
@@ -386,7 +428,9 @@ void _Cb_NfcScanned(void *payload)
     String text = String(p->payload);
 
     // NFC 不承担设备身份配发；即使事件入口未来恢复，也不能用卡片注入 DEV_BIND。
-    if (text.indexOf("DEV_BIND:") >= 0)
+    if (text.indexOf("DEV_BIND:") >= 0 ||
+        text.indexOf("DEV_BIND_V2:") >= 0 ||
+        text.indexOf("BIND_PROOF:") >= 0)
     {
         Serial.println("[路由中心] 已拒绝 NFC 中的设备身份绑定命令。");
         return;

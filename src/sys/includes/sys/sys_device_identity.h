@@ -48,6 +48,9 @@ SysDeviceIdentityBindResult SysDeviceIdentity_ReplaceBinding(
     const String &device_key,
     uint32_t credential_version);
 
+/** 服务端明确返回 DEVICE_UNBOUND 时安全清除长期凭据，保留机器码供下一次账号认领。 */
+bool SysDeviceIdentity_ClearBinding();
+
 /*
  * 【接口说明】供未来 HTTPS 会话创建流程复制认证材料。
  * 该函数不会联网；machine_code/device_key 都属于认证材料，调用方使用后应尽快清空且严禁写日志。

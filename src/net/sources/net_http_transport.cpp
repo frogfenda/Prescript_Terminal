@@ -171,6 +171,7 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
     {
         response.status_code = 0;
         response.body = "";
+        response.device_error_code = "";
         response.transport_error_code = 0;
         response.secure_error_code = 0;
         response.failure_detail = NetHttpFailureDetail::None;
@@ -236,6 +237,9 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
             if (!http.begin(client, url))
                 return NetHttpResult::TlsInitializationFailed;
 
+            const char *response_headers[] = {"X-Device-Error-Code"};
+            http.collectHeaders(response_headers, 1);
+
             http.addHeader("Accept", "application/json");
             if (!bearer.isEmpty())
                 http.addHeader("Authorization", String("Bearer ") + bearer);
@@ -254,6 +258,7 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
             if (status_code > 0)
             {
                 response.status_code = status_code;
+                response.device_error_code = http.header("X-Device-Error-Code");
                 const int content_length = http.getSize();
                 if (content_length < 0 || static_cast<size_t>(content_length) > response_limit)
                 {
