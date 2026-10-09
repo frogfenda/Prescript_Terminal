@@ -19,11 +19,13 @@ namespace
         bool keep_stack = false;
         uint16_t font_color = 0x07FF;
         uint64_t mailbox_sequence = 0;
+        SysMailboxKind mailbox = SysMailboxKind::Private;
     };
 
     PendingReminder s_pending[MAX_PENDING_REMINDERS];
     size_t s_head = 0;
     size_t s_count = 0;
+    bool s_queueFullReported = false;
 }
 
 bool SysReminder_Submit(
@@ -31,11 +33,15 @@ bool SysReminder_Submit(
     const char *text,
     bool keep_stack,
     uint16_t font_color,
-    uint64_t mailbox_sequence)
+    uint64_t mailbox_sequence,
+    SysMailboxKind mailbox)
 {
     if (s_count >= MAX_PENDING_REMINDERS)
     {
-        Serial.println("[提醒-警告] 提醒队列已满，本次到期提醒无法入队。");
+        // 满队列时收件主循环会重试；一次持续满载只报告一次，不能按每帧速度刷屏。
+        if (!s_queueFullReported)
+            Serial.println("[提醒-警告] 提醒队列已满，本次到期提醒无法入队。");
+        s_queueFullReported = true;
         return false;
     }
 
@@ -45,6 +51,7 @@ bool SysReminder_Submit(
     s_pending[tail].keep_stack = keep_stack;
     s_pending[tail].font_color = font_color;
     s_pending[tail].mailbox_sequence = mailbox_sequence;
+    s_pending[tail].mailbox = mailbox;
     ++s_count;
     return true;
 }
@@ -58,6 +65,7 @@ void SysReminder_Update()
     s_pending[s_head].text = "";
     s_head = (s_head + 1) % MAX_PENDING_REMINDERS;
     --s_count;
+    s_queueFullReported = false;
 
     if (item.kind == SysReminderKind::Random)
         PushNotify_Trigger_Random(item.keep_stack);
@@ -66,5 +74,5 @@ void SysReminder_Update()
 
     /* 只有弹窗已经取得正文以后才删除本地邮件；更早掉电只会在重启后重复，不会漏信。 */
     if (item.mailbox_sequence != 0)
-        SysMailbox_ConfirmDispatched(item.mailbox_sequence);
+        SysMailbox_ConfirmDispatched(item.mailbox, item.mailbox_sequence);
 }

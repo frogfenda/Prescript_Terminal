@@ -1,10 +1,13 @@
 /*
-【模块职责】使用本轮设备 Token 先确认上次可靠落盘游标，再顺序拉取最多五封消息。
-【并发边界】Core 0 只写固定大小交接区；main_update 在 Arduino 主循环调用 SysMailbox_Accept。
+【模块职责】广播与私人收件共用 HTTP/JSON 实现，但独立注册、独立游标、独立跨核交接区。
+【执行顺序】内建注册表先注册广播再注册私人任务；每路每轮最多五封，不循环耗尽广播积压。
+【线程边界】Core 0 校验完整响应后一次发布整批；main_update 在主循环可靠落盘，下一轮才 ACK。
+【生命周期】广播的 expires_at 是服务端领取期限，不擅自取消已落盘的未来定时消息。
 */
 #include "net/services/net_mailbox_receive.h"
 
 #include <ArduinoJson.h>
+#include <cctype>
 #include <cstring>
 #include <esp_heap_caps.h>
 #include <mutex>
@@ -27,301 +30,306 @@ namespace
         bool server_cursor_pending = false;
     };
 
-    HandoffBuffer *s_handoff = nullptr;
-    std::mutex s_handoffMutex;
-    uint32_t s_nextMainUpdateRetryMs = 0;
-    bool s_cursorFailureReported = false;
-    bool s_messageFailureReported = false;
-    SysMailboxAcceptResult s_lastMessageFailure = SysMailboxAcceptResult::Accepted;
-
     uint16_t ParseRgb888To565(const char *value, bool &valid)
     {
         valid = false;
         if (!value || strlen(value) != 7 || value[0] != '#')
             return 0x07FF;
-        char *end = nullptr;
-        const unsigned long rgb = strtoul(value + 1, &end, 16);
-        if (!end || *end != '\0')
-            return 0x07FF;
-        const uint8_t red = static_cast<uint8_t>((rgb >> 16) & 0xFF);
-        const uint8_t green = static_cast<uint8_t>((rgb >> 8) & 0xFF);
-        const uint8_t blue = static_cast<uint8_t>(rgb & 0xFF);
+        for (size_t index = 1; index < 7; ++index)
+            if (!isxdigit(static_cast<unsigned char>(value[index])))
+                return 0x07FF;
+        const unsigned long rgb = strtoul(value + 1, nullptr, 16);
         valid = true;
-        return static_cast<uint16_t>(((red & 0xF8) << 8) |
-                                     ((green & 0xFC) << 3) |
-                                     (blue >> 3));
+        return static_cast<uint16_t>(((rgb >> 8) & 0xF800) |
+                                     ((rgb >> 5) & 0x07E0) | ((rgb >> 3) & 0x001F));
     }
 
-    bool HandoffIsEmpty()
+    /**
+     * 同一实现的两个常驻实例。Mutex 只保护短暂内存复制，不能在锁内做 HTTP 或 NVS 写入。
+     * 重试和故障日志标志仅在主循环使用；网络核只访问加锁后的交接区及已落盘游标快照。
+     */
+    class MailboxReceiver
     {
-        std::lock_guard<std::mutex> lock(s_handoffMutex);
-        return s_handoff && s_handoff->count == 0 && !s_handoff->server_cursor_pending;
-    }
+    public:
+        explicit MailboxReceiver(SysMailboxKind mailbox) : mailbox_(mailbox) {}
 
-    bool PushHandoff(const SysMailboxIncomingMessage &message)
-    {
-        std::lock_guard<std::mutex> lock(s_handoffMutex);
-        if (!s_handoff || s_handoff->count >= kBatchCapacity)
-            return false;
-        const uint8_t tail = static_cast<uint8_t>((s_handoff->head + s_handoff->count) % kBatchCapacity);
-        s_handoff->items[tail] = message;
-        ++s_handoff->count;
-        return true;
-    }
-
-    bool PeekHandoff(SysMailboxIncomingMessage &message)
-    {
-        std::lock_guard<std::mutex> lock(s_handoffMutex);
-        if (!s_handoff || s_handoff->count == 0)
-            return false;
-        message = s_handoff->items[s_handoff->head];
-        return true;
-    }
-
-    void DropHandoff()
-    {
-        std::lock_guard<std::mutex> lock(s_handoffMutex);
-        if (!s_handoff || s_handoff->count == 0)
-            return;
-        memset(&s_handoff->items[s_handoff->head], 0, sizeof(SysMailboxIncomingMessage));
-        s_handoff->head = static_cast<uint8_t>((s_handoff->head + 1) % kBatchCapacity);
-        --s_handoff->count;
-    }
-
-    void SetServerCursorHandoff(uint64_t sequence)
-    {
-        std::lock_guard<std::mutex> lock(s_handoffMutex);
-        s_handoff->server_acknowledged_sequence = sequence;
-        s_handoff->server_cursor_pending = true;
-    }
-
-    bool PeekServerCursorHandoff(uint64_t &sequence)
-    {
-        std::lock_guard<std::mutex> lock(s_handoffMutex);
-        if (!s_handoff || !s_handoff->server_cursor_pending)
-            return false;
-        sequence = s_handoff->server_acknowledged_sequence;
-        return true;
-    }
-
-    void DropServerCursorHandoff()
-    {
-        std::lock_guard<std::mutex> lock(s_handoffMutex);
-        if (s_handoff)
-            s_handoff->server_cursor_pending = false;
-    }
-
-    bool ParseEnvelope(JsonObjectConst object, SysMailboxIncomingMessage &message)
-    {
-        memset(&message, 0, sizeof(message));
-        const char *message_id = object["id"] | "";
-        const char *sender_public_id = object["sender_public_id"] | "";
-        const char *sender_alias = object["sender_alias"] | "";
-        const char *type = object["type"] | "";
-        const char *content = object["content"] | "";
-        const char *font_color = object["font_color"] | "";
-        const uint64_t sequence = object["sequence"] | static_cast<uint64_t>(0);
-
-        bool color_valid = false;
-        const uint16_t color = ParseRgb888To565(font_color, color_valid);
-        if (sequence == 0 || strlen(message_id) != 36 || strlen(sender_public_id) == 0 ||
-            strlen(sender_public_id) >= sizeof(message.sender_public_id) ||
-            strlen(sender_alias) >= sizeof(message.sender_alias) || strlen(content) == 0 ||
-            strlen(content) > SYS_MAILBOX_CONTENT_MAX || !color_valid)
-            return false;
-
-        if (strcmp(type, "instant_text") == 0)
+        bool Prepare()
         {
-            message.type = SysMailboxMessageType::InstantText;
-        }
-        else if (strcmp(type, "scheduled_text") == 0)
-        {
-            message.type = SysMailboxMessageType::ScheduledText;
-            message.trigger_epoch = object["trigger_epoch"] | static_cast<int64_t>(0);
-            if (message.trigger_epoch <= 0)
-                return false;
-        }
-        else
-        {
-            return false;
+            if (!handoff_)
+                handoff_ = static_cast<HandoffBuffer *>(heap_caps_calloc(
+                    1, sizeof(HandoffBuffer), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (!handoff_)
+                Serial.printf("[设备收件] %s无法在 PSRAM 建立交接区。\n", Label());
+            return handoff_ != nullptr;
         }
 
-        message.sequence = sequence;
-        message.font_color = color;
-        strlcpy(message.message_id, message_id, sizeof(message.message_id));
-        strlcpy(message.sender_public_id, sender_public_id, sizeof(message.sender_public_id));
-        strlcpy(message.sender_alias, sender_alias, sizeof(message.sender_alias));
-        strlcpy(message.content, content, sizeof(message.content));
-        return true;
-    }
-
-    NetTaskExecutionResult Execute(const NetTaskInvocation &, const NetTaskContext &context)
-    {
-        if (!s_handoff || !HandoffIsEmpty())
+        NetTaskExecutionResult Execute(const NetTaskContext &context)
         {
-            Serial.println("[设备收件] 上批消息尚未由主循环落盘，本轮暂不重复拉取。");
-            return {NetTaskDisposition::Retry, 60};
-        }
+            if (!HandoffIsEmpty())
+                return {NetTaskDisposition::Retry, 60};
 
-        const uint64_t accepted_sequence = SysMailbox_GetAcceptedSequence();
-        if (accepted_sequence > 0)
-        {
-            JsonDocument ack_document;
-            ack_document["through_sequence"] = accepted_sequence;
-            String ack_body;
-            serializeJson(ack_document, ack_body);
-            NetHttpResponse ack_response;
-            const NetHttpResult ack_transport = NetAuthSession_PostJson(
-                "/api/v1/device/mailbox/ack",
-                ack_body,
-                context,
-                kAckResponseLimit,
-                ack_response);
-            if (ack_transport != NetHttpResult::Ok || ack_response.status_code != 200)
+            const uint64_t accepted = SysMailbox_GetAcceptedSequence(mailbox_);
+            if (accepted > 0)
             {
-                Serial.printf("[设备收件] 上轮接收游标确认失败：传输=%u，HTTP=%d。\n",
-                              static_cast<unsigned>(ack_transport), ack_response.status_code);
-                return {NetTaskDisposition::Retry, 5UL * 60UL};
+                JsonDocument body_document;
+                body_document["mailbox"] = ApiKind();
+                body_document["through_sequence"] = accepted;
+                String body;
+                serializeJson(body_document, body);
+                NetHttpResponse response;
+                const NetHttpResult transport = NetAuthSession_PostJson(
+                    "/api/v1/device/mailbox/ack", body, context, kAckResponseLimit, response);
+                if (transport == NetHttpResult::Ok &&
+                    (response.status_code == 401 || response.status_code == 403))
+                    return {NetTaskDisposition::AuthBlocked, 0};
+                if (transport != NetHttpResult::Ok || response.status_code != 200)
+                {
+                    Serial.printf("[设备收件] %s游标确认失败：传输=%u，HTTP=%d。\n",
+                                  Label(), static_cast<unsigned>(transport), response.status_code);
+                    return {NetTaskDisposition::Retry, 300};
+                }
+                JsonDocument result;
+                const DeserializationError error = deserializeJson(result, response.body);
+                if (error || strcmp(result["mailbox"] | "", ApiKind()) != 0 ||
+                    !result["acknowledged_sequence"].is<uint64_t>() ||
+                    result["acknowledged_sequence"].as<uint64_t>() < accepted)
+                {
+                    Serial.printf("[设备收件] %s确认响应无效，保留本地状态。\n", Label());
+                    return {NetTaskDisposition::PermanentFailure, 0};
+                }
             }
-        }
 
-        if (!context.CanStart(1500))
-            return {NetTaskDisposition::Retry, 60};
-        NetHttpResponse response;
-        const NetHttpResult transport = NetAuthSession_GetJson(
-            "/api/v1/device/mailbox?limit=5",
-            context,
-            kPullResponseLimit,
-            response);
-        if (transport != NetHttpResult::Ok)
-        {
-            Serial.printf("[设备收件] 拉取失败，传输结果=%u。\n", static_cast<unsigned>(transport));
-            return {NetTaskDisposition::Retry, 5UL * 60UL};
-        }
-        if (response.status_code == 401 || response.status_code == 403)
-            return {NetTaskDisposition::AuthBlocked, 0};
-        if (response.status_code != 200)
-        {
-            Serial.printf("[设备收件] 拉取失败，HTTP=%d。\n", response.status_code);
-            return {NetTaskDisposition::Retry, 5UL * 60UL};
-        }
-
-        JsonDocument document;
-        const DeserializationError error = deserializeJson(document, response.body);
-        JsonArrayConst items = document["items"].as<JsonArrayConst>();
-        if (error || items.isNull() || items.size() > kBatchCapacity)
-        {
-            Serial.printf("[设备收件] 服务端响应格式无效：%s。\n", error.c_str());
-            return {NetTaskDisposition::PermanentFailure, 0};
-        }
-
-        const uint64_t server_acknowledged =
-            document["acknowledged_sequence"] | static_cast<uint64_t>(0);
-        /*
-         * 空信箱也会返回 acknowledged_sequence。若它与本地连续游标相同，主循环没有任何
-         * 状态需要落盘，不应仅为这个只读回显占用跨核交接区；否则紧接着启动的下一轮任务
-         * 可能把空响应误判成“上批消息尚未落盘”。只有服务端确实领先时才请求主循环对齐。
-         */
-        if (server_acknowledged > accepted_sequence)
-            SetServerCursorHandoff(server_acknowledged);
-
-        uint8_t imported = 0;
-        for (JsonObjectConst object : items)
-        {
-            SysMailboxIncomingMessage message;
-            if (!ParseEnvelope(object, message) || !PushHandoff(message))
+            if (!context.CanStart(1500))
+                return {NetTaskDisposition::Retry, 60};
+            const char *path = mailbox_ == SysMailboxKind::Broadcast
+                ? "/api/v1/device/mailbox?limit=5&mailbox=broadcast"
+                : "/api/v1/device/mailbox?limit=5&mailbox=private";
+            NetHttpResponse response;
+            const NetHttpResult transport = NetAuthSession_GetJson(path, context, kPullResponseLimit, response);
+            if (transport != NetHttpResult::Ok)
             {
-                Serial.println("[设备收件] 消息字段或本地交接区无效，未确认本批数据。");
+                Serial.printf("[设备收件] %s拉取失败，传输结果=%u。\n", Label(), static_cast<unsigned>(transport));
+                return {NetTaskDisposition::Retry, 300};
+            }
+            if (response.status_code == 401 || response.status_code == 403)
+                return {NetTaskDisposition::AuthBlocked, 0};
+            if (response.status_code != 200)
+            {
+                Serial.printf("[设备收件] %s拉取失败，HTTP=%d。\n", Label(), response.status_code);
+                return {NetTaskDisposition::Retry, 300};
+            }
+
+            JsonDocument document;
+            const DeserializationError error = deserializeJson(document, response.body);
+            const JsonArrayConst items = document["items"].as<JsonArrayConst>();
+            const char *cursor_key = mailbox_ == SysMailboxKind::Broadcast
+                ? "broadcast_acknowledged_sequence" : "private_acknowledged_sequence";
+            if (error || items.isNull() || items.size() > kBatchCapacity ||
+                !document[cursor_key].is<uint64_t>() ||
+                (mailbox_ == SysMailboxKind::Broadcast && !document["broadcast_subscribed"].is<bool>()))
+            {
+                Serial.printf("[设备收件] %s响应格式无效：%s。\n", Label(), error.c_str());
                 return {NetTaskDisposition::PermanentFailure, 0};
             }
-            ++imported;
-        }
-        if (imported > 0)
-            Serial.printf("[设备收件] 已拉取 %u 封，等待主循环可靠落盘。\n", static_cast<unsigned>(imported));
-        return {NetTaskDisposition::Complete, 0};
-    }
-
-    void MainUpdate()
-    {
-        const uint32_t now = millis();
-        if (s_nextMainUpdateRetryMs != 0 && static_cast<int32_t>(now - s_nextMainUpdateRetryMs) < 0)
-            return;
-
-        uint64_t server_sequence = 0;
-        if (PeekServerCursorHandoff(server_sequence))
-        {
-            if (!SysMailbox_ReconcileServerAcknowledged(server_sequence))
+            if (mailbox_ == SysMailboxKind::Broadcast &&
+                !document["broadcast_subscribed"].as<bool>() && items.size() != 0)
             {
-                /* NVS 临时不可用时保留跨核游标，但每秒最多重试一次且只报告一次，避免主循环刷屏。 */
-                if (!s_cursorFailureReported)
-                {
-                    Serial.println("[设备收件] 服务端确认游标暂未能写入本地，保留交接数据并稍后重试。");
-                    s_cursorFailureReported = true;
-                }
-                s_nextMainUpdateRetryMs = now + 1000;
-                return;
+                Serial.println("[设备收件] 未订阅广播却收到广播内容，未移交本批。");
+                return {NetTaskDisposition::PermanentFailure, 0};
             }
-            DropServerCursorHandoff();
-            s_cursorFailureReported = false;
-            s_nextMainUpdateRetryMs = 0;
-        }
 
-        SysMailboxIncomingMessage message;
-        while (PeekHandoff(message))
-        {
-            const SysMailboxAcceptResult result = SysMailbox_Accept(message);
-            if (result == SysMailboxAcceptResult::Accepted ||
-                result == SysMailboxAcceptResult::AlreadyAccepted)
+            const uint64_t server_acknowledged = document[cursor_key].as<uint64_t>();
+            uint64_t previous = server_acknowledged;
+            for (JsonVariantConst item : items)
             {
-                DropHandoff();
-                s_messageFailureReported = false;
-                s_lastMessageFailure = SysMailboxAcceptResult::Accepted;
-                s_nextMainUpdateRetryMs = 0;
-                continue;
+                SysMailboxIncomingMessage message;
+                if (!item.is<JsonObjectConst>() || !ParseEnvelope(item.as<JsonObjectConst>(), message) ||
+                    message.sequence <= previous ||
+                    (mailbox_ == SysMailboxKind::Private && message.sequence - previous != 1))
+                {
+                    Serial.printf("[设备收件] %s字段或序号无效，未移交本批。\n", Label());
+                    return {NetTaskDisposition::PermanentFailure, 0};
+                }
+                // 广播会过滤撤回/过期记录，仅验证递增；不伪造缺失序号的消息。
+                previous = message.sequence;
             }
 
             /*
-             * 落盘失败时交接数据始终保留。主循环每秒重试一次即可；同一种故障只报告一次，
-             * 防止 NVS 暂不可用或信箱满时按每帧速度刷满串口并进一步拖慢主循环。
+             * 完整校验之后持锁一次发布，不让主循环看到半个批次。空响应且游标未领先时没有
+             * 待落盘状态，不能占住交接区；未订阅广播也不会影响另一个私人接收实例。
              */
-            if (!s_messageFailureReported || result != s_lastMessageFailure)
             {
-                if (result == SysMailboxAcceptResult::QueueFull)
-                    Serial.println("[设备收件] 本地信箱已满，保留服务器消息并稍后重试。");
-                else if (result == SysMailboxAcceptResult::SequenceGap)
-                    Serial.println("[设备收件] 收件序号不连续，保留本批并等待前序消息。");
-                else if (result == SysMailboxAcceptResult::InvalidMessage)
-                    Serial.println("[设备收件] 消息字段未通过本地校验，保留现场并暂停落盘。");
-                else
-                    Serial.println("[设备收件] 本地信箱存储暂不可用，保留消息并稍后重试。");
-                s_messageFailureReported = true;
-                s_lastMessageFailure = result;
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (!handoff_ || handoff_->count != 0 || handoff_->server_cursor_pending)
+                    return {NetTaskDisposition::Retry, 60};
+                handoff_->head = 0;
+                for (JsonObjectConst object : items)
+                    ParseEnvelope(object, handoff_->items[handoff_->count++]);
+                handoff_->server_acknowledged_sequence = server_acknowledged;
+                handoff_->server_cursor_pending = server_acknowledged > accepted;
             }
-            s_nextMainUpdateRetryMs = now + 1000;
-            break;
+            if (items.size() > 0)
+                Serial.printf("[设备收件] %s已拉取 %u 封，等待可靠落盘。\n", Label(), static_cast<unsigned>(items.size()));
+            return {NetTaskDisposition::Complete, 0};
         }
+
+        void MainUpdate()
+        {
+            const uint32_t now = millis();
+            if (next_retry_ms_ != 0 && static_cast<int32_t>(now - next_retry_ms_) < 0)
+                return;
+            uint64_t server_sequence = 0;
+            bool cursor_pending = false;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (!handoff_)
+                    return;
+                cursor_pending = handoff_->server_cursor_pending;
+                server_sequence = handoff_->server_acknowledged_sequence;
+            }
+            if (cursor_pending)
+            {
+                if (!SysMailbox_ReconcileServerAcknowledged(mailbox_, server_sequence))
+                {
+                    if (!cursor_failure_reported_)
+                        Serial.printf("[设备收件] %s游标暂未落盘，保留交接数据。\n", Label());
+                    cursor_failure_reported_ = true;
+                    next_retry_ms_ = now + 1000;
+                    return;
+                }
+                std::lock_guard<std::mutex> lock(mutex_);
+                handoff_->server_cursor_pending = false;
+                cursor_failure_reported_ = false;
+            }
+
+            SysMailboxIncomingMessage message;
+            while (Peek(message))
+            {
+                const SysMailboxAcceptResult result = SysMailbox_Accept(message);
+                if (result == SysMailboxAcceptResult::Accepted || result == SysMailboxAcceptResult::AlreadyAccepted)
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    handoff_->head = static_cast<uint8_t>((handoff_->head + 1) % kBatchCapacity);
+                    --handoff_->count;
+                    message_failure_reported_ = false;
+                    next_retry_ms_ = 0;
+                    continue;
+                }
+                if (!message_failure_reported_ || result != last_failure_)
+                {
+                    const char *reason = result == SysMailboxAcceptResult::QueueFull ? "本地渠道容量已满"
+                        : result == SysMailboxAcceptResult::SequenceGap ? "私人收件序号不连续"
+                        : result == SysMailboxAcceptResult::InvalidMessage ? "消息字段无效"
+                        : "本地存储暂不可用";
+                    Serial.printf("[设备收件] %s%s，保留本批并稍后重试。\n", Label(), reason);
+                    message_failure_reported_ = true;
+                    last_failure_ = result;
+                }
+                next_retry_ms_ = now + 1000;
+                return;
+            }
+        }
+
+    private:
+        const char *ApiKind() const { return mailbox_ == SysMailboxKind::Broadcast ? "broadcast" : "private"; }
+        const char *Label() const { return mailbox_ == SysMailboxKind::Broadcast ? "广播信箱" : "私人信箱"; }
+
+        bool HandoffIsEmpty()
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return handoff_ && handoff_->count == 0 && !handoff_->server_cursor_pending;
+        }
+
+        bool Peek(SysMailboxIncomingMessage &message)
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!handoff_ || handoff_->count == 0)
+                return false;
+            message = handoff_->items[handoff_->head];
+            return true;
+        }
+
+        bool ParseEnvelope(JsonObjectConst object, SysMailboxIncomingMessage &message)
+        {
+            message = SysMailboxIncomingMessage{};
+            const char *message_id = object["id"] | "";
+            const char *sender = object["sender_account_id"] | "";
+            const bool system_sender = object["sender_account_id"].isNull();
+            const char *content = object["content"] | "";
+            const char *type = object["type"] | "";
+            bool color_valid = false;
+            const uint16_t color = ParseRgb888To565(object["font_color"] | "", color_valid);
+            if (strcmp(object["mailbox"] | "", ApiKind()) != 0 ||
+                !object["sequence"].is<uint64_t>() || object["sequence"].as<uint64_t>() == 0 ||
+                strlen(message_id) != 36 || (!system_sender && strlen(sender) != 36) ||
+                strlen(content) == 0 || strlen(content) > SYS_MAILBOX_CONTENT_MAX || !color_valid)
+                return false;
+            if (strcmp(type, "instant_text") == 0)
+                message.type = SysMailboxMessageType::InstantText;
+            else if (strcmp(type, "scheduled_text") == 0 && object["trigger_epoch"].is<int64_t>())
+            {
+                message.type = SysMailboxMessageType::ScheduledText;
+                message.trigger_epoch = object["trigger_epoch"].as<int64_t>();
+                if (message.trigger_epoch <= 0)
+                    return false;
+            }
+            else
+                return false;
+            message.mailbox = mailbox_;
+            message.sequence = object["sequence"].as<uint64_t>();
+            message.font_color = color;
+            strlcpy(message.message_id, message_id, sizeof(message.message_id));
+            // 现有公开发送者字段保存账号 UUID；无发送账号的管理员消息统一标作 SYSTEM。
+            strlcpy(message.sender_public_id, system_sender ? "SYSTEM" : sender, sizeof(message.sender_public_id));
+            strlcpy(message.content, content, sizeof(message.content));
+            return true;
+        }
+
+        const SysMailboxKind mailbox_;
+        HandoffBuffer *handoff_ = nullptr;
+        std::mutex mutex_;
+        uint32_t next_retry_ms_ = 0;
+        bool cursor_failure_reported_ = false;
+        bool message_failure_reported_ = false;
+        SysMailboxAcceptResult last_failure_ = SysMailboxAcceptResult::Accepted;
+    };
+
+    MailboxReceiver s_broadcast(SysMailboxKind::Broadcast);
+    MailboxReceiver s_private(SysMailboxKind::Private);
+
+    NetTaskExecutionResult ExecuteBroadcast(const NetTaskInvocation &, const NetTaskContext &context)
+    {
+        return s_broadcast.Execute(context);
     }
+    NetTaskExecutionResult ExecutePrivate(const NetTaskInvocation &, const NetTaskContext &context)
+    {
+        return s_private.Execute(context);
+    }
+    void UpdateBroadcast() { s_broadcast.MainUpdate(); }
+    void UpdatePrivate() { s_private.MainUpdate(); }
+
+    bool RegisterReceiver(MailboxReceiver &receiver, uint16_t id, const char *name,
+                          NetTaskExecute execute, NetTaskMainUpdate update)
+    {
+        if (!receiver.Prepare())
+            return false;
+        NetTaskDefinition definition;
+        definition.task_id = id;
+        definition.name = name;
+        definition.execute = execute;
+        definition.main_update = update;
+        definition.trigger_mask = NET_TASK_TRIGGER_COMMON_CYCLE;
+        definition.auth_requirement = NetTaskAuthRequirement::DeviceSession;
+        return NetTaskRegistry_Register(definition);
+    }
+}
+
+bool NetBroadcastReceive_Register()
+{
+    return RegisterReceiver(s_broadcast, NET_TASK_BROADCAST_RECEIVE, "广播信箱拉取", ExecuteBroadcast, UpdateBroadcast);
 }
 
 bool NetMailboxReceive_Register()
 {
-    if (!s_handoff)
-    {
-        s_handoff = static_cast<HandoffBuffer *>(
-            heap_caps_calloc(1, sizeof(HandoffBuffer), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        if (!s_handoff)
-        {
-            Serial.println("[设备收件] 无法在 PSRAM 建立跨核交接区。");
-            return false;
-        }
-    }
-
-    NetTaskDefinition definition;
-    definition.task_id = NET_TASK_MAILBOX_RECEIVE;
-    definition.name = "设备信箱拉取";
-    definition.execute = Execute;
-    definition.main_update = MainUpdate;
-    definition.trigger_mask = NET_TASK_TRIGGER_COMMON_CYCLE;
-    definition.auth_requirement = NetTaskAuthRequirement::DeviceSession;
-    return NetTaskRegistry_Register(definition);
+    return RegisterReceiver(s_private, NET_TASK_MAILBOX_RECEIVE, "私人信箱拉取", ExecutePrivate, UpdatePrivate);
 }

@@ -8,7 +8,7 @@ tmp/
 logs/
 .venv/
 .imu_captures/
-tools/
+tools/*
 docs/
 .claude/
 network-outbox-architecture.md

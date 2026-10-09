@@ -7,6 +7,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "sys/sys_mailbox.h"
 
 /** 提醒内容类型；Custom 使用 text，Random 忽略 text 并抽取随机指令。 */
 enum class SysReminderKind : uint8_t
@@ -19,13 +20,15 @@ enum class SysReminderKind : uint8_t
  * 提交一条待展示提醒。
  * 调用者必须位于主循环；服务会复制 text，不保留调用方指针。
  * 队列满时返回 false，并保留已经排队的较早提醒。
+ * mailbox_sequence 非零时，mailbox 与 sequence 一起标识待删除邮件；普通本地提醒保持默认值。
  */
 bool SysReminder_Submit(
     SysReminderKind kind,
     const char *text = nullptr,
     bool keep_stack = false,
     uint16_t font_color = 0x07FF,
-    uint64_t mailbox_sequence = 0);
+    uint64_t mailbox_sequence = 0,
+    SysMailboxKind mailbox = SysMailboxKind::Private);
 
 /** 主循环消费提醒队列；PushNotify/Prescript 正在展示时会等待，不覆盖当前提醒。 */
 void SysReminder_Update();

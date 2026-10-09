@@ -21,7 +21,10 @@ void NetAuthSession_Clear();
 /** 如本轮尚无 Token，则使用永久凭据创建服务端设备会话。 */
 NetAuthEnsureResult NetAuthSession_Ensure(const NetTaskContext &context);
 
-/** 发送已认证 JSON；Token 不会返回给业务调用方。 */
+/**
+ * 发送设备授权 JSON；Token 不会返回给业务调用方。普通 401 最多换取一次新 Token 并重发；
+ * 解绑、禁用或凭据错误不重发，传输失败也不重发。只能在网络工作线程调用。
+ */
 NetHttpResult NetAuthSession_PostJson(
     const char *path,
     const String &body,
@@ -29,7 +32,7 @@ NetHttpResult NetAuthSession_PostJson(
     size_t response_limit,
     NetHttpResponse &response);
 
-/** 发送已认证 GET；供收件箱等只读设备接口使用。 */
+/** 发送设备授权 GET；与 JSON 写请求共用 Token 失效处理和最多一次的认证重试。 */
 NetHttpResult NetAuthSession_GetJson(
     const char *path,
     const NetTaskContext &context,
