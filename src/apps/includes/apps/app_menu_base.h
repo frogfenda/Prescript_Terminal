@@ -1,5 +1,5 @@
 ﻿/*
-【模块职责】通用滚轮菜单基类。子类只提供标题、条目文本和点击动作，本类统一绘制左侧 HUD、右侧 3D 滚轮、选中框、尾随方块和旋钮滑动插值。
+【模块职责】通用菜单控制基类。子类只提供标题、条目文本和点击动作，本类统一管理输入、选中索引、编辑状态和页面生命周期；具体整屏菜单外观通过 UIMenuRenderer 选择。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/apps/app_menu_base.h
@@ -13,9 +13,12 @@
 #include "sys/sys_power.h"
 #include "ui/ui_hud.h"
 #include "ui/ui_theme.h"
+#include "ui/ui_menu_renderer.h"
 
 class AppMenuBase : public AppBase
 {
+    friend class UIWheelMenuRenderer;
+
 protected:
     // current_selection 始终保存“真实条目索引”。
     // 对 2 项菜单，滚轮内部仍会扩展成 4 个虚拟槽位保证循环感，但业务层只看到 0/1。
@@ -577,8 +580,15 @@ protected:
         return TFT_CYAN;
     }
 
-    // 【函数说明】绘制完整菜单页：先画左侧 HUD，再画右侧选中框、指针、动态方块和弧形滚轮条目。
-    void drawMenuUI(float v_pos)
+    // 【接口说明】子类可选择菜单视觉样式；输入、条目内容和点击行为不随样式变化。
+    virtual UIMenuRenderStyle getMenuRenderStyle() const
+    {
+        return UIMenuRenderStyle::Wheel;
+    }
+
+    // 【兼容实现】当前滚轮渲染器使用的原有整屏绘制逻辑。
+    // 后续样式通过 UIMenuRenderer 接口接管绘制，不应再从页面直接调用此函数。
+    void drawWheelMenuUI(float v_pos)
     {
         HAL_Sprite_Clear();
         int sw = HAL_Get_Screen_Width();
@@ -734,7 +744,35 @@ protected:
         HAL_Screen_Update();
     }
 
+    // 【接口说明】页面只请求“按当前样式重绘”，不依赖具体的菜单布局。
+    void drawMenuUI(float v_pos)
+    {
+        UI_MenuRendererForStyle(getMenuRenderStyle()).draw(*this, v_pos);
+    }
+
 public:
+    // 【渲染适配接口】给独立菜单渲染器读取当前页面内容；不改变原有子类虚函数和业务行为。
+    int getMenuRenderCount() { return getMenuCount(); }
+    const char *getMenuRenderTitle() { return getTitle(); }
+    const char *getMenuRenderItemText(int index) { return getItemText(index); }
+    bool getMenuRenderItemEditParts(int index, const char **prefix, const char **anim_val, const char **suffix)
+    {
+        return getItemEditParts(index, prefix, anim_val, suffix);
+    }
+    uint16_t getMenuRenderItemColor(int index) { return getItemColor(index); }
+    int getMenuRenderSelection() const { return current_selection; }
+    float getMenuRenderSlingDisplay() const { return menu_sling_display; }
+
+    // 【渲染适配接口】编辑态菜单仍复用 AppBase 的统一数值动画，渲染器不复制动画算法。
+    void drawMenuRenderEditText(int x, int y,
+                                const char *prefix,
+                                const char *anim_val,
+                                const char *suffix,
+                                float distance = 0.0f)
+    {
+        drawSegmentedAnimatedText(x, y, prefix, anim_val, suffix, distance);
+    }
+
     // 【函数说明】菜单首次进入时把选中项和视觉位置归零，并立刻绘制菜单。
     void onCreate() override
     {
