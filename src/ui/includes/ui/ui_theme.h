@@ -75,6 +75,19 @@ inline float SlingSpeedBoost() { return (ScreenW() >= 400) ? 8.0f : 5.0f; }
 
 }
 
+// 纸带布局以屏幕和原字体为依据；上下给状态栏留空间，中间保留两行正文。
+namespace PaperMenu {
+constexpr uint16_t Paper = 0x18C3;
+constexpr uint16_t Edge = 0xB488;
+constexpr uint16_t Text = 0xEF3A;
+constexpr uint16_t Thread = 0x1082;
+constexpr uint16_t Muted = 0x736C;
+inline int CardWidth() { return ScreenW() * 68 / 100; }
+inline int CardHeight() { return Font::BodyLineHeight() * 2 + 30; }
+inline int Stride() { return CardWidth() + 20; }
+inline int CenterY() { return ScreenH() / 2 + 6; }
+}
+
 // -----------------------------------------------------------------------------
 // 链路 + 滚轮编辑页布局
 // -----------------------------------------------------------------------------

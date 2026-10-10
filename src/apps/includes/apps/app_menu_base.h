@@ -583,7 +583,7 @@ protected:
     // 【接口说明】子类可选择菜单视觉样式；输入、条目内容和点击行为不随样式变化。
     virtual UIMenuRenderStyle getMenuRenderStyle() const
     {
-        return UIMenuRenderStyle::Wheel;
+        return UI_GetMenuRenderStyle();
     }
 
     // 【兼容实现】当前滚轮渲染器使用的原有整屏绘制逻辑。
@@ -747,6 +747,14 @@ protected:
     // 【接口说明】页面只请求“按当前样式重绘”，不依赖具体的菜单布局。
     void drawMenuUI(float v_pos)
     {
+        ensureMenuRuntimeState(getMenuCount());
+        // 旧页面仍可直接定位 visual_selection；通知纸带丢弃旧惯性，避免下一帧滚回原处。
+        if (getMenuRenderStyle() == UIMenuRenderStyle::PaperTape)
+        {
+            auto &renderer = UI_MenuRendererForStyle(getMenuRenderStyle());
+            if (fabsf(renderer.position() - v_pos) > 0.001f)
+                renderer.reset(v_pos);
+        }
         UI_MenuRendererForStyle(getMenuRenderStyle()).draw(*this, v_pos);
     }
 
@@ -762,6 +770,14 @@ public:
     uint16_t getMenuRenderItemColor(int index) { return getItemColor(index); }
     int getMenuRenderSelection() const { return current_selection; }
     float getMenuRenderSlingDisplay() const { return menu_sling_display; }
+
+    // 【文本契约】复用菜单两行 UTF-8 排版与共享缓存，借用字符串当帧消费，不保留页面静态缓冲指针。
+    void drawMenuRenderLabel(int index, int center_x, int center_y, int max_width, uint16_t color)
+    {
+        WrappedMenuText fallback;
+        const WrappedMenuText *layout = getCachedWrappedMenuText(index, getItemText(index), max_width, fallback);
+        drawWrappedMenuText(center_x - layout->width / 2, center_y - layout->height / 2, *layout, 0.0f, color);
+    }
 
     // 【渲染适配接口】编辑态菜单仍复用 AppBase 的统一数值动画，渲染器不复制动画算法。
     void drawMenuRenderEditText(int x, int y,
@@ -795,6 +811,7 @@ public:
         menu_sling_display = 0.0f;
         menu_sling_last_tick = millis();
         clearMenuLayoutCache();
+        UI_MenuRendererForStyle(getMenuRenderStyle()).reset(visual_selection);
         drawMenuUI(visual_selection);
     }
     void onBackground() override {}
@@ -816,7 +833,16 @@ public:
         float target = (float)menu_target_position;
         float diff = target - visual_selection;
 
-        if (fabsf(diff) > 0.01f)
+        if (getMenuRenderStyle() == UIMenuRenderStyle::PaperTape)
+        {
+            auto &renderer = UI_MenuRendererForStyle(getMenuRenderStyle());
+            if (renderer.update(target, millis()))
+            {
+                visual_selection = renderer.position();
+                needs_redraw = true;
+            }
+        }
+        else if (fabsf(diff) > 0.01f)
         {
             uint32_t now = millis();
             uint32_t elapsed = now - menu_anim_last_tick;
