@@ -47,6 +47,8 @@ protected:
     uint32_t menu_last_knob_tick = 0;
     uint32_t menu_curve_last_tick = 0;
     uint32_t menu_sling_last_tick = 0;
+    uint32_t menu_intro_start_tick = 0;
+    bool menu_intro_active = false;
 
     struct WrappedMenuText
     {
@@ -507,6 +509,37 @@ protected:
         return fabsf(old - menu_sling_display) > 0.002f;
     }
 
+    // 进入菜单时只给滚轮主体一个短暂的“归位”过程，HUD 保持稳定，避免整屏一起晃动。
+    void restartMenuIntro()
+    {
+        menu_intro_start_tick = millis();
+        menu_intro_active = true;
+    }
+
+    float menuIntroProgress()
+    {
+        if (!menu_intro_active)
+            return 1.0f;
+        const uint32_t elapsed = millis() - menu_intro_start_tick;
+        constexpr uint32_t kIntroDurationMs = 180;
+        if (elapsed >= kIntroDurationMs)
+        {
+            menu_intro_active = false;
+            return 1.0f;
+        }
+        float progress = static_cast<float>(elapsed) / static_cast<float>(kIntroDurationMs);
+        // smoothstep：进场前半段快，接近稳定位置时柔和收住。
+        return progress * progress * (3.0f - 2.0f * progress);
+    }
+
+    bool updateMenuIntro()
+    {
+        if (!menu_intro_active)
+            return false;
+        (void)menuIntroProgress();
+        return menu_intro_active;
+    }
+
     float menuVerticalOffset(float offset, int spacing_y, float sling_strength) const
     {
         float distance = fabsf(offset);
@@ -619,7 +652,10 @@ protected:
         ensureMenuRuntimeState(real_count);
         int count = virtualMenuCount(real_count);
 
-        int center_y = sh / 2;
+        const float intro_progress = menuIntroProgress();
+        const float intro_distance = (1.0f - intro_progress) * 0.85f;
+        const int intro_offset_y = static_cast<int>((1.0f - intro_progress) * 10.0f);
+        int center_y = sh / 2 + intro_offset_y;
 
         int box_x = right_panel_x + UI_SCAN_BOX_PAD_X;
         int box_w = right_panel_w - (UI_SCAN_BOX_PAD_X * 2);
@@ -659,7 +695,18 @@ protected:
         int item_spacing_y = max(UI_BASE_ITEM_SPACING_Y, (dynamic_box_h * 3) / 4);
 
         int box_y = center_y - (dynamic_box_h / 2);
+        // 外层暗框先画一圈，选中框在高速滚动和复杂背景下仍能保持清晰边界。
+        HAL_Draw_Rect(box_x - 2, box_y - 2, box_w + 4, dynamic_box_h + 4, UITheme::COLOR_DIM);
         HAL_Draw_Rect(box_x, box_y, box_w, dynamic_box_h, 1);
+        const int bracket = min(9, max(5, dynamic_box_h / 3));
+        HAL_Draw_Line(box_x - 3, box_y, box_x + bracket, box_y, 1);
+        HAL_Draw_Line(box_x - 3, box_y, box_x - 3, box_y + bracket, 1);
+        HAL_Draw_Line(box_x + box_w + 2, box_y, box_x + box_w - bracket, box_y, 1);
+        HAL_Draw_Line(box_x + box_w + 2, box_y, box_x + box_w + 2, box_y + bracket, 1);
+        HAL_Draw_Line(box_x - 3, box_y + dynamic_box_h, box_x + bracket, box_y + dynamic_box_h, 1);
+        HAL_Draw_Line(box_x - 3, box_y + dynamic_box_h, box_x - 3, box_y + dynamic_box_h - bracket, 1);
+        HAL_Draw_Line(box_x + box_w + 2, box_y + dynamic_box_h, box_x + box_w - bracket, box_y + dynamic_box_h, 1);
+        HAL_Draw_Line(box_x + box_w + 2, box_y + dynamic_box_h, box_x + box_w + 2, box_y + dynamic_box_h - bracket, 1);
 
         // 指针高度跟随选中框，长选项换成两行时不再显得太小。
         int tri_x = box_x + box_w - 6;
@@ -680,6 +727,15 @@ protected:
 
         int base_idx = (int)roundf(v_pos);
         int line_h = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
+
+        // 快速滚动时只绘制两条很短的暗色速度线，强化惯性但不污染文字区域。
+        if (active_sling > 0.18f)
+        {
+            const int streak_x = max(right_panel_x + 8, center_x - 58);
+            const int streak_w = min(42, max(12, center_x - streak_x - 10));
+            HAL_Draw_Line(streak_x, center_y - 12, streak_x + streak_w, center_y - 12, UITheme::COLOR_DIM);
+            HAL_Draw_Line(streak_x + 10, center_y + 13, streak_x + streak_w, center_y + 13, UITheme::COLOR_DIM);
+        }
 
         for (int i = base_idx - 3; i <= base_idx + 3; i++)
         {
@@ -733,14 +789,28 @@ protected:
                     edit_x = sw - edit_w - 5;
                 if (edit_x < right_panel_x + 2)
                     edit_x = right_panel_x + 2;
-                drawSegmentedAnimatedText(edit_x, item_y - line_h / 2, p_pref, p_val, p_suff, distance);
+                drawSegmentedAnimatedText(edit_x, item_y - line_h / 2, p_pref, p_val, p_suff, distance + intro_distance);
             }
             else
             {
                 uint16_t item_color = getItemColor(real_idx);
-                drawWrappedMenuText(item_x, final_y, *item_layout, distance, item_color);
+                drawWrappedMenuText(item_x, final_y, *item_layout, distance + intro_distance, item_color);
             }
         }
+
+        // 屏幕边缘遮罩让远处条目像从滚轮轨道后方进出，避免半截文字抢视线。
+        const int edge_mask_h = max(6, sh / 18);
+        HAL_Fill_Rect(right_panel_x, 0, right_panel_w, edge_mask_h, TFT_BLACK);
+        HAL_Fill_Rect(right_panel_x, sh - edge_mask_h, right_panel_w, edge_mask_h, TFT_BLACK);
+        HAL_Draw_Line(right_panel_x + 4, edge_mask_h, sw - 5, edge_mask_h, UITheme::COLOR_DARK);
+        HAL_Draw_Line(right_panel_x + 4, sh - edge_mask_h - 1, sw - 5, sh - edge_mask_h - 1, UITheme::COLOR_DARK);
+
+        // 右下角位置反馈只显示索引，不改变条目文本和业务内容。
+        char position_text[12] = {};
+        snprintf(position_text, sizeof(position_text), "%02d/%02d", display_selection + 1, real_count);
+        const int position_w = HAL_Get_Text_Width_Small(position_text);
+        HAL_Screen_ShowSmallLine_Color(sw - position_w - 5, sh - HAL_Get_Font_Line_Height(HAL_FONT_SMALL) - 1,
+                                       position_text, UITheme::COLOR_DIM);
         HAL_Screen_Update();
     }
 
@@ -800,6 +870,7 @@ public:
         menu_last_knob_tick = 0;
         menu_curve_last_tick = millis();
         menu_sling_last_tick = millis();
+        restartMenuIntro();
         clearMenuLayoutCache();
         onResume();
     }
@@ -810,6 +881,7 @@ public:
         syncMenuPositionToSelection();
         menu_sling_display = 0.0f;
         menu_sling_last_tick = millis();
+        restartMenuIntro();
         clearMenuLayoutCache();
         UI_MenuRendererForStyle(getMenuRenderStyle()).reset(visual_selection);
         drawMenuUI(visual_selection);
@@ -820,6 +892,8 @@ public:
     void onLoop() override
     {
         bool needs_redraw = updateEditAnimation();
+        if (updateMenuIntro())
+            needs_redraw = true;
         if (updateCurveEnergy())
             needs_redraw = true;
         if (updateMenuSlingDisplay())
