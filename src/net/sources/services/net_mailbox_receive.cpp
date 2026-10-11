@@ -58,9 +58,12 @@ namespace
             if (!handoff_)
                 handoff_ = static_cast<HandoffBuffer *>(heap_caps_calloc(
                     1, sizeof(HandoffBuffer), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-            if (!handoff_)
+            if (!parse_scratch_)
+                parse_scratch_ = static_cast<SysMailboxIncomingMessage *>(heap_caps_calloc(
+                    1, sizeof(SysMailboxIncomingMessage), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (!handoff_ || !parse_scratch_)
                 Serial.printf("[设备收件] %s无法在 PSRAM 建立交接区。\n", Label());
-            return handoff_ != nullptr;
+            return handoff_ != nullptr && parse_scratch_ != nullptr;
         }
 
         NetTaskExecutionResult Execute(const NetTaskContext &context)
@@ -142,16 +145,16 @@ namespace
             uint64_t previous = server_acknowledged;
             for (JsonVariantConst item : items)
             {
-                SysMailboxIncomingMessage message;
-                if (!item.is<JsonObjectConst>() || !ParseEnvelope(item.as<JsonObjectConst>(), message) ||
-                    message.sequence <= previous ||
-                    (mailbox_ == SysMailboxKind::Private && message.sequence - previous != 1))
+                if (!item.is<JsonObjectConst>() || !parse_scratch_ ||
+                    !ParseEnvelope(item.as<JsonObjectConst>(), *parse_scratch_) ||
+                    parse_scratch_->sequence <= previous ||
+                    (mailbox_ == SysMailboxKind::Private && parse_scratch_->sequence - previous != 1))
                 {
                     Serial.printf("[设备收件] %s字段或序号无效，未移交本批。\n", Label());
                     return {NetTaskDisposition::PermanentFailure, 0};
                 }
                 // 广播会过滤撤回/过期记录，仅验证递增；不伪造缺失序号的消息。
-                previous = message.sequence;
+                previous = parse_scratch_->sequence;
             }
 
             /*
@@ -287,6 +290,9 @@ namespace
 
         const SysMailboxKind mailbox_;
         HandoffBuffer *handoff_ = nullptr;
+        // 仅由 Core 0 校验响应时复用；主循环只读取已发布的 handoff_，不接触此临时区。
+        // 避免约半 KiB 正文对象驻留在整个 Execute 调用的任务栈，叠加 HTTPS 调用链。
+        SysMailboxIncomingMessage *parse_scratch_ = nullptr;
         std::mutex mutex_;
         uint32_t next_retry_ms_ = 0;
         bool cursor_failure_reported_ = false;

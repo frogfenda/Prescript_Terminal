@@ -13,7 +13,7 @@ namespace
 {
 UIWheelMenuRenderer g_wheel_menu_renderer;
 UIPaperMenuRenderer g_paper_menu_renderer;
-UIMenuRenderStyle g_menu_style = UIMenuRenderStyle::PaperTape;
+UIMenuRenderStyle g_menu_style = UIMenuRenderStyle::Wheel;
 }
 
 UIMenuRenderer &UI_MenuRendererForStyle(UIMenuRenderStyle style)

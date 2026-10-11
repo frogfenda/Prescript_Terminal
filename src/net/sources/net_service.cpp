@@ -56,7 +56,7 @@ namespace
     constexpr uint32_t kTlsSettleAfterNtpMs = 250;
     constexpr size_t kExternalMallocInternalThresholdBytes = 1024;
 
-    /* 实机内部连续堆限制下，网络任务固定使用 7 KiB 栈；HTTP/JSON 大对象均在堆上。 */
+    /* 网络任务栈由 FreeRTOS 固定分配在内部 RAM；收件解析临时对象另行放入 PSRAM。 */
     constexpr uint32_t kNetworkTaskStackBytes = 7U * 1024U;
     constexpr size_t kWifiSsidCapacity = 33;
     constexpr size_t kWifiPasswordCapacity = 65;
@@ -93,6 +93,27 @@ namespace
     bool IsAbortRequested()
     {
         return s_abortRequested;
+    }
+
+    const char *DescribeWifiStatus(wl_status_t status)
+    {
+        switch (status)
+        {
+        case WL_CONNECTED:
+            return "已连接";
+        case WL_NO_SSID_AVAIL:
+            return "找不到SSID";
+        case WL_CONNECT_FAILED:
+            return "认证失败";
+        case WL_CONNECTION_LOST:
+            return "连接丢失";
+        case WL_DISCONNECTED:
+            return "未连接";
+        case WL_IDLE_STATUS:
+            return "空闲";
+        default:
+            return "未知";
+        }
     }
 
     /**
@@ -151,7 +172,13 @@ namespace
             vTaskDelay(pdMS_TO_TICKS(500));
             ++timeout_ticks;
         }
-        return WiFi.status() == WL_CONNECTED;
+        const wl_status_t status = WiFi.status();
+        if (status != WL_CONNECTED)
+            Serial.printf("[网络服务] WiFi连接未建立：状态=%s(%d)，SSID长度=%u，密码长度=%u。\n",
+                          DescribeWifiStatus(status), static_cast<int>(status),
+                          static_cast<unsigned>(strlen(session.ssid)),
+                          static_cast<unsigned>(strlen(session.password)));
+        return status == WL_CONNECTED;
     }
 
     void FailAndShutdown(NetServiceState state)
@@ -681,11 +708,23 @@ void NetService_Update()
         NetService_StartCommonCycle(false);
     }
 
+    /*
+     * 上面的开机触发可能刚刚写入新的会话起点，不能再使用进入本函数时的旧 now。
+     * 旧时间比起点早 1 ms 时，无符号相减会得到 UINT32_MAX，误判成 60 秒超时。
+     * 先读取起点快照，再读取当前时间；起点由网络核清零时也不会混用两次读取结果。
+     * 无符号差值仍保留 millis() 正常回绕后的计时能力。
+     */
+    const uint32_t session_started_ms = s_sessionStartedMs;
+    const uint32_t session_elapsed_ms = millis() - session_started_ms;
     if (NetService_IsBusy() &&
-        s_sessionStartedMs > 0 &&
-        now - s_sessionStartedMs > kSessionTotalTimeoutMs)
+        session_started_ms > 0 &&
+        session_elapsed_ms > kSessionTotalTimeoutMs)
     {
-        Serial.println("[网络服务] 会话总超时，强制中止。 ");
+        Serial.printf("[网络服务] 会话总超时，强制中止：已耗时=%lu ms，状态=%u，后台任务=%u，WiFi=%s(%d)。\n",
+                      static_cast<unsigned long>(session_elapsed_ms),
+                      static_cast<unsigned>(s_state),
+                      s_workerActive ? 1U : 0U,
+                      DescribeWifiStatus(WiFi.status()), static_cast<int>(WiFi.status()));
         NetService_Abort();
     }
 
