@@ -22,6 +22,27 @@ static inline int HudStackLineH()
 {
     return HAL_Get_Font_Line_Height(HAL_FONT_SMALL) + 1;
 }
+
+// 主循环共享 HUD 只缓存最新字符串的度量。菜单滚动帧复用测宽结果，时间/状态/标题
+// 实际变化时才重新调用字体遍历；缓存不改变文本内容，也不缓存过时的运行状态。
+struct HudTextMetric
+{
+    String text;
+    int width = 0;
+    bool valid = false;
+    int measure(const char *value, HALFontRole role)
+    {
+        const char *safe = value ? value : "";
+        if (!valid || !text.equals(safe))
+        {
+            text = safe;
+            width = HAL_Get_Text_Width_Font(safe, role);
+            valid = true;
+        }
+        return width;
+    }
+};
+HudTextMetric s_titleMetric, s_timeMetric, s_busMetric, s_timerMetric;
 }
 
 // 【函数说明】绘制菜单左栏：顶部电池，中部标题和时间，底部 BUS/TMR 状态，并返回左栏实际宽度。
@@ -30,11 +51,11 @@ int UIHud_DrawLeftPanel(const char* title_text)
     sysPower.drawBatteryIcon(4, 4);
 
     int sh = HAL_Get_Screen_Height();
-    int title_w = HAL_Get_Text_Width_Font(title_text, HAL_FONT_TITLE);
+    int title_w = s_titleMetric.measure(title_text, HAL_FONT_TITLE);
 
     char time_str[10];
     SysTime_GetTimeString(time_str);
-    int time_w = HAL_Get_Text_Width_Small(time_str);
+    int time_w = s_timeMetric.measure(time_str, HAL_FONT_SMALL);
 
     SysHudStatus status = SysRuntime_GetHudStatus();
 
@@ -45,13 +66,13 @@ int UIHud_DrawLeftPanel(const char* title_text)
     if (status.nfc_active)
     {
         sprintf(bus_str, "[BUS %02d]", status.nfc_remaining_sec);
-        status_w = max(status_w, HAL_Get_Text_Width_Small(bus_str));
+        status_w = max(status_w, s_busMetric.measure(bus_str, HAL_FONT_SMALL));
     }
 
     if (status.countdown_active)
     {
         sprintf(tmr_str, "[TMR %02d:%02d]", status.countdown_remaining_sec / 60, status.countdown_remaining_sec % 60);
-        status_w = max(status_w, HAL_Get_Text_Width_Small(tmr_str));
+        status_w = max(status_w, s_timerMetric.measure(tmr_str, HAL_FONT_SMALL));
     }
 
     int max_content_w = max(max(title_w, time_w), status_w);
@@ -73,14 +94,14 @@ int UIHud_DrawLeftPanel(const char* title_text)
 
     if (status.nfc_active)
     {
-        int bus_w = HAL_Get_Text_Width_Small(bus_str);
+        int bus_w = s_busMetric.width;
         HAL_Screen_ShowSmallLine((left_panel_w - bus_w) / 2, hud_y_offset, bus_str);
         hud_y_offset -= HudStackLineH();
     }
 
     if (status.countdown_active)
     {
-        int tmr_w = HAL_Get_Text_Width_Small(tmr_str);
+        int tmr_w = s_timerMetric.width;
         HAL_Screen_ShowSmallLine((left_panel_w - tmr_w) / 2, hud_y_offset, tmr_str);
     }
 

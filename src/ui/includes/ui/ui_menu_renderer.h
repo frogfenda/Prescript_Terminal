@@ -2,7 +2,7 @@
 【模块职责】菜单整屏渲染器的替换接口。
 
 菜单页面继续由 AppMenuBase 管理输入、选中索引、条目内容和业务跳转；
-本接口只负责把当前菜单状态画到屏幕上。当前只注册原有滚轮渲染器，
+本接口只负责把当前菜单状态画到屏幕上。当前注册滚轮和纸带渲染器，
 后续新增列表、卡片或图标样式时，不需要修改菜单页面的输入逻辑。
 */
 #pragma once
@@ -44,6 +44,25 @@ public:
 /** 返回指定样式的渲染器；未注册样式统一回退到当前滚轮实现。 */
 UIMenuRenderer &UI_MenuRendererForStyle(UIMenuRenderStyle style);
 
-// 【样式入口】当前试用版默认纸带；只改变显示，保留页面内容和输入。运行时切换不写配置。
+// 【样式入口】默认滚轮；只改变显示，保留页面内容和输入。运行时切换不写配置。
 UIMenuRenderStyle UI_GetMenuRenderStyle();
 void UI_SetMenuRenderStyle(UIMenuRenderStyle style);
+
+/**
+ * 滚轮实际帧耗时快照；主循环采集/读取，不打印串口，不计入页面内容。
+ * draw_us 包含文字排版/绘制，push_us 包含旋转、TE 等待及 DMA 传输。
+ * interval_us 是连续滚动帧的起点间隔，静止超过 250ms 后重新开始统计间隔。
+ * 没有实机帧数据时 frames 为零，不用目标帧率冒充实际帧率。
+ */
+struct UIMenuFrameTiming
+{
+    uint32_t frames = 0;
+    uint32_t draw_us = 0;
+    uint32_t push_us = 0;
+    uint32_t interval_us = 0;
+    uint32_t max_draw_us = 0;
+    uint32_t max_push_us = 0;
+    uint32_t max_interval_us = 0;
+};
+UIMenuFrameTiming UI_GetMenuFrameTiming();
+void UI_RecordMenuFrameTiming(uint32_t frame_start_us, uint32_t draw_us, uint32_t push_us);

@@ -58,6 +58,11 @@ inline int TitleLineHeight() { return UIFontConfig::Title().lineHeight; }
 // -----------------------------------------------------------------------------
 namespace Menu {
 
+// 阻尼响应固定，不随瞬时输入速度变更，防止减速阶段出现节奏突变。
+constexpr float MotionResponse = 24.0f;
+constexpr float LayoutResponse = 22.0f;
+constexpr uint32_t ExpandDelayMs = 80;
+
 inline int PaddingX()       { return max(14, ScreenW() / 30); }
 inline int LineMarginY()    { return max(12, ScreenH() / 13); }
 inline int ItemSpacingY()   { return max(Font::BodyLineHeight() + 6, ScreenH() / 5); }

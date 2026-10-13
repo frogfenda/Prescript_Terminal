@@ -4,6 +4,7 @@
 【资源】全部为 HAL 几何图元与既有字体，不分配图片、不打开文件、不增加后台任务。
 */
 #include "ui/ui_paper_menu.h"
+#include "ui/ui_menu_motion.h"
 #include "apps/app_menu_base.h"
 #include "ui/ui_text.h"
 #include "sys/sys_runtime_status.h"
@@ -117,22 +118,9 @@ bool UIPaperMenuRenderer::update(float target, uint32_t now)
     const uint32_t elapsed = now - last_tick_;
     if (elapsed < UITheme::FRAME_FAST_MS) return false;
     last_tick_ = now;
-    if (fabsf(target - position_) < 0.002f && fabsf(velocity_) < 0.02f)
-    {
-        const bool changed = position_ != target;
-        position_ = target;
-        velocity_ = 0;
-        return changed;
-    }
     // 解析解避免显式欧拉积分在卡帧时发散；以槽位/秒为单位，目标不会取模跳圈。
     const float dt = min(elapsed, (uint32_t)48) * 0.001f;
-    const float omega = 22.0f;
-    const float displacement = position_ - target;
-    const float b = velocity_ + omega * displacement;
-    const float decay = expf(-omega * dt);
-    position_ = target + (displacement + b * dt) * decay;
-    velocity_ = (velocity_ - omega * b * dt) * decay;
-    return true;
+    return UI_MenuAdvanceDamped(target, dt, 22.0f, position_, velocity_);
 }
 
 void UIPaperMenuRenderer::draw(AppMenuBase &menu, float visual_position)

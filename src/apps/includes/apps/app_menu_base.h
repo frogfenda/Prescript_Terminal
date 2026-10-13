@@ -14,6 +14,8 @@
 #include "ui/ui_hud.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_menu_renderer.h"
+#include "ui/ui_menu_motion.h"
+#include "ui/ui_clock.h"
 
 class AppMenuBase : public AppBase
 {
@@ -37,6 +39,18 @@ protected:
     virtual void onItemClicked(int index) = 0;
     virtual void onLongPressed() = 0;
     uint32_t menu_anim_last_tick = 0;
+    UIFrameGate menu_frame_gate;
+    bool menu_redraw_pending = false;
+    float menu_velocity = 0.0f;
+    float menu_motion_position = 0.0f;
+    float menu_frame_dt = 0.0f;
+    // 展开系数和框尺寸是页面视觉状态；只在同一帧更新，不绑定整数选中槽的切换瞬间。
+    float menu_expansion = 0.0f;
+    float menu_box_height = 0.0f;
+    float menu_label_width = 0.0f;
+    uint32_t menu_settled_since = 0;
+    bool menu_settled = false;
+    bool menu_layout_animating = false;
 
     // 曲率动效由旋钮输入速度驱动：慢速时保持稳定可读，快速旋转时临时增强 3D 侧弯。
     // 这里保存的是 0.0~1.0 的能量值，在 onLoop 中随时间衰减。
@@ -47,8 +61,6 @@ protected:
     uint32_t menu_last_knob_tick = 0;
     uint32_t menu_curve_last_tick = 0;
     uint32_t menu_sling_last_tick = 0;
-    uint32_t menu_intro_start_tick = 0;
-    bool menu_intro_active = false;
 
     struct WrappedMenuText
     {
@@ -509,37 +521,6 @@ protected:
         return fabsf(old - menu_sling_display) > 0.002f;
     }
 
-    // 进入菜单时只给滚轮主体一个短暂的“归位”过程，HUD 保持稳定，避免整屏一起晃动。
-    void restartMenuIntro()
-    {
-        menu_intro_start_tick = millis();
-        menu_intro_active = true;
-    }
-
-    float menuIntroProgress()
-    {
-        if (!menu_intro_active)
-            return 1.0f;
-        const uint32_t elapsed = millis() - menu_intro_start_tick;
-        constexpr uint32_t kIntroDurationMs = 180;
-        if (elapsed >= kIntroDurationMs)
-        {
-            menu_intro_active = false;
-            return 1.0f;
-        }
-        float progress = static_cast<float>(elapsed) / static_cast<float>(kIntroDurationMs);
-        // smoothstep：进场前半段快，接近稳定位置时柔和收住。
-        return progress * progress * (3.0f - 2.0f * progress);
-    }
-
-    bool updateMenuIntro()
-    {
-        if (!menu_intro_active)
-            return false;
-        (void)menuIntroProgress();
-        return menu_intro_active;
-    }
-
     float menuVerticalOffset(float offset, int spacing_y, float sling_strength) const
     {
         float distance = fabsf(offset);
@@ -623,6 +604,7 @@ protected:
     // 后续样式通过 UIMenuRenderer 接口接管绘制，不应再从页面直接调用此函数。
     void drawWheelMenuUI(float v_pos)
     {
+        const uint32_t frame_start_us = micros();
         HAL_Sprite_Clear();
         int sw = HAL_Get_Screen_Width();
         int sh = HAL_Get_Screen_Height();
@@ -652,10 +634,7 @@ protected:
         ensureMenuRuntimeState(real_count);
         int count = virtualMenuCount(real_count);
 
-        const float intro_progress = menuIntroProgress();
-        const float intro_distance = (1.0f - intro_progress) * 0.85f;
-        const int intro_offset_y = static_cast<int>((1.0f - intro_progress) * 10.0f);
-        int center_y = sh / 2 + intro_offset_y;
+        int center_y = sh / 2;
 
         int box_x = right_panel_x + UI_SCAN_BOX_PAD_X;
         int box_w = right_panel_w - (UI_SCAN_BOX_PAD_X * 2);
@@ -670,6 +649,39 @@ protected:
                                                                           text_max_w,
                                                                           selected_fallback);
 
+        // 长文字所有槽位复用同一两行排版，滚动时只展示第一行；停稳 80ms 后才展开第二行。
+        // 第一行不在 roundf(v_pos) 跨槽时更换截断方式，避免滚动半程出现文字内容/宽度跳变。
+        const bool settled = fabsf(v_pos - menu_target_position) < 0.015f && fabsf(menu_velocity) < 0.15f;
+        if (!settled)
+            menu_settled = false;
+        else if (!menu_settled)
+        {
+            menu_settled = true;
+            menu_settled_since = millis();
+        }
+        const bool expand = selected_layout->line_count > 1 && settled &&
+                            millis() - menu_settled_since >= UITheme::Menu::ExpandDelayMs;
+        menu_layout_animating = UI_MenuApproach(expand ? 1.0f : 0.0f, menu_frame_dt,
+                                                UITheme::Menu::LayoutResponse, menu_expansion);
+        if (selected_layout->line_count > 1 && settled && !expand)
+            menu_layout_animating = true;
+        const float extra_height = max(0, selected_layout->height - HAL_Get_Font_Line_Height(HAL_FONT_BODY));
+        const float target_box_h = min((float)(sh - 18), max((float)UI_BASE_SCAN_BOX_H,
+                                   HAL_Get_Font_Line_Height(HAL_FONT_BODY) + extra_height * menu_expansion + 8.0f));
+        const float target_label_w = selected_layout->line_widths[0] +
+                                    (selected_layout->width - selected_layout->line_widths[0]) * menu_expansion;
+        if (menu_box_height == 0.0f)
+        {
+            menu_box_height = target_box_h;
+            menu_label_width = target_label_w;
+        }
+        menu_layout_animating |= UI_MenuApproach(target_box_h, menu_frame_dt,
+                                                 UITheme::Menu::LayoutResponse, menu_box_height);
+        menu_layout_animating |= UI_MenuApproach(target_label_w, menu_frame_dt,
+                                                 UITheme::Menu::LayoutResponse, menu_label_width);
+        // 点击事件可在推进动画前强制绘制（dt=0）；尺寸已变化时仍登记后续动画帧。
+        menu_layout_animating |= menu_box_height != target_box_h || menu_label_width != target_label_w;
+
         // 绘制使用平滑后的甩动强度，不直接使用瞬时旋钮速度。
         // 这样中心项和外圈条目的回弹会连续过渡，不会在停下瞬间跳回。
         float active_sling = menu_sling_display;
@@ -677,7 +689,7 @@ protected:
         // 静止布局：选中项回到 HUD 竖线右侧区域的视觉中心，保证停下来时页面是稳定居中的。
         // 动态布局：只有滚轮仍在追赶目标位置时，中心项才随速度向左产生弹性甩动；
         // 这样中心项不会一直固定在原地，也不会在停稳后残留偏移。
-        int selected_text_w_for_pos = max(12, selected_layout->width);
+        int selected_text_w_for_pos = max(12, (int)lroundf(menu_label_width));
         int rest_center_x = right_panel_x + right_panel_w / 2;
         int speed_center_x = rest_center_x - (int)(active_sling * UITheme::Menu::CenterFlingX());
         int min_center_x = right_panel_x + UITheme::Menu::CenterMinLeftGap() + selected_text_w_for_pos / 2;
@@ -688,8 +700,7 @@ protected:
         if (max_center_x >= min_center_x && center_x > max_center_x)
             center_x = max_center_x;
 
-        int dynamic_box_h = max(UI_BASE_SCAN_BOX_H, selected_layout->height + 8);
-        dynamic_box_h = min(dynamic_box_h, sh - 18);
+        int dynamic_box_h = (int)lroundf(menu_box_height);
         // 长选项允许截断/半露出，不再为了完整显示每一项把间距拉得很大。
         // 两行选中项只轻微撑开滚轮，保证一屏能看到更多条目。
         int item_spacing_y = max(UI_BASE_ITEM_SPACING_Y, (dynamic_box_h * 3) / 4);
@@ -713,7 +724,7 @@ protected:
         int tri_size = constrain(dynamic_box_h / 3, 5, 11);
         HAL_Fill_Triangle(tri_x, center_y - tri_size, tri_x, center_y + tri_size, tri_x - tri_size - 1, center_y, 1);
 
-        float dynamic_text_w = selected_layout->width;
+        float dynamic_text_w = menu_label_width;
 
         // 动态尾随方块放在文字左边，尺寸跟随选中框。
         int block_x = center_x - (int)(dynamic_text_w / 2.0f) - UI_PADDING_X - UI_SCROLL_BAR_W;
@@ -727,15 +738,6 @@ protected:
 
         int base_idx = (int)roundf(v_pos);
         int line_h = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
-
-        // 快速滚动时只绘制两条很短的暗色速度线，强化惯性但不污染文字区域。
-        if (active_sling > 0.18f)
-        {
-            const int streak_x = max(right_panel_x + 8, center_x - 58);
-            const int streak_w = min(42, max(12, center_x - streak_x - 10));
-            HAL_Draw_Line(streak_x, center_y - 12, streak_x + streak_w, center_y - 12, UITheme::COLOR_DIM);
-            HAL_Draw_Line(streak_x + 10, center_y + 13, streak_x + streak_w, center_y + 13, UITheme::COLOR_DIM);
-        }
 
         for (int i = base_idx - 3; i <= base_idx + 3; i++)
         {
@@ -760,8 +762,12 @@ protected:
             if (is_center_slot && real_idx == display_selection)
                 item_layout = selected_layout;
             else
-                item_layout = getCachedCompactMenuText(real_idx, text, text_max_w, item_fallback);
+                item_layout = getCachedWrappedMenuText(real_idx, text, text_max_w, item_fallback);
 
+            // 展开权重随槽位距离连续变化，而不是在中心槽门限处突然切换两行。
+            float focus = max(0.0f, 1.0f - distance);
+            focus = focus * focus * (3.0f - 2.0f * focus);
+            const float expansion = menu_expansion * focus;
             int text_width = item_layout->width;
             int base_x = center_x - (text_width / 2);
 
@@ -772,10 +778,6 @@ protected:
                 item_x = sw - text_width - 5;
             if (item_x < right_panel_x + 2)
                 item_x = right_panel_x + 2;
-
-            int final_y = item_y - (item_layout->height / 2);
-            if (item_layout->line_count == 0)
-                final_y = item_y - line_h / 2;
 
             const char *p_pref = nullptr, *p_val = nullptr, *p_suff = nullptr;
 
@@ -789,35 +791,47 @@ protected:
                     edit_x = sw - edit_w - 5;
                 if (edit_x < right_panel_x + 2)
                     edit_x = right_panel_x + 2;
-                drawSegmentedAnimatedText(edit_x, item_y - line_h / 2, p_pref, p_val, p_suff, distance + intro_distance);
+                drawSegmentedAnimatedText(edit_x, item_y - line_h / 2, p_pref, p_val, p_suff, distance);
             }
             else
             {
                 uint16_t item_color = getItemColor(real_idx);
-                drawWrappedMenuText(item_x, final_y, *item_layout, distance + intro_distance, item_color);
+                const int first_y = item_y - line_h / 2 - (int)lroundf((line_h + 2) * expansion * 0.5f);
+                if (item_layout->line_count > 0)
+                    HAL_Screen_ShowChineseLine_Faded_Color(item_x + (text_width - item_layout->line_widths[0]) / 2,
+                                                          first_y, item_layout->lines[0].c_str(), distance, item_color);
+                if (item_layout->line_count > 1 && expansion > 0.002f)
+                {
+                    // 直接调 RGB565 强度可完全淡出；现有 distance 接口有 15% 亮度下限。
+                    const uint16_t second_color = (uint16_t)(
+                        ((uint16_t)(((item_color >> 11) & 31) * expansion) << 11) |
+                        ((uint16_t)(((item_color >> 5) & 63) * expansion) << 5) |
+                        (uint16_t)((item_color & 31) * expansion));
+                    HAL_Screen_ShowChineseLine_Faded_Color(item_x + (text_width - item_layout->line_widths[1]) / 2,
+                        first_y + line_h + 2, item_layout->lines[1].c_str(), distance, second_color);
+                }
             }
         }
 
-        // 屏幕边缘遮罩让远处条目像从滚轮轨道后方进出，避免半截文字抢视线。
-        const int edge_mask_h = max(6, sh / 18);
-        HAL_Fill_Rect(right_panel_x, 0, right_panel_w, edge_mask_h, TFT_BLACK);
-        HAL_Fill_Rect(right_panel_x, sh - edge_mask_h, right_panel_w, edge_mask_h, TFT_BLACK);
-        HAL_Draw_Line(right_panel_x + 4, edge_mask_h, sw - 5, edge_mask_h, UITheme::COLOR_DARK);
-        HAL_Draw_Line(right_panel_x + 4, sh - edge_mask_h - 1, sw - 5, sh - edge_mask_h - 1, UITheme::COLOR_DARK);
-
-        // 右下角位置反馈只显示索引，不改变条目文本和业务内容。
-        char position_text[12] = {};
-        snprintf(position_text, sizeof(position_text), "%02d/%02d", display_selection + 1, real_count);
-        const int position_w = HAL_Get_Text_Width_Small(position_text);
-        HAL_Screen_ShowSmallLine_Color(sw - position_w - 5, sh - HAL_Get_Font_Line_Height(HAL_FONT_SMALL) - 1,
-                                       position_text, UITheme::COLOR_DIM);
+        const uint32_t push_start_us = micros();
         HAL_Screen_Update();
+        UI_RecordMenuFrameTiming(frame_start_us, push_start_us - frame_start_us, micros() - push_start_us);
+        // 时间只消费一次；同一事件内额外强制重绘不重复推进布局。
+        menu_frame_dt = 0.0f;
     }
 
     // 【接口说明】页面只请求“按当前样式重绘”，不依赖具体的菜单布局。
     void drawMenuUI(float v_pos)
     {
         ensureMenuRuntimeState(getMenuCount());
+        // 兼容现有页面直接指定 visual_selection 后重绘；外部定位不继承旧速度。
+        if (fabsf(v_pos - menu_motion_position) > 0.001f)
+        {
+            menu_velocity = 0.0f;
+            menu_motion_position = v_pos;
+            menu_settled = false;
+        }
+        menu_frame_gate.reset();
         // 旧页面仍可直接定位 visual_selection；通知纸带丢弃旧惯性，避免下一帧滚回原处。
         if (getMenuRenderStyle() == UIMenuRenderStyle::PaperTape)
         {
@@ -870,7 +884,6 @@ public:
         menu_last_knob_tick = 0;
         menu_curve_last_tick = millis();
         menu_sling_last_tick = millis();
-        restartMenuIntro();
         clearMenuLayoutCache();
         onResume();
     }
@@ -879,9 +892,18 @@ public:
     void onResume() override
     {
         syncMenuPositionToSelection();
+        menu_velocity = 0.0f;
+        menu_motion_position = visual_selection;
+        menu_anim_last_tick = millis();
+        menu_frame_dt = 0.0f;
+        menu_redraw_pending = false;
+        menu_layout_animating = false;
+        menu_settled = false;
+        menu_expansion = 0.0f;
+        menu_box_height = 0.0f;
+        menu_label_width = 0.0f;
         menu_sling_display = 0.0f;
         menu_sling_last_tick = millis();
-        restartMenuIntro();
         clearMenuLayoutCache();
         UI_MenuRendererForStyle(getMenuRenderStyle()).reset(visual_selection);
         drawMenuUI(visual_selection);
@@ -891,9 +913,19 @@ public:
     // 【函数说明】推进菜单滑动插值、编辑值跳动动画，并在 HUD/电量变化时重绘页面。
     void onLoop() override
     {
+        // HUD/电量变化先锁存，下一绘制帧统一消费，避免帧门控丢失一次性变化通知。
+        menu_redraw_pending |= UIHud_NeedsRedraw();
+        menu_redraw_pending |= sysPower.needsRedraw();
+        if (!menu_frame_gate.due(UITheme::FRAME_FAST_MS))
+            return;
+        const uint32_t frame_now = millis();
+        const uint32_t elapsed = frame_now - menu_anim_last_tick;
+        menu_anim_last_tick = frame_now;
+        // 间隔上限只过滤长期离开页面/调试暂停；正常掉帧按真实时间推进。
+        menu_frame_dt = min(elapsed, (uint32_t)100) * 0.001f;
         bool needs_redraw = updateEditAnimation();
-        if (updateMenuIntro())
-            needs_redraw = true;
+        needs_redraw |= menu_redraw_pending || menu_layout_animating;
+        menu_redraw_pending = false;
         if (updateCurveEnergy())
             needs_redraw = true;
         if (updateMenuSlingDisplay())
@@ -905,7 +937,6 @@ public:
         ensureMenuRuntimeState(real_count);
 
         float target = (float)menu_target_position;
-        float diff = target - visual_selection;
 
         if (getMenuRenderStyle() == UIMenuRenderStyle::PaperTape)
         {
@@ -916,40 +947,11 @@ public:
                 needs_redraw = true;
             }
         }
-        else if (fabsf(diff) > 0.01f)
+        else
         {
-            uint32_t now = millis();
-            uint32_t elapsed = now - menu_anim_last_tick;
-            if (elapsed >= UITheme::FRAME_FAST_MS)
-            {
-                menu_anim_last_tick = now;
-                if (elapsed > 48)
-                    elapsed = 48;
-
-                // 使用随真实帧间隔归一化的缓动系数。
-                // 这样在不同主频或偶发掉帧时，滚轮速度更一致；接近目标时也不会突然“吸附”。
-                float energy = min(menu_curve_energy, 1.0f);
-                float base_alpha = 0.20f + energy * 0.07f;
-                float alpha = 1.0f - powf(1.0f - base_alpha, (float)elapsed / 16.0f);
-                visual_selection += diff * alpha;
-                needs_redraw = true;
-            }
-        }
-        else if (visual_selection != target && fabsf(diff) <= 0.01f)
-        {
-            visual_selection = target;
-            needs_redraw = true;
-        }
-
-        // HUD 的 NFC / TT2 / 时间刷新由运行状态聚合层判断，AppMenuBase 不再直接 extern 其他模块全局变量。
-        if (UIHud_NeedsRedraw())
-        {
-            needs_redraw = true;
-        }
-
-        if (sysPower.needsRedraw())
-        {
-            needs_redraw = true;
+            needs_redraw |= UI_MenuAdvanceDamped(target, menu_frame_dt, UITheme::Menu::MotionResponse,
+                                                 visual_selection, menu_velocity);
+            menu_motion_position = visual_selection;
         }
         // ==========================================
         // 最终统一推屏
@@ -990,8 +992,11 @@ public:
             if (abs(menu_target_position) > count * 64 && fabsf(visual_selection - (float)menu_target_position) < 0.5f)
             {
                 int normalized = positiveMod(menu_target_position, count);
+                const int shift = menu_target_position - normalized;
                 menu_target_position = normalized;
-                visual_selection = (float)normalized;
+                // 只平移连续坐标，保留尚未收敛的位移和速度，跨循环归一化时不跳帧。
+                visual_selection -= shift;
+                menu_motion_position -= shift;
             }
 
             SYS_SOUND_GLITCH();
