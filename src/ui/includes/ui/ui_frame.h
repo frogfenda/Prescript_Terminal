@@ -19,4 +19,11 @@ void DrawDialog(const char* title, const char* message, const char* tip, uint16_
 void DrawDangerConfirm(const char* title, const char* message, const char* tip);
 void DrawCornerBox(int x1, int x2, int center_y, int half_w, int h = -1, uint16_t color = UITheme::COLOR_ACCENT);
 
+/**
+ * 绘制带薄侧面和方向反光的悬浮选中框，x/y 为左上角，w/h 为原框尺寸。
+ * reflection 为平滑后的 -1～1 光照偏转；0 表示默认上亮下暗，正负值只改变边缘明暗。
+ * 保留原四角高亮，不填充框内区域、不移动文字、不清屏/推屏；仅主循环调用。
+ */
+void DrawFloatingSelection(int x, int y, int w, int h, float reflection);
+
 }

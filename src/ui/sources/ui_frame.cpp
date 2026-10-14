@@ -11,8 +11,56 @@
 而是通过 UITheme::Frame 按当前 428×142 画布计算，保证后续屏幕尺寸变化时优先改主题层。
 */
 #include "ui/ui_frame.h"
+#include <math.h>
 
 namespace UIFrame {
+
+void DrawFloatingSelection(int x, int y, int w, int h, float reflection)
+{
+    if (w <= 2 || h <= 2)
+        return;
+    reflection = constrain(reflection, -1.0f, 1.0f);
+    const int right = x + w - 1;
+    const int bottom = y + h - 1;
+    const int depth = UITheme::Frame::SelectionDepth();
+    // 同一青色按亮度区分朝光面与背光面；不加第二套配色或文字残影。
+    auto shade = [](float strength) -> uint16_t {
+        return ((uint16_t)(63.0f * strength) << 5) | (uint16_t)(31.0f * strength);
+    };
+    const uint16_t top_light = shade(0.82f + reflection * 0.16f);
+    const uint16_t bottom_light = shade(0.43f - reflection * 0.22f);
+    const uint16_t left_light = shade(0.74f - reflection * 0.14f);
+    const uint16_t right_light = shade(0.46f + reflection * 0.20f);
+
+    // 后缘始终向右下偏移 2～3px，通过连接角线表达薄面板厚度；前框位置不随之移动。
+    HAL_Draw_Line(x + depth, bottom + depth, right + depth, bottom + depth, shade(0.15f));
+    HAL_Draw_Line(right + depth, y + depth, right + depth, bottom + depth, shade(0.20f));
+    HAL_Draw_Line(x, bottom, x + depth, bottom + depth, shade(0.23f));
+    HAL_Draw_Line(right, bottom, right + depth, bottom + depth, shade(0.25f));
+    HAL_Draw_Line(right, y, right + depth, y + depth, shade(0.30f));
+    HAL_Draw_Rect(x - 2, y - 2, w + 4, h + 4, UITheme::COLOR_DIM);
+    HAL_Draw_Line(x, y, right, y, top_light);
+    HAL_Draw_Line(x, bottom, right, bottom, bottom_light);
+    HAL_Draw_Line(x, y, x, bottom, left_light);
+    HAL_Draw_Line(right, y, right, bottom, right_light);
+
+    // 短反光带沿上下框边柔和偏移，不进入正文；反向滚动时两侧亮度连续交换。
+    const int glint_width = min(40, max(8, w / 6));
+    const int glint_left = x + w / 3 + (int)lroundf(reflection * w * 0.12f);
+    HAL_Draw_Line(glint_left, y - 1, glint_left + glint_width, y - 1, shade(0.68f + reflection * 0.28f));
+    HAL_Draw_Line(glint_left, bottom + 1, glint_left + glint_width, bottom + 1, shade(0.40f - reflection * 0.28f));
+
+    // 沿用上一版被认可的四角定位线，避免厚度和反光削弱选中区域的辨识度。
+    const int bracket = min(9, max(5, h / 3));
+    HAL_Draw_Line(x - 3, y, x + bracket, y, 1);
+    HAL_Draw_Line(x - 3, y, x - 3, y + bracket, 1);
+    HAL_Draw_Line(x + w + 2, y, x + w - bracket, y, 1);
+    HAL_Draw_Line(x + w + 2, y, x + w + 2, y + bracket, 1);
+    HAL_Draw_Line(x - 3, y + h, x + bracket, y + h, 1);
+    HAL_Draw_Line(x - 3, y + h, x - 3, y + h - bracket, 1);
+    HAL_Draw_Line(x + w + 2, y + h, x + w - bracket, y + h, 1);
+    HAL_Draw_Line(x + w + 2, y + h, x + w + 2, y + h - bracket, 1);
+}
 
 // 【函数说明】绘制中间下折的战术分隔线。
 // 画面效果：左右两条水平线在屏幕中心让出一个小台阶，形成“仪表切口”。
