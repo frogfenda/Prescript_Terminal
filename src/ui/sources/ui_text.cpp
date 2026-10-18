@@ -64,6 +64,11 @@ void DrawCenteredFaded(int y, const char* text, float fade)
 // 【函数说明】逐 UTF-8 字符绘制，只把完整落入裁剪区的字符送给 HAL。
 void DrawClipped(int x, int y, const char* text, int min_x, int max_x)
 {
+    DrawClippedColor(x, y, text, TFT_CYAN, min_x, max_x);
+}
+
+void DrawClippedColor(int x, int y, const char* text, uint16_t color, int min_x, int max_x)
+{
     if (!text) return;
     int sw = HAL_Get_Screen_Width();
     if (max_x < 0) max_x = sw;
@@ -78,8 +83,7 @@ void DrawClipped(int x, int y, const char* text, int min_x, int max_x)
 
         if (cursor_x >= min_x && cursor_x + cw <= max_x && buf[0] != ' ')
         {
-            if (len == 1) HAL_Screen_ShowTextLine(cursor_x, y, buf);
-            else HAL_Screen_ShowChineseLine(cursor_x, y, buf);
+            HAL_Screen_ShowLine_Font(cursor_x, y, buf, HAL_FONT_BODY, color);
         }
         cursor_x += cw;
         i += len;

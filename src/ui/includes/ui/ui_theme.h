@@ -102,12 +102,12 @@ inline int CenterY() { return ScreenH() / 2 + 6; }
 // -----------------------------------------------------------------------------
 namespace EditFlow {
 
-// 顶部链路、分隔线、滚轮和底部提示形成四段布局。
-// 这些位置和字体行高有关，字体放大后不再沿用旧屏 2/18/28/56 的固定值。
-inline int LinkY()    { return max(8,  ScreenH() / 10); }
-inline int DividerY() { return max(38, ScreenH() / 3); }
-inline int DialY()    { return max(62, (ScreenH() * 47) / 100); }
-inline int TipY()     { return ScreenH() - max(Font::SmallLineHeight() + 8, ScreenH() / 7); }
+// 428×142 下依次为：标签顶边 6、导轨 41、中心读数顶边 76、底部提示 114。
+// 中部布局从上下区域的真实余量计算；弧面边项上抬后仍与导轨留开距离，底部不挤压提示。
+inline int LinkY()    { return max(6, ScreenH() / 22); }
+inline int DividerY() { return LinkY() + Font::BodyLineHeight() + max(12, Font::BodyLineHeight() * 3 / 4); }
+inline int TipY()     { return ScreenH() - Font::SmallLineHeight() - 8; }
+inline int DialY()    { return DividerY() + (TipY() - DividerY() - Font::BodyLineHeight()) / 2 + max(2, Font::BodyLineHeight() / 2 - 1); }
 inline float TipFade(){ return 0.6f; }
 
 }
@@ -155,12 +155,11 @@ inline int RightX() { return DividerX() + max(22, ScreenW() / 22); }
 // -----------------------------------------------------------------------------
 namespace Dial {
 
-inline float NumberRadius() { return min(190.0f, ScreenW() * 0.42f); }
-inline float StringRadius() { return min(205.0f, ScreenW() * 0.43f); }
-inline int NumberBoxHalfW() { return max(28, ScreenW() / 14); }
-inline int StringBoxHalfW() { return max(54, ScreenW() / 7); }
+constexpr float MotionResponse = 26.0f;
+constexpr float LayoutResponse = 22.0f;
+inline int ArcLift() { return min(14, max(6, EditFlow::DialY() - EditFlow::DividerY() - 14)); }
+inline int RailGap() { return 12; }
 inline int BoxHeight()      { return max(Font::BodyLineHeight() + 6, ScreenH() / 7); }
-inline int SuffixGap()      { return max(38, ScreenW() / 12); }
 
 }
 
@@ -169,18 +168,12 @@ inline int SuffixGap()      { return max(38, ScreenW() / 12); }
 // -----------------------------------------------------------------------------
 namespace Link {
 
-inline int BoxPadX() { return max(5, ScreenW() / 90); }
-inline int Corner()  { return max(3, ScreenW() / 140); }
-
-// 各 App 仍可以传入自己偏好的 spacing；这里根据新屏宽度给过小的值抬底。
-inline int Spacing(int count, int requested)
-{
-    if (ScreenW() < 400)
-        return requested;
-
-    int min_spacing = (count <= 2) ? 132 : 94;
-    return max(requested, min_spacing);
-}
+constexpr float MotionResponse = 22.0f;
+constexpr float RopeVariation = 1.0f; // 有界的平滑随机起伏，局部波幅与交叉位置缓慢变化。
+constexpr float RopeCycles = 3.0f; // 水平排开约三次起伏；摆幅直接使用主菜单的默认值，不再单独缩放。
+constexpr float RopeResponse = 18.0f; // 牵引比数字滚轮略慢，换向保留惯性，停手后平滑收势。
+constexpr float RopeTravelPerStep = 0.18f; // 每一格旋钮带动约 0.18 个绳波周期；与步骤标签位置无关。
+inline int RailGap() { return EditFlow::DividerY() - EditFlow::LinkY() - Font::BodyLineHeight(); }
 
 }
 

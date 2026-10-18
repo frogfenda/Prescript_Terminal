@@ -288,10 +288,7 @@ private:
         // 1. 顶部战术链路区
         linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::PomodoroEditStepNames(lang), 2, phase, 120);
 
-        // 2. 中间机甲分隔线
-        UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
-
-        // 3. 底部动态机械刻度盘
+        // 中部弧面滚轮；位置与底部提示共同分配剩余高度。
         if (phase == 0) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), t_work, 1, 120, "");
         else dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), t_rest, 1, 60, "");
 
@@ -304,11 +301,12 @@ private:
 public:
     // 【函数说明】进入预设编辑页时读取当前预设参数并重置编辑阶段。
     void onCreate() override {
+        dialAnim.reset();
         p_preset = &sysConfig.pomodoro_presets[sysConfig.pomodoro_current_idx];
         t_work = p_preset->work_min;
         t_rest = p_preset->rest_min;
         phase = 0;
-        linkAnim.jumpTo(phase);
+        linkAnim.reset(phase);
         drawUI();
     }
     void onResume() override { drawUI(); }
@@ -316,7 +314,7 @@ public:
     void onLoop() override { 
         bool d_anim = dialAnim.update();
         bool l_anim = linkAnim.update(phase);
-        if(d_anim || l_anim) drawUI();
+        if(linkAnim.redrawDue(d_anim || l_anim)) drawUI();
     }
     
     void onDestroy() override {}
@@ -334,12 +332,14 @@ public:
         }
         
         dialAnim.trigger(delta);
+        linkAnim.triggerDial(delta);
         SYS_SOUND_GLITCH();
-        drawUI();
+        // 调值只累计动画增量，由 onLoop 在帧节拍统一绘制，避免同轮重复推屏。
     }
 
     // 【函数说明】短按推进编辑阶段；最后一阶段写回 sysConfig.pomodoro_presets 并保存。
     void onKeyShort() override {
+        dialAnim.reset();
         SYS_SOUND_CONFIRM();
         if (phase == 0) {
             phase = 1;
@@ -354,6 +354,7 @@ public:
     
     // 【函数说明】长按放弃编辑并返回预设列表。
     void onKeyLong() override {
+        dialAnim.reset();
         SYS_SOUND_NAV();
         if (phase == 1) {
             phase = 0;

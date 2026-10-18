@@ -39,7 +39,7 @@ static uint8_t _ClampDay(uint16_t year, uint8_t month, uint8_t day)
  *
  * 画面结构：
  * - 顶部链路：设定小时 → 设定分钟；
- * - 中间战术分隔线；
+ * - 标签下的细红步骤导轨；
  * - 中部数字滚轮；
  * - 底部操作提示。
  */
@@ -61,8 +61,6 @@ private:
 
         linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::TimeManualStepNames(lang), 2, phase, 95);
 
-        UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
-
         if (phase == 0)
             dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), hour, 0, 23, "");
         else
@@ -76,6 +74,7 @@ public:
     /** 进入页面时读取当前本地时分，作为滚轮初始值。 */
     void onCreate() override
     {
+        dialAnim.reset();
         struct tm info;
         SysTime_GetInfo(&info);
 
@@ -83,7 +82,7 @@ public:
         minute = info.tm_min;
         phase = 0;
 
-        linkAnim.jumpTo(phase);
+        linkAnim.reset(phase);
         drawUI();
     }
 
@@ -96,7 +95,7 @@ public:
         bool dial_changed = dialAnim.update();
         bool link_changed = linkAnim.update(phase);
 
-        if (dial_changed || link_changed)
+        if (linkAnim.redrawDue(dial_changed || link_changed))
             drawUI();
     }
 
@@ -119,8 +118,9 @@ public:
         }
 
         dialAnim.trigger(delta);
+        linkAnim.triggerDial(delta);
         SYS_SOUND_GLITCH();
-        drawUI();
+        // 调值只累计动画增量，由 onLoop 在帧节拍统一绘制，避免同轮重复推屏。
     }
 
     /**
@@ -131,6 +131,7 @@ public:
      */
     void onKeyShort() override
     {
+        dialAnim.reset();
         SYS_SOUND_CONFIRM();
 
         if (phase == 0)
@@ -147,6 +148,7 @@ public:
     /** 长按：分钟阶段退回小时阶段；小时阶段退出不保存。 */
     void onKeyLong() override
     {
+        dialAnim.reset();
         SYS_SOUND_NAV();
 
         if (phase > 0)
@@ -169,7 +171,7 @@ AppBase *appTimeManualSet = &instanceTimeManualSet;
  *
  * 画面结构：
  * - 顶部链路：年份 → 月份 → 日期；
- * - 中间战术分隔线；
+ * - 标签下的细红步骤导轨；
  * - 中部数字滚轮；
  * - 底部提示。
  *
@@ -203,8 +205,6 @@ private:
 
         linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::TimeDateStepNames(lang), 3, phase, 90);
 
-        UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
-
         if (phase == 0)
         {
             dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), year, YEAR_MIN, YEAR_MAX, "");
@@ -227,6 +227,7 @@ public:
     /** 进入页面时读取当前日期；若仍是 1970 兜底日期，则默认给用户 2026-01-01。 */
     void onCreate() override
     {
+        dialAnim.reset();
         struct tm info;
         SysTime_GetInfo(&info);
 
@@ -246,7 +247,7 @@ public:
         }
 
         phase = 0;
-        linkAnim.jumpTo(phase);
+        linkAnim.reset(phase);
         drawUI();
     }
 
@@ -258,7 +259,7 @@ public:
         bool dial_changed = dialAnim.update();
         bool link_changed = linkAnim.update(phase);
 
-        if (dial_changed || link_changed)
+        if (linkAnim.redrawDue(dial_changed || link_changed))
             drawUI();
     }
 
@@ -293,13 +294,15 @@ public:
         }
 
         dialAnim.trigger(delta);
+        linkAnim.triggerDial(delta);
         SYS_SOUND_GLITCH();
-        drawUI();
+        // 调值只累计动画增量，由 onLoop 在帧节拍统一绘制，避免同轮重复推屏。
     }
 
     /** 短按推进字段；在日期阶段保存完整年月日并返回。 */
     void onKeyShort() override
     {
+        dialAnim.reset();
         SYS_SOUND_CONFIRM();
 
         if (phase < 2)
@@ -316,6 +319,7 @@ public:
     /** 长按回退字段；在年份阶段退出不保存。 */
     void onKeyLong() override
     {
+        dialAnim.reset();
         SYS_SOUND_NAV();
 
         if (phase > 0)

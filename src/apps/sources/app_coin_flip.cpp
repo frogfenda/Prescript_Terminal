@@ -812,8 +812,6 @@ private:
         } else {
             linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::CoinPresetEditStepNames(lang), 4, phase, 58);
 
-            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
-
             if (phase == 0) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), bp, 0, 99, "");
             else if (phase == 1) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), cp, -20, 99, "");
             else if (phase == 2) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), cc, 1, PrescriptConst::MAX_COIN_COUNT, "");
@@ -829,6 +827,7 @@ private:
 
 public:
     void onCreate() override {
+        dialAnim.reset();
         if (g_coin_edit_idx >= 0) {
             CoinPreset& p = sysConfig.coin_presets[g_coin_edit_idx];
             bp = p.base_power; cp = p.coin_power; cc = p.coin_count;
@@ -836,7 +835,7 @@ public:
         } else {
             bp = 4; cp = 5; cc = 3; cl = 0; 
         }
-        phase = 0; linkAnim.jumpTo(phase); drawUI();
+        phase = 0; linkAnim.reset(phase); drawUI();
     }
 
     // 【函数说明】返回硬币页时重新执行 onCreate，重置一轮投掷动画。
@@ -845,7 +844,7 @@ public:
     void onLoop() override {
         bool d_anim = dialAnim.update();
         bool l_anim = linkAnim.update(phase);
-        if (d_anim || l_anim) drawUI();
+        if (linkAnim.redrawDue(d_anim || l_anim)) drawUI();
     }
 
     // 【函数说明】离开硬币动画页时停止动画标志，静态资源继续保留在全局资源缓存中。
@@ -858,12 +857,14 @@ public:
         else if (phase == 2) { cc += delta; if(cc < 1) cc = PrescriptConst::MAX_COIN_COUNT; if(cc > PrescriptConst::MAX_COIN_COUNT) cc = 1; }
         else if (phase == 3) { cl += delta; if(cl < 0) cl = 2; if(cl > 2) cl = 0; }
         dialAnim.trigger(delta);
+        linkAnim.triggerDial(delta);
         SYS_SOUND_GLITCH();
-        drawUI();
+        // 调值只累计动画增量，由 onLoop 在帧节拍统一绘制，避免同轮重复推屏。
     }
 
     // 【函数说明】短按在未动画时重新开始一轮投掷；动画中通常用于跳过或不处理。
     void onKeyShort() override {
+        dialAnim.reset();
         SYS_SOUND_CONFIRM();
         if (phase < 4) {
             phase++;
@@ -901,6 +902,7 @@ public:
 
     // 【函数说明】长按退出硬币投掷页并返回上一层菜单。
     void onKeyLong() override {
+        dialAnim.reset();
         if (phase == 4) {
             if (g_coin_edit_idx >= 0) {
                 SYS_SOUND_GLITCH();

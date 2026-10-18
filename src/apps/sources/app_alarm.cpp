@@ -162,10 +162,7 @@ class AppAlarmEdit : public AppBase
             // 1. 顶部战术链路：Y坐标从 6 调高到了 2
             linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::AlarmStepNames(lang), 2, phase, 120);
 
-            // 2. 中间机甲分隔线：Y坐标从 24 调高到了 18
-            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
-
-            // 3. 底部机械刻度盘：Y坐标从 36 调高到了 28
+            // 滚轮区域由 EditFlow 按屏幕和字体行高排布。
             if (phase == 0)
                 dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), h, 0, 23, "");
             else
@@ -191,6 +188,7 @@ public:
     // 【函数说明】进入闹钟编辑页：根据 g_alarm_edit_idx 判断新增还是编辑，载入目标闹钟时间和文本，并让流程链路跳到当前阶段。
     void onCreate() override
     {
+        dialAnim.reset();
         if (g_alarm_edit_idx >= 0)
         {
             h = sysConfig.alarms[g_alarm_edit_idx].hour;
@@ -203,7 +201,7 @@ public:
         }
 
         phase = 0;
-        linkAnim.jumpTo(phase);
+        linkAnim.reset(phase);
         drawUI();
     }
 
@@ -214,7 +212,7 @@ public:
     {
         bool d_anim = dialAnim.update();
         bool l_anim = linkAnim.update(phase);
-        if (d_anim || l_anim)
+        if (linkAnim.redrawDue(d_anim || l_anim))
         {
             drawUI();
         }
@@ -246,13 +244,15 @@ public:
         }
 
         dialAnim.trigger(delta);
+        linkAnim.triggerDial(delta);
         SYS_SOUND_GLITCH();
-        drawUI();
+        // 调值只累计动画增量，由 onLoop 在帧节拍统一绘制，避免同轮重复推屏。
     }
 
     // 【函数说明】短按推进编辑阶段；在保存阶段把修改写入 sysConfig.alarms，限制最大闹钟数量并返回菜单。
     void onKeyShort() override
     {
+        dialAnim.reset();
         SYS_SOUND_CONFIRM();
         if (phase == 2)
         {
@@ -313,6 +313,7 @@ public:
     // 【函数说明】长按取消编辑并返回上一页，不保存当前未确认的小时/分钟。
     void onKeyLong() override
     {
+        dialAnim.reset();
         if (phase == 2)
         {
             SYS_SOUND_GLITCH();

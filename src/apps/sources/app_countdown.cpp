@@ -107,10 +107,7 @@ private:
             // 1. 顶部战术链路
             linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::CountdownStepNames(lang), 3, phase, 85);
 
-            // 2. 中间机甲分隔线 (Y=18)
-            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
-
-            // 3. 底部动态内容区 (Y=28/32)
+            // 中部弧面滚轮；顶部步骤导轨已承担分隔，不重复绘制粗线。
             if (phase == 0) {
                 dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), m, 0, 99, "");
             } else if (phase == 1) {
@@ -123,7 +120,7 @@ private:
                 char t_buf[16];
                 sprintf(t_buf, "%02d : %02d", remain / 60, remain % 60);
 
-                // 运行态倒计时显示放在战术分隔线下方的可用区域中间，
+                // 运行态倒计时放在步骤导轨下方的可用区域中间，
                 // 避免原先固定 y=32 时字形下沿压到横线。
                 int text_w = HAL_Get_Text_Width(t_buf);
                 int line_h = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
@@ -161,6 +158,7 @@ public:
 
     // 【函数说明】进入倒计时页面：读取上次设置的分钟/秒数，初始化阶段为设置分钟并绘制界面。
     void onCreate() override {
+        dialAnim.reset();
         if (g_countdown_active) {
             if (CountdownDeadlineReached(millis())) {
                 g_countdown_active = false; 
@@ -174,7 +172,7 @@ public:
             m = 5; 
             s = 0;
         }
-        linkAnim.jumpTo(phase);
+        linkAnim.reset(phase);
         last_sec = -1;
         drawUI();
     }
@@ -208,7 +206,7 @@ public:
             }
         }
 
-        if (d_anim || l_anim || time_tick) {
+        if (linkAnim.redrawDue(d_anim || l_anim || time_tick)) {
             drawUI();
         }
     }
@@ -247,6 +245,7 @@ public:
             if (m < 0) m = 99;
             if (m > 99) m = 0;
             dialAnim.trigger(delta);
+            linkAnim.triggerDial(delta);
             SYS_SOUND_GLITCH();
         } 
         else if (phase == 1) {
@@ -254,13 +253,15 @@ public:
             if (s < 0) s = 59;
             if (s > 59) s = 0;
             dialAnim.trigger(delta);
+            linkAnim.triggerDial(delta);
             SYS_SOUND_GLITCH();
         }
-        drawUI();
+        // 调值只累计动画增量，由 onLoop 在帧节拍统一绘制，避免同轮重复推屏。
     }
 
     // 【函数说明】短按推进“分钟→秒钟→启动”流程；运行阶段短按暂停/继续当前倒计时显示。
     void onKeyShort() override {
+        dialAnim.reset();
         SYS_SOUND_CONFIRM();
         if (phase == 0) {
             phase = 1;
@@ -293,6 +294,7 @@ public:
 
     // 【函数说明】长按在运行阶段进入中止确认，再次长按退出页面。
     void onKeyLong() override {
+        dialAnim.reset();
         if (phase == 3) {
             SYS_SOUND_NAV();
             phase = 2; // 取消撤收，返回倒计时

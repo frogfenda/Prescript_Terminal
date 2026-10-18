@@ -175,13 +175,10 @@ class AppScheduleEdit : public AppBase
         else
         {
             // 1. 顶部战术链路区
-            // 节点较多，间距设为 95
+            // 六步骤按实际标签宽度排布；95 只作为额外留白偏好。
             linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::ScheduleEditStepNames(lang), 6, phase, 95);
 
-            // 2. 中间机甲分隔线
-            UIFrame::DrawTacticalDivider(UITheme::EditFlow::DividerY());
-
-            // 3. 底部动态机械刻度盘
+            // 中部弧面滚轮；位置与底部提示共同分配剩余高度。
             if (phase == 0)
                 dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), mo, 1, 12, "");
             else if (phase == 1)
@@ -219,6 +216,7 @@ public:
     // 【函数说明】进入日程编辑页：新增时用当前日期时间作为默认值，编辑时载入已有日程时间和类型。
     void onCreate() override
     {
+        dialAnim.reset();
         time_t now = SysTime_NowEpoch();
         struct tm t_info;
         localtime_r(&now, &t_info);
@@ -248,7 +246,7 @@ public:
             p_idx = 0;
         }
         phase = 0;
-        linkAnim.jumpTo(phase);
+        linkAnim.reset(phase);
         drawUI();
     }
 
@@ -259,7 +257,7 @@ public:
     {
         bool d_anim = dialAnim.update();
         bool l_anim = linkAnim.update(phase);
-        if (d_anim || l_anim)
+        if (linkAnim.redrawDue(d_anim || l_anim))
             drawUI();
     }
 
@@ -324,13 +322,15 @@ public:
         }
 
         dialAnim.trigger(delta);
+        linkAnim.triggerDial(delta);
         SYS_SOUND_GLITCH();
-        drawUI();
+        // 调值只累计动画增量，由 onLoop 在帧节拍统一绘制，避免同轮重复推屏。
     }
 
     // 【函数说明】短按推进编辑阶段；最后保存 timestamp、标题、文本和隐藏标志到日程数组。
     void onKeyShort() override
     {
+        dialAnim.reset();
         SYS_SOUND_CONFIRM();
         if (phase == 6)
         {
@@ -419,6 +419,7 @@ public:
     // 【函数说明】长按取消编辑并返回上一级。
     void onKeyLong() override
     {
+        dialAnim.reset();
         if (phase == 6)
         {
             SYS_SOUND_GLITCH();

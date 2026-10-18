@@ -48,6 +48,9 @@ void DrawCenteredFaded(int y, const char* text, float fade = 0.6f);
  */
 void DrawClipped(int x, int y, const char* text, int min_x = 0, int max_x = -1);
 
+/** 透明背景的指定颜色裁剪文字；只绘制完整 UTF-8 字形，供共用滚轮/步骤导轨连续调节亮度。 */
+void DrawClippedColor(int x, int y, const char* text, uint16_t color, int min_x = 0, int max_x = -1);
+
 /** 裁剪绘制淡出文本，用于弱化状态或渐隐列表项。 */
 void DrawClippedFaded(int x, int y, const char* text, float fade, int min_x = 0, int max_x = -1);
 

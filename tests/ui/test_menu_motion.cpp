@@ -64,6 +64,62 @@ static void CheckRopes()
     assert(ropes.followOffset() == 0.0f);
 }
 
+static void CheckRopeVariation()
+{
+    UIMenuRopeAnchor anchors[9];
+    for (int i=0;i<9;++i) anchors[i]={(float)(i*65),38.0f,(i-4)*0.5f};
+    UIMenuRopes a, same, different;
+    a.setVariation(123U,1.0f); same.setVariation(123U,1.0f); different.setVariation(456U,1.0f);
+    bool seed_changes_shape=false;
+    float minimum_anchor_x=10000.0f, maximum_anchor_x=-10000.0f;
+    float previous_anchor_x=0.0f;
+    float previous_y=a.sample(anchors,9,3.35f,0,0.5f).y;
+    // 超过时间噪声的 256 格回绕周期，验证长时间待机的连续性和波幅约束。
+    for (int frame=0;frame<12000;++frame)
+    {
+        UIMenuRopeAnchor rail[9], repeat[9];
+        a.horizontalAnchors(rail,9,19,409,41,3,0);
+        same.horizontalAnchors(repeat,9,19,409,41,3,0);
+        assert(rail[1].x==19 && rail[7].x==409);
+        for(int k=0;k<9;++k) {
+            assert(rail[k].x==repeat[k].x && rail[k].y==41);
+            if(k) assert(rail[k].x-rail[k-1].x>=25.99f);
+        }
+        // 慢速漂移必须真实改变区间宽度，同时长时间/时间回绕不能跳帧或使样条向后折返。
+        minimum_anchor_x=fminf(minimum_anchor_x,rail[3].x);
+        maximum_anchor_x=fmaxf(maximum_anchor_x,rail[3].x);
+        if(frame) assert(fabsf(rail[3].x-previous_anchor_x)<2.5f);
+        previous_anchor_x=rail[3].x;
+        float previous_x=19.0f;
+        for(float u=1.125f;u<=7;u+=0.125f) {
+            const float x=a.sample(rail,9,u,0).x;
+            assert(x>previous_x); previous_x=x;
+        }
+        for (float u=1;u<=7;u+=0.5f)
+            for (int strand=0;strand<2;++strand)
+            {
+                const auto p=a.sample(anchors,9,u,strand,0.5f);
+                const auto repeated=a.sample(anchors,9,u,strand,0.5f);
+                const auto q=same.sample(anchors,9,u,strand,0.5f);
+                assert(p.x==repeated.x && p.y==repeated.y && p.depth==repeated.depth);
+                assert(p.y==q.y && p.depth==q.depth);
+                assert(fabsf(p.y-38.0f)<=2.901f);
+                // 编辑导轨展开到 0.85 倍时仍保持在约 ±5px 内，不因随机扰动突破留白。
+                const auto wider=a.sample(anchors,9,u,strand,0.85f);
+                assert(fabsf(wider.y-38.0f)<=4.931f);
+                const auto menu_scale=a.sample(anchors,9,u,strand);
+                assert(fabsf(menu_scale.y-38.0f)<=5.801f);
+                seed_changes_shape |= fabsf(p.y-different.sample(anchors,9,u,strand,0.5f).y)>0.1f;
+            }
+        a.update(0,0.1f); same.update(0,0.1f); different.update(0,0.1f);
+        const float y=a.sample(anchors,9,3.35f,0,0.5f).y;
+        assert(fabsf(y-previous_y)<0.5f);
+        previous_y=y;
+    }
+    assert(seed_changes_shape);
+    assert(maximum_anchor_x-minimum_anchor_x>15.0f);
+}
+
 int main()
 {
     // 相同实际时间、不同帧间隔必须产生相同位移；偶发 48ms 帧不能改变动画节奏。
@@ -98,5 +154,6 @@ int main()
     assert(height == 50.0f);
     assert(!UI_MenuApproach(50.0f, 0.016f, 22.0f, height));
     CheckRopes();
-    puts("PASS: menu motion cadence, reversal, wrap, layout convergence and rope continuity");
+    CheckRopeVariation();
+    puts("PASS: menu motion, rope continuity, seeded variation, bounds and long idle wrap");
 }

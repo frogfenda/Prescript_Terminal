@@ -16,4 +16,5 @@ NETWORK_OUTBOX_HANDOFF.md
 scripts/load_binding_secret.py
 sdkconfig.esp32-s3-psram-tls
 sdkconfig.esp32-s3-psram-tls.old
+tests/*
 
