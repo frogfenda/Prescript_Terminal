@@ -208,9 +208,11 @@ namespace
             if (item.is_expired || item.target_time == 0 || snapshot.epoch < (time_t)item.target_time)
                 continue;
 
-            bool queued = item.prescript.length() == 0
-                ? SysReminder_Submit(SysReminderKind::Random, nullptr, false)
-                : SysReminder_Submit(SysReminderKind::Custom, item.prescript.c_str(), false);
+            // 日程按产品规则明确打断当前页面；继续由 is_expired 事实去重。
+            // 数组下标会在清理/排序时移动，不能把下标拼成跨帧事件 ID，否则同刻日程可能被误合并。
+            bool queued = SysReminder_SubmitClock(SysClockReminderSource::Schedule,0,
+                SysReminderPresentation::Interrupt,
+                item.prescript.length()==0 ? SysReminderKind::Random : SysReminderKind::Custom,item.prescript.c_str());
             if (!queued)
                 continue;
 
@@ -235,7 +237,8 @@ namespace
                     alarm.min != snapshot.local.tm_min)
                     continue;
 
-                if (SysReminder_Submit(SysReminderKind::Custom, alarm.prescript.c_str(), false))
+                if (SysReminder_SubmitClock(SysClockReminderSource::Alarm,(uint64_t)current_minute,
+                        SysReminderPresentation::Interrupt,SysReminderKind::Custom,alarm.prescript.c_str()))
                 {
                     s_last_alarm_triggered_minute = current_minute;
                     s_rebuild_requested = true;

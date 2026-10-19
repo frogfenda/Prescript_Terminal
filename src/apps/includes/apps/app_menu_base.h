@@ -513,6 +513,11 @@ protected:
         float target = targetMenuSlingStrength(visual_selection);
         float old = menu_sling_display;
 
+        // 闲置红绳仍以约 30FPS 请求绘制，但甩动已经完全归零时不必继续计算 expf。
+        // 时钟已在上方更新；下一次输入仍只积分本帧时间，保持原来的起步/回收手感。
+        if (target == 0.0f && old == 0.0f)
+            return false;
+
         // 上升稍快，回收稍慢：快速旋转时能马上甩起来，停下时柔和回到中心。
         float rate = (target > menu_sling_display) ? 0.018f : 0.010f;
         float alpha = 1.0f - expf(-(float)elapsed * rate);
@@ -658,11 +663,22 @@ protected:
         int display_selection = positiveMod((int)roundf(v_pos), real_count);
         prepareMenuLayoutCache(real_count, text_max_w);
 
+        // 绳子九个隐形控制点与可见文字经常引用同一条目；当帧只获取/核对一次排版。
+        // 借用现有共享缓存的稳定条目，不保留 getItemText() 可能复用的临时字符串指针。
+        // 仅在本次 draw 内有效：下帧重新读取动态内容；超过缓存上限的条目仍走原有 fallback。
+        const WrappedMenuText *frame_layouts[MENU_LAYOUT_CACHE_MAX] = {};
+        auto frameLayout = [&](int index, WrappedMenuText &fallback) -> const WrappedMenuText * {
+            const bool cacheable = index >= 0 && index < MENU_LAYOUT_CACHE_MAX;
+            if (cacheable && frame_layouts[index])
+                return frame_layouts[index];
+            const auto *layout = getCachedWrappedMenuText(index, getItemText(index), text_max_w, fallback);
+            if (cacheable)
+                frame_layouts[index] = layout;
+            return layout;
+        };
+
         WrappedMenuText selected_fallback;
-        const WrappedMenuText *selected_layout = getCachedWrappedMenuText(display_selection,
-                                                                          getItemText(display_selection),
-                                                                          text_max_w,
-                                                                          selected_fallback);
+        const WrappedMenuText *selected_layout = frameLayout(display_selection, selected_fallback);
 
         // 长文字所有槽位复用同一两行排版，滚动时只展示第一行；停稳 80ms 后才展开第二行。
         // 第一行不在 roundf(v_pos) 跨槽时更换截断方式，避免滚动半程出现文字内容/宽度跳变。
@@ -732,7 +748,7 @@ protected:
                 const float offset = slot - v_pos;
                 const int index = positiveMod(slot, count) % real_count;
                 WrappedMenuText fallback;
-                const auto *layout = getCachedWrappedMenuText(index, getItemText(index), text_max_w, fallback);
+                const auto *layout = frameLayout(index, fallback);
                 // 滞后应用在控制点几何上，不能只改变曲线采样下标，否则整条绳子的轮廓仍会锁死文字。
                 const float rope_offset = offset + menu_ropes.followOffset();
                 const int rope_x = menuTextLeft(rope_offset, layout->width, center_x, right_panel_x, sw,
@@ -781,7 +797,6 @@ protected:
 
             int logical_idx = positiveMod(i, count);
             int real_idx = logical_idx % real_count;
-            const char *text = getItemText(real_idx);
 
             WrappedMenuText item_fallback;
             const WrappedMenuText *item_layout = nullptr;
@@ -789,7 +804,7 @@ protected:
             if (is_center_slot && real_idx == display_selection)
                 item_layout = selected_layout;
             else
-                item_layout = getCachedWrappedMenuText(real_idx, text, text_max_w, item_fallback);
+                item_layout = frameLayout(real_idx, item_fallback);
 
             // 展开权重随槽位距离连续变化，而不是在中心槽门限处突然切换两行。
             float focus = max(0.0f, 1.0f - distance);

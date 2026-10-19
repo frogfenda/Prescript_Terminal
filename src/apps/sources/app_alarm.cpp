@@ -9,6 +9,9 @@
 #include "sys/app_manager.h"
 #include "ui/ui_frame.h"
 #include "sys/sys_config.h"
+#include "sys/sys_clock_rules.h"
+#include "sys/sys_ble_json.h"
+#include "sys/sys_psram_json.h"
 #include "sys/sys_event.h"
 #include "sys/sys_ble.h"
 #include "sys/sys_command_result.h"
@@ -40,14 +43,14 @@ namespace
 
 void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text)
 {
-    String safeName = String(name);
+    String safeName = String(name ? name : "");
     safeName.trim();
     if (safeName.length() == 0)
     {
         SysCmdResult_Error("EMPTY_NAME");
         return;
     }
-    if (hour < 0 || hour > 23 || min < 0 || min > 59)
+    if (!SysClockRules::AlarmTime(hour,min))
     {
         SysCmdResult_Error("INVALID_TIME");
         return;
@@ -97,7 +100,7 @@ void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text
 // 【函数说明】处理 ALM_DEL 命令：遍历闹钟数组删除同名项，移动后续元素填补空位，保存配置并报告 DELETED 或 NOT_FOUND。
 void Alarm_DeleteMobile(const char *name)
 {
-    String target = String(name);
+    String target = String(name ? name : "");
     target.trim();
     if (target.length() == 0)
     {
@@ -354,7 +357,6 @@ protected:
     const char *getItemText(int index) override
     {
         SystemLang_t lang = appManager.getLanguage();
-        static char buf[64];
         if (index == sysConfig.alarm_count)
             return UIStrings::AlarmAddItem(lang);
         if (index == sysConfig.alarm_count + 1)
@@ -362,8 +364,10 @@ protected:
 
         AlarmPreset &a = sysConfig.alarms[index];
         const char *mark = (index == current_selection) ? " <" : "";
-        snprintf(buf, sizeof(buf), "%02d:%02d [%s] %s%s", a.hour, a.min, a.name.c_str(), UIStrings::AlarmActiveState(lang, a.is_active), mark);
-        return buf;
+        char time[20]; snprintf(time,sizeof(time),"%02u:%02u [",(unsigned)a.hour,(unsigned)a.min);
+        static String label; label=time; label+=a.name; label+="] ";
+        label+=UIStrings::AlarmActiveState(lang,a.is_active); label+=mark;
+        return label.c_str();
     }
     // 【函数说明】处理闹钟菜单点击：点新增进入编辑器，点已有闹钟进入对应编辑器，点返回关闭页面。
     void onItemClicked(int index) override
@@ -441,13 +445,12 @@ void _Cb_AlmDel(void* payload) {
 }
 // 【函数说明】WebBLE 同步回调：逐条把当前闹钟配置打包成 SYNC:ALM JSON 文本回传网页。
 void _Cb_AlmSync(void* payload) {
-    if (!SysEvent_BleSyncScopeMatches(payload, "ALM"))
-        return;
-    for (int i = 0; i < sysConfig.alarm_count; i++) {
-        String safeName = sysConfig.alarms[i].name.c_str(); safeName.replace("\"", "\\\"");
-        String safeTxt = sysConfig.alarms[i].prescript.c_str(); safeTxt.replace("\"", "\\\"");
-        String out = "SYNC:ALM:{\"h\":" + String(sysConfig.alarms[i].hour) + ",\"m\":" + String(sysConfig.alarms[i].min) + ",\"n\":\"" + safeName + "\",\"t\":\"" + safeTxt + "\"}";
-        SysBLE_Notify(out.c_str());
+    if (!SysEvent_BleSyncScopeMatches(payload, "ALM")) return;
+    for (int i=0;i<sysConfig.alarm_count;++i) {
+        JsonDocument doc(SysPsramJsonAllocator::Instance());
+        const auto &item=sysConfig.alarms[i];
+        doc["h"]=item.hour; doc["m"]=item.min; doc["n"]=item.name; doc["t"]=item.prescript;
+        SysBLE_NotifyJson("SYNC:ALM:",doc);
         delay(50);
     }
 }

@@ -59,6 +59,8 @@ void SysSleep_ScheduleEpoch(SysSleepSource source, time_t epoch, SysSleepWakeAct
  * delay_ms 会限制在 INT32_MAX 内，使 millis() 回绕后的有符号差值判断保持可靠；0 表示立即到期。
  */
 void SysSleep_ScheduleAfterMs(SysSleepSource source, uint32_t delay_ms, SysSleepWakeAction action);
+/** 共用计时内核已计算截止点时直接登记同一值；须来自半个 uint32 周期内的合法时长，允许已到期。 */
+void SysSleep_ScheduleDeadlineMs(SysSleepSource source,uint32_t deadline_ms,SysSleepWakeAction action);
 
 /** 取消某个来源尚未到期或已经到期的唤醒计划。 */
 void SysSleep_Cancel(SysSleepSource source);

@@ -1,6 +1,6 @@
 ﻿/*
 【模块职责】菜单 HUD 实现。
-左侧 HUD 负责显示电池、页面标题、当前时间、NFC 伪装 BUS 状态和倒计时 TMR 状态。
+左侧 HUD 负责显示电池、页面标题、当前时间、BUS、TMR 及番茄专注/休息状态。
 
 新屏字体策略：
 - 页面标题使用正文/标题字体，保持主菜单层级；
@@ -13,6 +13,9 @@
 #include "sys/sys_time.h"
 #include "sys/sys_runtime_status.h"
 #include "ui/ui_theme.h"
+#include "sys/app_manager.h"
+#include "sys/sys_clock_rules.h"
+#include "lang/ui_strings.h"
 
 namespace {
 constexpr int HUD_PADDING_X = 12;
@@ -42,7 +45,7 @@ struct HudTextMetric
         return width;
     }
 };
-HudTextMetric s_titleMetric, s_timeMetric, s_busMetric, s_timerMetric;
+HudTextMetric s_titleMetric, s_timeMetric, s_busMetric, s_timerMetric, s_pomodoroMetric, s_pomodoroReserveMetric;
 }
 
 // 【函数说明】绘制菜单左栏：顶部电池，中部标题和时间，底部 BUS/TMR 状态，并返回左栏实际宽度。
@@ -62,6 +65,7 @@ int UIHud_DrawLeftPanel(const char* title_text)
     int status_w = 0;
     char bus_str[16] = {0};
     char tmr_str[18] = {0};
+    char pom_str[32] = {0};
 
     if (status.nfc_active)
     {
@@ -74,18 +78,36 @@ int UIHud_DrawLeftPanel(const char* title_text)
         sprintf(tmr_str, "[TMR %02d:%02d]", status.countdown_remaining_sec / 60, status.countdown_remaining_sec % 60);
         status_w = max(status_w, s_timerMetric.measure(tmr_str, HAL_FONT_SMALL));
     }
+    if (status.pomodoro_active)
+    {
+        const auto lang=appManager.getLanguage();
+        snprintf(pom_str,sizeof(pom_str),"[%s %02d:%02d]",UIStrings::PomodoroPhaseName(lang,status.pomodoro_rest ? 1 : 0),
+            status.pomodoro_remaining_sec/60,status.pomodoro_remaining_sec%60);
+        s_pomodoroMetric.measure(pom_str,HAL_FONT_SMALL);
+        // 同一轮预留最长阶段标签与三位分钟，避免专注转休息或 100→99 分钟时左栏突然收缩。
+        char reserve[32]; snprintf(reserve,sizeof(reserve),"[%s %d:00]",UIStrings::PomodoroPhaseName(lang,0),SysClockRules::WorkMaxMinutes);
+        status_w=max(status_w,s_pomodoroReserveMetric.measure(reserve,HAL_FONT_SMALL));
+        status_w=max(status_w,s_pomodoroMetric.width);
+    }
 
     int max_content_w = max(max(title_w, time_w), status_w);
     int left_panel_w = max_content_w + (HUD_PADDING_X * 2);
 
-    // 标题放在 HUD 中部偏上，使用标题角色，字号随 ui_font_config.h 配置变化。
+    // 三个状态同时出现时，将标题/时间整体上移；每行至少保留 2px 间隔，不能让状态盖住时间。
+    const int small_h=HAL_Get_Font_Line_Height(HAL_FONT_SMALL);
+    const int status_count=(int)status.nfc_active+(int)status.countdown_active+(int)status.pomodoro_active;
+    int time_y=(sh/2)+4;
+    if (status_count>0) {
+        const int status_top=sh-small_h-4-(status_count-1)*HudStackLineH();
+        time_y=min(time_y,status_top-small_h-2);
+    }
+    // 一两行状态维持原来的标题位置；增加第三行时与时间保持整体间距。
     int title_x = (left_panel_w - title_w) / 2;
-    int title_y = (sh / 2) - (HAL_Get_Font_Line_Height(HAL_FONT_TITLE) + 4);
+    int title_y = time_y - HAL_Get_Font_Line_Height(HAL_FONT_TITLE) - 8;
     HAL_Screen_ShowLine_Font(title_x, title_y, title_text, HAL_FONT_TITLE, TFT_CYAN);
 
     // 时间使用小字体，防止左栏过宽；时间读取走非阻塞 SysTime_GetTimeString。
     int time_x = (left_panel_w - time_w) / 2;
-    int time_y = (sh / 2) + 4;
     HAL_Screen_ShowSmallLine(time_x, time_y, time_str);
 
     HAL_Draw_Line(left_panel_w, UITheme::Menu::LineMarginY(), left_panel_w, sh - UITheme::Menu::LineMarginY(), 1);
@@ -103,6 +125,11 @@ int UIHud_DrawLeftPanel(const char* title_text)
     {
         int tmr_w = s_timerMetric.width;
         HAL_Screen_ShowSmallLine((left_panel_w - tmr_w) / 2, hud_y_offset, tmr_str);
+        hud_y_offset -= HudStackLineH();
+    }
+    if (status.pomodoro_active)
+    {
+        HAL_Screen_ShowSmallLine((left_panel_w-s_pomodoroMetric.width)/2,hud_y_offset,pom_str);
     }
 
     return left_panel_w;

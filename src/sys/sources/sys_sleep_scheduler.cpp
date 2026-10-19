@@ -58,7 +58,12 @@ void SysSleep_ScheduleAfterMs(SysSleepSource source, uint32_t delay_ms, SysSleep
     /* 单调截止时间必须位于当前时刻之后半个 uint32_t 周期内，才能用 int32_t 安全判断先后。 */
     if (delay_ms > (uint32_t)INT32_MAX)
         delay_ms = (uint32_t)INT32_MAX;
-    uint32_t deadline_ms = millis() + delay_ms;
+    SysSleep_ScheduleDeadlineMs(source,millis()+delay_ms,action);
+}
+
+void SysSleep_ScheduleDeadlineMs(SysSleepSource source,uint32_t deadline_ms,SysSleepWakeAction action)
+{
+    if (!ValidSource(source)) return;
 
     portENTER_CRITICAL(&s_lock);
     DeadlineSlot &slot = s_deadlines[(size_t)source];

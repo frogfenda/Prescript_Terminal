@@ -95,6 +95,8 @@ void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text
 // 【接口说明】协议层添加日程入口；按时间戳、标题、文本写入普通/隐藏日程。
 void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden = false);
 void Schedule_DeleteMobile(const char *title);
+/** 主循环只读查询番茄应用；返回是否正在计时，两个可空输出分别为休息阶段、向上取整的剩余秒数。 */
+bool Pomodoro_GetHudStatus(bool *rest, int *remaining_seconds);
 // BLE RX and cross-core push requests are routed through sys_ble_queue / sys_runtime_status.
 
 #endif

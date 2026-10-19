@@ -7,6 +7,7 @@
 #include "sys/sys_fs.h"      // 引入我们上一版的 LittleFS 中枢
 #include "sys/sys_psram_json.h"
 #include "sys/sys_calendar.h"
+#include "sys/sys_clock_rules.h"
 #include <ArduinoJson.h> // 引入 JSON 引擎
 
 SysConfig sysConfig;
@@ -170,13 +171,19 @@ void SysConfig::load()
     volume = doc["volume"] | 40;
     if (volume > 100)
         volume = 100;
-    pomodoro_current_idx = doc["pom_idx"] | 0;
+    const int loaded_pomodoro_index=doc["pom_idx"] | 0;
+    pomodoro_current_idx=loaded_pomodoro_index>=0 && loaded_pomodoro_index<PrescriptConst::MAX_POMODORO_PRESETS ? loaded_pomodoro_index : 0;
+    bool clock_repaired = false;
+    clock_repaired=loaded_pomodoro_index!=pomodoro_current_idx;
     JsonArray pm_arr = doc["pom_presets"];
     for (int i = 0; i < PrescriptConst::MAX_POMODORO_PRESETS; i++)
     {
         pomodoro_presets[i].name = pm_arr[i]["n"] | "预设";
         pomodoro_presets[i].work_min = pm_arr[i]["w"] | 25;
         pomodoro_presets[i].rest_min = pm_arr[i]["r"] | 5;
+        if (!SysClockRules::PomodoroDuration(pomodoro_presets[i].work_min,pomodoro_presets[i].rest_min)) {
+            pomodoro_presets[i].work_min=25; pomodoro_presets[i].rest_min=5; clock_repaired=true;
+        }
     }
     JsonObject coin_node = doc["coin_app"];
     if (!coin_node.isNull())
@@ -267,12 +274,20 @@ void SysConfig::load()
     for (int i = 0; i < alarm_count; i++)
     {
         alarms[i].is_active = al_arr[i]["en"] | false;
-        alarms[i].hour = al_arr[i]["h"] | 8;
-        alarms[i].min = al_arr[i]["m"] | 0;
+        const int hour=al_arr[i]["h"] | 8,minute=al_arr[i]["m"] | 0;
+        alarms[i].hour=hour;
+        alarms[i].min=minute;
         alarms[i].name = al_arr[i]["n"] | "闹钟";
         alarms[i].prescript = al_arr[i]["p"] | "唤醒指令";
+        if (!SysClockRules::AlarmTime(hour,minute)) {
+            alarms[i].is_active=false; alarms[i].hour=8; alarms[i].min=0; clock_repaired=true;
+        }
     }
 
+    if (clock_repaired) {
+        Serial.println("[时钟配置] 已修复无效预设索引、时长或闹钟时间。");
+        need_migrate_save=true;
+    }
     schedule_count = doc["schedule_count"] | 0;
     if (schedule_count > PrescriptConst::MAX_SCHEDULES) schedule_count = PrescriptConst::MAX_SCHEDULES;
     JsonArray sc_arr = doc["schedules"];

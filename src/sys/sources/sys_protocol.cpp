@@ -7,6 +7,7 @@
 #include "lang/terminal_lang.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_time.h"
+#include "sys/sys_clock_rules.h"
 #include <time.h>
 
 // 【函数说明】构造 Invalid 解析结果，保留原始命令和错误代码，Router 会把 error 转成 ACK:ERR。
@@ -278,7 +279,7 @@ SysParsedCommand SysProtocol_ParseSingle(const String &raw)
         if (out.index < 0 || out.index >= PrescriptConst::MAX_POMODORO_PRESETS)
             // 【函数说明】构造 Invalid 解析结果，保留原始命令和错误代码，Router 会把 error 转成 ACK:ERR。
             return MakeInvalid(msg, "POM_INVALID_SLOT");
-        if (out.work_min <= 0 || out.rest_min <= 0)
+        if (!SysClockRules::PomodoroDuration(out.work_min,out.rest_min))
             // 【函数说明】构造 Invalid 解析结果，保留原始命令和错误代码，Router 会把 error 转成 ACK:ERR。
             return MakeInvalid(msg, "POM_INVALID_DURATION");
         return out;

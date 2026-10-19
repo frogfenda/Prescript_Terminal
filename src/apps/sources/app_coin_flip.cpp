@@ -13,6 +13,8 @@
 #include "sys/sys_haptic.h"
 #include "sys/sys_event.h" 
 #include "sys/sys_ble.h"   
+#include "sys/sys_ble_json.h"
+#include "sys/sys_psram_json.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_command_result.h"
 #include "ui/ui_coin.h"
@@ -63,10 +65,10 @@ public:
             return;
         for (int i = 0; i < sysConfig.coin_preset_count; i++) {
             CoinPreset& p = sysConfig.coin_presets[i];
-            char buf[256];
-            sprintf(buf, "SYNC:COIN:{\"n\":\"%s\",\"bp\":%d,\"cp\":%d,\"cc\":%d,\"cl\":\"%s\"}",
-                    p.name.c_str(), p.base_power, p.coin_power, p.coin_count, p.coin_colors.c_str());
-            SysBLE_Notify(buf);
+            JsonDocument doc(SysPsramJsonAllocator::Instance());
+            doc["n"]=p.name; doc["bp"]=p.base_power; doc["cp"]=p.coin_power;
+            doc["cc"]=p.coin_count; doc["cl"]=p.coin_colors;
+            SysBLE_NotifyJson("SYNC:COIN:",doc);
             vTaskDelay(pdMS_TO_TICKS(20)); 
         }
     }
@@ -958,10 +960,10 @@ protected:
         if (index == sysConfig.coin_preset_count + 2) 
             return UIStrings::CoinAdvancedItem(lang);
 
-        static char buf[64];
         CoinPreset &p = sysConfig.coin_presets[index - 1];
-        sprintf(buf, "[%s]  %d + %dx%d", p.name.c_str(), p.base_power, p.coin_power, p.coin_count);
-        return buf;
+        char numbers[64]; snprintf(numbers,sizeof(numbers),"]  %d + %dx%d",p.base_power,p.coin_power,p.coin_count);
+        static String label; label="["; label+=p.name; label+=numbers;
+        return label.c_str();
     }
 
    // 【函数说明】硬币菜单/设置项确认入口，按 index 进入快速投掷、技能投掷、设置或预设编辑。

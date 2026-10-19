@@ -6,7 +6,7 @@
 #include <Arduino.h>
 
 // Draws the left HUD panel used by AppMenuBase and returns the panel width.
-// 【接口说明】绘制菜单左侧 HUD：电池、标题、时间、BUS 伪装状态和 TMR 倒计时状态，并返回左栏宽度。
+// 【接口说明】绘制菜单左侧 HUD：电池、标题、时间、BUS、TMR 与番茄专注/休息；状态行自动避让时间，返回左栏宽度。
 int UIHud_DrawLeftPanel(const char* title_text);
 
 // True when HUD content changed by second/minute ticks, NFC emulation, TT2 timer, etc.

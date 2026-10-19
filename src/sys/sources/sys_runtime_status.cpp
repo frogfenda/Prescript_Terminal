@@ -3,6 +3,7 @@
 #include "sys/sys_nfc.h"
 #include "sys/sys_time.h"
 #include "apps/app_countdown.h"
+#include "sys/app_manager.h"
 #include <time.h>
 
 /*
@@ -18,7 +19,7 @@ static volatile bool s_push_notify_requested = false;
  * 如果这里判断没有变化，就不会重画整个菜单 HUD。
  */
 static bool s_has_last = false;
-static SysHudStatus s_last_status = {false, -1, false, -1, 255};
+static SysHudStatus s_last_status = {};
 
 /**
  * 计算当前分钟桶。
@@ -49,6 +50,7 @@ static uint8_t _currentMinuteBucket()
  * 左侧 HUD 当前显示：
  * - NFC 伪装倒计时 BUS；
  * - TT2 倒计时 TMR；
+ * - 番茄应用当前专注/休息及剩余时间（只查询，不在 SYS 维护其业务）；
  * - 当前分钟桶，用于判断时间显示是否需要刷新。
  *
  * 这个函数不直接画 UI，只给 ui_hud / AppMenuBase 提供状态快照。
@@ -58,11 +60,12 @@ SysHudStatus SysRuntime_GetHudStatus()
     int nfc_remaining = SysNfc_GetEmulationRemainingSeconds();
     int countdown_remaining = Countdown_GetRemainingSeconds();
 
-    SysHudStatus status;
+    SysHudStatus status = {};
     status.nfc_active = nfc_remaining > 0;
     status.nfc_remaining_sec = nfc_remaining;
     status.countdown_active = Countdown_IsActive() && countdown_remaining > 0;
     status.countdown_remaining_sec = countdown_remaining;
+    status.pomodoro_active = Pomodoro_GetHudStatus(&status.pomodoro_rest,&status.pomodoro_remaining_sec);
     status.minute_bucket = _currentMinuteBucket();
 
     return status;
@@ -86,6 +89,9 @@ bool SysRuntime_HudStatusChanged()
                    now.nfc_remaining_sec != s_last_status.nfc_remaining_sec ||
                    now.countdown_active != s_last_status.countdown_active ||
                    now.countdown_remaining_sec != s_last_status.countdown_remaining_sec ||
+                   now.pomodoro_active != s_last_status.pomodoro_active ||
+                   now.pomodoro_rest != s_last_status.pomodoro_rest ||
+                   now.pomodoro_remaining_sec != s_last_status.pomodoro_remaining_sec ||
                    now.minute_bucket != s_last_status.minute_bucket;
 
     s_last_status = now;

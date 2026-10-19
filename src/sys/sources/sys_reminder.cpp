@@ -20,6 +20,8 @@ namespace
         uint16_t font_color = 0x07FF;
         uint64_t mailbox_sequence = 0;
         SysMailboxKind mailbox = SysMailboxKind::Private;
+        SysClockReminderSource source = SysClockReminderSource::None;
+        uint64_t event_id = 0;
     };
 
     PendingReminder s_pending[MAX_PENDING_REMINDERS];
@@ -28,14 +30,21 @@ namespace
     bool s_queueFullReported = false;
 }
 
-bool SysReminder_Submit(
+static bool Submit(
     SysReminderKind kind,
     const char *text,
     bool keep_stack,
     uint16_t font_color,
     uint64_t mailbox_sequence,
-    SysMailboxKind mailbox)
+    SysMailboxKind mailbox,
+    SysClockReminderSource source,
+    uint64_t event_id)
 {
+    if (event_id && source!=SysClockReminderSource::None)
+        for (size_t i=0;i<s_count;++i) {
+            const auto &item=s_pending[(s_head+i)%MAX_PENDING_REMINDERS];
+            if (item.source==source && item.event_id==event_id) return true;
+        }
     if (s_count >= MAX_PENDING_REMINDERS)
     {
         // 满队列时收件主循环会重试；一次持续满载只报告一次，不能按每帧速度刷屏。
@@ -52,8 +61,36 @@ bool SysReminder_Submit(
     s_pending[tail].font_color = font_color;
     s_pending[tail].mailbox_sequence = mailbox_sequence;
     s_pending[tail].mailbox = mailbox;
+    s_pending[tail].source = source;
+    s_pending[tail].event_id = event_id;
     ++s_count;
     return true;
+}
+
+bool SysReminder_Submit(SysReminderKind kind,const char *text,bool keep_stack,uint16_t font_color,
+                        uint64_t sequence,SysMailboxKind mailbox)
+{ return Submit(kind,text,keep_stack,font_color,sequence,mailbox,SysClockReminderSource::None,0); }
+
+bool SysReminder_SubmitClock(SysClockReminderSource source,uint64_t event_id,
+    SysReminderPresentation presentation,SysReminderKind kind,const char *text)
+{
+    return Submit(kind,text,presentation==SysReminderPresentation::ReturnToPrevious,0x07FF,0,
+                  SysMailboxKind::Private,source,event_id);
+}
+
+void SysReminder_CancelClock(SysClockReminderSource source)
+{
+    if (source==SysClockReminderSource::None) return;
+    size_t kept=0;
+    // 在环形队列的逻辑顺序内向前压缩，保持其他提醒的 FIFO 和邮箱确认数据。
+    for (size_t read=0;read<s_count;++read) {
+        const size_t at=(s_head+read)%MAX_PENDING_REMINDERS;
+        if (s_pending[at].source==source) continue;
+        const size_t target=(s_head+kept++)%MAX_PENDING_REMINDERS;
+        if (target!=at) s_pending[target]=s_pending[at];
+    }
+    for (size_t i=kept;i<s_count;++i) s_pending[(s_head+i)%MAX_PENDING_REMINDERS]=PendingReminder{};
+    s_count=kept;
 }
 
 void SysReminder_Update()

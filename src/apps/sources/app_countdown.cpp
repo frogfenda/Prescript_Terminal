@@ -1,5 +1,5 @@
 ﻿/*
-【模块职责】TT2 倒计时协议。提供全局倒计时状态、设置页和后台 tick，到点后弹出自定义指令或者默认完成指令。
+【模块职责】TT2 的应用业务及设置/运行页面；后台 tick 推进计时，进出页面不清除运行状态。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/apps/app_countdown.cpp
@@ -8,83 +8,74 @@
 #include "sys/sys_audio.h"
 #include "hal/hal.h"
 #include "ui/ui_frame.h"
+
+// 【计时业务开始】
+/* 【所有权】持续时长只由共用内核推进；完成提示未入队时保留事实，进出页面不能清掉它。 */
 #include "apps/app_countdown.h"
-#include "lang/ui_strings.h"
+#include "sys/sys_clock_rules.h"
+#include "sys/sys_config.h"
 #include "sys/sys_reminder.h"
 #include "sys/sys_sleep_scheduler.h"
-#include <limits.h>
-
-// ==========================================
-// 暴露给 HUD 的全局变量与通信信道
-// ==========================================
-volatile bool g_countdown_active = false;
-uint32_t g_countdown_end_time = 0;
-String g_countdown_cmd = ""; 
-
-// 【新增】：记录用户设定的时间锚点（用于最终播报）
-int g_countdown_set_min = 0;
-int g_countdown_set_sec = 0;
-
-namespace
+#include "sys/sys_feedback.h"
+#include "lang/ui_strings.h"
+namespace {
+SysDurationTimer timer;
+String completion_text;
+int configured_minutes=0,configured_seconds=0;
+uint32_t session=0;
+}
+bool Countdown_TryStart(int minutes,int seconds,const char *text)
 {
-    /** 所有倒计时都限制在 INT32_MAX 毫秒内，使有符号差值判断能安全跨过 millis() 回绕。 */
-    uint32_t CountdownDurationMs(int min, int sec)
-    {
-        if (min < 0) min = 0;
-        if (sec < 0) sec = 0;
-        uint64_t duration = ((uint64_t)min * 60ULL + (uint64_t)sec) * 1000ULL;
-        return duration > (uint64_t)INT32_MAX ? (uint32_t)INT32_MAX : (uint32_t)duration;
+    if (!SysClockRules::CountdownDuration(minutes,seconds)) return false;
+    const uint32_t now=millis();
+    SysReminder_CancelClock(SysClockReminderSource::Countdown);
+    timer.start(((uint32_t)minutes*60U+seconds)*1000U,now);
+    configured_minutes=minutes; configured_seconds=seconds; completion_text=text ? text : "";
+    if (++session==0) ++session;
+    SysSleep_ScheduleDeadlineMs(SysSleepSource::Countdown,timer.snapshot(now).deadline_ms,SysSleepWakeAction::Foreground);
+    return true;
+}
+void Countdown_Update(uint32_t now)
+{
+    if (timer.advance(now)) {
+        SysSleep_Cancel(SysSleepSource::Countdown);
+        // 完成正文只生成一次；队列满时每轮仅重试投递，不反复分配/格式化长字符串。
+        if (completion_text.isEmpty()) {
+            char buffer[128];
+            snprintf(buffer,sizeof(buffer),UIStrings::CountdownDoneFormat(TerminalLang::Normalize(sysConfig.language)),
+                     configured_minutes,configured_seconds);
+            completion_text=buffer;
+        }
     }
-
-    bool CountdownDeadlineReached(uint32_t now)
-    {
-        return (int32_t)(now - g_countdown_end_time) >= 0;
-    }
-
-    uint32_t CountdownRemainingMs(uint32_t now)
-    {
-        return CountdownDeadlineReached(now) ? 0 : (uint32_t)(g_countdown_end_time - now);
+    if (!timer.snapshot(now).completion_pending) return;
+    if (SysReminder_SubmitClock(SysClockReminderSource::Countdown,session,SysReminderPresentation::Interrupt,
+                                SysReminderKind::Custom,completion_text.c_str())) {
+        timer.acknowledge(); Feedback_PlayTimerDone();
     }
 }
-
-// ==========================================
-// 【核心接口】：供外界其他应用“一键拉起”TT2协议！
-// 调用方法：Countdown_Start(5, 0, "面条已经泡好了");
-// 如果 custom_cmd 传 nullptr 或 ""，则默认走 TT2 协议文案
-// ==========================================
-// 【函数说明】启动全局 TT2 倒计时：计算结束时间，保存完成指令文本，并让 HUD 能显示 TMR 剩余时间。
-void Countdown_Start(int min, int sec, const char* custom_cmd) {
-    uint32_t duration_ms = CountdownDurationMs(min, sec);
-    g_countdown_set_min = min;
-    g_countdown_set_sec = sec;
-    g_countdown_end_time = millis() + duration_ms;
-    
-    if (custom_cmd && strlen(custom_cmd) > 0) {
-        g_countdown_cmd = custom_cmd;
-    } else {
-        g_countdown_cmd = "";
-    }
-    g_countdown_active = true;
-    /* 倒计时属于持续时长，不转换为 RTC epoch，避免网络/手动校时改变剩余时间。 */
-    SysSleep_ScheduleAfterMs(SysSleepSource::Countdown, duration_ms, SysSleepWakeAction::Foreground);
+bool Countdown_Cancel()
+{
+    const uint32_t now=millis(); Countdown_Update(now);
+    if (!timer.cancel(now)) return false; // 已经到期的事实不能被取消按钮擦掉。
+    SysSleep_Cancel(SysSleepSource::Countdown); SysReminder_CancelClock(SysClockReminderSource::Countdown);
+    return true;
 }
-
-// 【函数说明】判断当前 millis 是否还没有超过结束时间，超过后自动认为倒计时结束。
-bool Countdown_IsActive() {
-    return g_countdown_active;
+CountdownSnapshot Countdown_GetSnapshot()
+{
+    const auto state=timer.snapshot(millis());
+    return {state,state.state==SysDurationState::Running || state.state==SysDurationState::Paused || state.completion_pending,
+            configured_minutes,configured_seconds};
 }
-
-// 【函数说明】把结束时间减去当前 millis 转换成秒数，低于 0 时返回 0。
-int Countdown_GetRemainingSeconds() {
-    if (!g_countdown_active) return 0;
-    uint32_t now = millis();
-    return (int)(CountdownRemainingMs(now) / 1000);
-}
+void Countdown_Start(int minutes,int seconds,const char *text)
+{ if (!Countdown_TryStart(minutes,seconds,text)) Serial.println("[倒计时] 时长超出允许范围，本次启动未执行。"); }
+bool Countdown_IsActive() { return Countdown_GetSnapshot().active; }
+int Countdown_GetRemainingSeconds() { return (int)SysDurationDisplaySeconds(Countdown_GetSnapshot().timer.remaining_ms); }
+// 【计时业务结束】
 
 class AppCountdown : public AppBase {
 private:
     int m, s, phase;
-    
+
     DialAnimator dialAnim;       // 机械滚轮引擎
     TacticalLinkEngine linkAnim; // 战术链路引擎
 
@@ -114,8 +105,8 @@ private:
                 dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), s, 0, 59, "");
             } else if (phase == 2) {
                 int remain = 0;
-                if (g_countdown_active) {
-                    remain = CountdownRemainingMs(millis()) / 1000;
+                if (Countdown_IsActive()) {
+                    remain = Countdown_GetRemainingSeconds();
                 }
                 char t_buf[16];
                 sprintf(t_buf, "%02d : %02d", remain / 60, remain % 60);
@@ -150,28 +141,18 @@ private:
     }
 
 public:
-    // 【函数说明】注册倒计时 App 为后台 App，让它在离开页面后仍能检查到点。
-    void onSystemInit() override {
-        // 向系统管家申请后台巡逻权限，这是实现“跨应用弹窗”的核心！
-        appManager.registerBackgroundApp(this);
-    }
+    // 功能业务注册到已有 App 后台钩子，页面退出/被提醒替换后仍按主循环推进，不新增任务。
+    void onSystemInit() override { appManager.registerBackgroundApp(this); }
+    void onBackgroundTick() override { Countdown_Update(millis()); }
 
     // 【函数说明】进入倒计时页面：读取上次设置的分钟/秒数，初始化阶段为设置分钟并绘制界面。
     void onCreate() override {
         dialAnim.reset();
-        if (g_countdown_active) {
-            if (CountdownDeadlineReached(millis())) {
-                g_countdown_active = false; 
-                SysSleep_Cancel(SysSleepSource::Countdown);
-                phase = 0; m = 5; s = 0;
-            } else {
-                phase = 2; // 后台正在跑，直接切到倒计时画面
-            }
-        } else {
-            phase = 0; 
-            m = 5; 
-            s = 0;
-        }
+        // 进入页面只读取应用状态，已经到期但尚未入队的完成事实也会保留。
+        const auto snapshot=Countdown_GetSnapshot();
+        phase=snapshot.active ? 2 : 0;
+        m=snapshot.active ? snapshot.minutes : 5;
+        s=snapshot.active ? snapshot.seconds : 0;
         linkAnim.reset(phase);
         last_sec = -1;
         drawUI();
@@ -186,7 +167,7 @@ public:
         bool time_tick = false;
 
         // 【极客联动】：如果在设定时被外部接口强行拉起倒计时，UI 瞬间跃迁到执行模式
-        if (g_countdown_active && phase < 2) {
+        if (Countdown_IsActive() && phase < 2) {
             phase = 2;
             linkAnim.jumpTo(2);
             drawUI();
@@ -194,11 +175,11 @@ public:
 
         if (phase == 2) {
             // 若被后台弹窗抢先处理完毕，或被外部取消，自动退栈
-            if (!g_countdown_active) {
+            if (!Countdown_IsActive()) {
                 appManager.popApp();
                 return;
             } else {
-                int current_sec = CountdownRemainingMs(millis()) / 1000;
+                int current_sec = Countdown_GetRemainingSeconds();
                 if (current_sec != last_sec) {
                     last_sec = current_sec;
                     time_tick = true;
@@ -208,31 +189,6 @@ public:
 
         if (linkAnim.redrawDue(d_anim || l_anim || time_tick)) {
             drawUI();
-        }
-    }
-
-    // 【函数说明】后台检查倒计时是否到点，到点后触发完成反馈并弹出 PushNotify。
-    void onBackgroundTick() override {
-        // ==========================================
-        // 【核心守护】：到达未来！
-        // ==========================================
-        if (g_countdown_active && CountdownDeadlineReached(millis())) {
-            String notify_cmd = g_countdown_cmd;
-            
-            // 如果外界没有传入特定的指令，则生成 TT2 协议专属报幕！
-            if (notify_cmd.isEmpty()) {
-                char t_buf[128];
-                snprintf(t_buf, sizeof(t_buf), UIStrings::CountdownDoneFormat(appManager.getLanguage()), g_countdown_set_min, g_countdown_set_sec);
-                notify_cmd = t_buf;
-            }
-            
-            // 去掉 TXT，直接推纯文本
-            if (!SysReminder_Submit(SysReminderKind::Custom, notify_cmd.c_str(), false))
-                return;
-
-            g_countdown_active = false;
-            SysSleep_Cancel(SysSleepSource::Countdown);
-            Feedback_PlayTimerDone();
         }
     }
 
@@ -247,7 +203,7 @@ public:
             dialAnim.trigger(delta);
             linkAnim.triggerDial(delta);
             SYS_SOUND_GLITCH();
-        } 
+        }
         else if (phase == 1) {
             s += delta;
             if (s < 0) s = 59;
@@ -259,33 +215,26 @@ public:
         // 调值只累计动画增量，由 onLoop 在帧节拍统一绘制，避免同轮重复推屏。
     }
 
-    // 【函数说明】短按推进“分钟→秒钟→启动”流程；运行阶段短按暂停/继续当前倒计时显示。
+    // 【函数说明】短按推进“分钟→秒钟→启动”；运行阶段短按打开中止确认，不直接清除到期事实。
     void onKeyShort() override {
         dialAnim.reset();
         SYS_SOUND_CONFIRM();
         if (phase == 0) {
             phase = 1;
             drawUI();
-        } 
+        }
         else if (phase == 1) {
             if (m == 0 && s == 0) return; // 0秒防呆
             phase = 2;
-            g_countdown_cmd = ""; // 手工发起的 TT2 协议，清空外部传入指令
-            g_countdown_set_min = m;
-            g_countdown_set_sec = s;
-            g_countdown_active = true;
-            uint32_t duration_ms = CountdownDurationMs(m, s);
-            g_countdown_end_time = millis() + duration_ms;
-            SysSleep_ScheduleAfterMs(SysSleepSource::Countdown, duration_ms, SysSleepWakeAction::Foreground);
+            if (!Countdown_TryStart(m,s)) return;
             drawUI();
-        } 
+        }
         else if (phase == 2) {
             phase = 3; // 弹出“危险操作”确认撤收
             drawUI();
-        } 
+        }
         else if (phase == 3) {
-            g_countdown_active = false;
-            SysSleep_Cancel(SysSleepSource::Countdown);
+            if (!Countdown_Cancel()) return;
             phase = 0; // 确认撤收，回到重设状态
             linkAnim.jumpTo(0);
             drawUI();
@@ -299,18 +248,18 @@ public:
             SYS_SOUND_NAV();
             phase = 2; // 取消撤收，返回倒计时
             drawUI();
-        } 
+        }
         else if (phase == 1) {
             SYS_SOUND_NAV();
             phase = 0; // 取消设秒，返回设分
             drawUI();
-        } 
+        }
         else {
             SYS_SOUND_NAV();
-            appManager.popApp(); 
+            appManager.popApp();
         }
     }
 };
 
 AppCountdown instanceCountdown;
-AppBase *appCountdown = &instanceCountdown; 
+AppBase *appCountdown = &instanceCountdown;

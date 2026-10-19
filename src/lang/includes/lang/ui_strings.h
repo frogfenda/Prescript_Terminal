@@ -715,16 +715,29 @@ namespace UIStrings
     }
 
     // 【番茄钟】运行态、预设选择和当前预设编辑文本。
-    inline const char *PomodoroPausedStatus(SystemLang_t lang)
+    inline const char *PomodoroPhaseName(SystemLang_t lang, int phase)
     {
-        return IsZh(lang) ? "已暂停 (单击继续 / 长按终止)" : "PAUSED (CLICK:RESUME/LONG:STOP)";
+        return IsZh(lang) ? (phase==0 ? "专注" : "休息") : (phase==0 ? "FOCUS" : "REST");
     }
-
-    inline const char *PomodoroPhaseStatus(SystemLang_t lang, int phase)
+    inline const char **PomodoroRunSteps(SystemLang_t lang)
     {
-        if (IsZh(lang))
-            return phase == 0 ? "正在执行专注..." : "正在休眠恢复...";
-        return phase == 0 ? "WORKING..." : "RESTING...";
+        static const char *zh_items[]={"专注","休息"};
+        static const char *en_items[]={"FOCUS","REST"};
+        return IsZh(lang) ? zh_items : en_items;
+    }
+    inline const char *PomodoroRunningTip(SystemLang_t lang, int phase)
+    {
+        if (IsZh(lang)) return phase==0 ? "长按退出(后台运行) / 单击休息" : "长按退出(后台运行) / 单击结束";
+        return phase==0 ? "LONG: EXIT(BG) / CLICK: REST" : "LONG: EXIT(BG) / CLICK: END";
+    }
+    inline const char *PomodoroFinishTitle(SystemLang_t lang, int phase)
+    {
+        if (IsZh(lang)) return phase==0 ? "结束专注并开始休息？" : "提前结束本轮休息？";
+        return phase==0 ? "END FOCUS AND START REST?" : "END THIS REST EARLY?";
+    }
+    inline const char *PomodoroFinishHint(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "长按取消 / 单击确认" : "LONG: CANCEL / CLICK: CONFIRM";
     }
 
     inline const char *PomodoroWorkDonePrescript(SystemLang_t lang)
@@ -735,11 +748,6 @@ namespace UIStrings
     inline const char *PomodoroRestDonePrescript(SystemLang_t lang)
     {
         return IsZh(lang) ? "休眠恢复完毕。系统已重置，准备接受新的专注指令。" : "REST CYCLE COMPLETED. SYSTEM RESET. READY FOR NEXT TASK.";
-    }
-
-    inline const char *PomodoroForceRestPrescript(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "立刻去休息。" : "GO REST IMMEDIATELY.";
     }
 
     inline const char **PomodoroEditStepNames(SystemLang_t lang)
@@ -776,6 +784,10 @@ namespace UIStrings
     inline const char *PomodoroRunLabel(SystemLang_t lang)
     {
         return IsZh(lang) ? "执行专注" : "RUN";
+    }
+    inline const char *PomodoroResumeLabel(SystemLang_t lang, int phase)
+    {
+        return IsZh(lang) ? (phase==0 ? "继续专注" : "继续休息") : (phase==0 ? "RESUME FOCUS" : "RESUME REST");
     }
 
     // 【提取部统计】抽卡统计页的标题、统计项和清空提示。

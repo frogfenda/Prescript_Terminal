@@ -12,6 +12,8 @@
 #include <time.h>
 #include "sys/sys_event.h"
 #include "sys/sys_ble.h"
+#include "sys/sys_ble_json.h"
+#include "sys/sys_psram_json.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_time.h"
 #include "lang/ui_strings.h"
@@ -24,7 +26,7 @@ void _Cb_SchSync(void* payload);
 
 void Schedule_DeleteMobile(const char *title)
 {
-    String target = String(title);
+    String target = String(title ? title : "");
     target.trim();
     if (target.length() == 0)
     {
@@ -87,7 +89,7 @@ void Sort_Schedules()
 // 【函数说明】处理 SCH/SCH_HID 命令：校验重复和容量，必要时回收过期项，再写入普通/隐藏日程并排序保存。
 void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden)
 {
-    String safeTitle = String(title);
+    String safeTitle = String(title ? title : "");
     safeTitle.trim();
     if (safeTitle.length() == 0)
     {
@@ -455,7 +457,7 @@ AppBase *appScheduleEdit = &instanceScheduleEdit;
 
 class AppScheduleExpired : public AppMenuBase
 {
-    int expired_indices[15];
+    int expired_indices[PrescriptConst::MAX_SCHEDULES];
     int expired_count;
 
 protected:
@@ -472,10 +474,11 @@ protected:
         struct tm t_info;
         time_t tt = s.target_time;
         localtime_r(&tt, &t_info);
-        static char buf[64];
         const char *mark = (index == current_selection) ? " <" : "";
-        snprintf(buf, sizeof(buf), "%02d/%02d %02d:%02d %s %s%s", t_info.tm_mon + 1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min, s.title.c_str(), UIStrings::ScheduleExpiredMark(lang), mark);
-        return buf;
+        char date[32];
+        snprintf(date,sizeof(date),"%02d/%02d %02d:%02d ",t_info.tm_mon+1,t_info.tm_mday,t_info.tm_hour,t_info.tm_min);
+        static String label; label=date; label+=s.title; label+=" "; label+=UIStrings::ScheduleExpiredMark(lang); label+=mark;
+        return label.c_str();
     }
     // 【函数说明】日程菜单点击入口：选择已有日程编辑，选择新增进入编辑器，选择过期列表进入清理页。
     void onItemClicked(int index) override
@@ -513,7 +516,7 @@ AppBase *appScheduleExpired = &instanceScheduleExpired;
 
 class AppScheduleMenu : public AppMenuBase
 {
-    int active_indices[15];
+    int active_indices[PrescriptConst::MAX_SCHEDULES];
     int active_count;
 
 protected:
@@ -544,10 +547,11 @@ protected:
         struct tm t_info;
         time_t tt = s.target_time;
         localtime_r(&tt, &t_info);
-        static char buf[64];
         const char *mark = (index == current_selection) ? " <" : "";
-        sprintf(buf, "%02d/%02d %02d:%02d %s%s", t_info.tm_mon + 1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min, s.title.c_str(), mark);
-        return buf;
+        char date[32];
+        snprintf(date,sizeof(date),"%02d/%02d %02d:%02d ",t_info.tm_mon+1,t_info.tm_mday,t_info.tm_hour,t_info.tm_min);
+        static String label; label=date; label+=s.title;  label+=mark;
+        return label.c_str();
     }
     // 【函数说明】日程菜单点击入口：选择已有日程编辑，选择新增进入编辑器，选择过期列表进入清理页。
     void onItemClicked(int index) override
@@ -616,23 +620,16 @@ void _Cb_SchDel(void *payload)
 // 【函数说明】WebBLE 同步回调：把日程数组打包成 SYNC:SCH JSON 回传网页。
 void _Cb_SchSync(void *payload)
 {
-    if (!SysEvent_BleSyncScopeMatches(payload, "SCH"))
-        return;
-    for (int i = 0; i < sysConfig.schedule_count; i++)
-    {
-        if (sysConfig.schedules[i].is_expired || sysConfig.schedules[i].is_hidden)
-            continue;
-        struct tm t_info;
-        time_t tt = sysConfig.schedules[i].target_time;
-        localtime_r(&tt, &t_info);
-        char dt[32];
-        sprintf(dt, "%04d-%02d-%02dT%02d:%02d", t_info.tm_year + 1900, t_info.tm_mon + 1, t_info.tm_mday, t_info.tm_hour, t_info.tm_min);
-        String safeName = sysConfig.schedules[i].title.c_str();
-        safeName.replace("\"", "\\\"");
-        String safeTxt = sysConfig.schedules[i].prescript.c_str();
-        safeTxt.replace("\"", "\\\"");
-        String out = "SYNC:SCH:{\"dt\":\"" + String(dt) + "\",\"n\":\"" + safeName + "\",\"t\":\"" + safeTxt + "\"}";
-        SysBLE_Notify(out.c_str());
+    if (!SysEvent_BleSyncScopeMatches(payload, "SCH")) return;
+    for (int i=0;i<sysConfig.schedule_count;++i) {
+        const auto &item=sysConfig.schedules[i];
+        if (item.is_expired || item.is_hidden) continue;
+        const time_t epoch=item.target_time; struct tm local={}; localtime_r(&epoch,&local);
+        char date[32]; snprintf(date,sizeof(date),"%04d-%02d-%02dT%02d:%02d",
+            local.tm_year+1900,local.tm_mon+1,local.tm_mday,local.tm_hour,local.tm_min);
+        JsonDocument doc(SysPsramJsonAllocator::Instance());
+        doc["dt"]=date; doc["n"]=item.title; doc["t"]=item.prescript;
+        SysBLE_NotifyJson("SYNC:SCH:",doc);
         delay(50);
     }
 }
