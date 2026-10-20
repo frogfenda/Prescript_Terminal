@@ -14,6 +14,9 @@ struct PomodoroPreset
     String name;
     uint32_t work_min;
     uint32_t rest_min;
+    uint32_t rounds = 4;
+    uint32_t completed_rounds = 0;
+    uint32_t focus_seconds = 0;
 };
 
 struct AlarmPreset

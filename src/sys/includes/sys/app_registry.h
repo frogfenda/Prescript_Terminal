@@ -33,6 +33,7 @@ enum class AppId : uint8_t
     PomodoroRun,
     PomodoroPresets,
     PomodoroEdit,
+    PomodoroStats,
     Alarm,
     AlarmEdit,
     Schedule,

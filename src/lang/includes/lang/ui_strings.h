@@ -752,8 +752,8 @@ namespace UIStrings
 
     inline const char **PomodoroEditStepNames(SystemLang_t lang)
     {
-        static const char *zh_items[] = {"专注时长", "休息时长"};
-        static const char *en_items[] = {"WORK MIN", "REST MIN"};
+        static const char *zh_items[] = {"专注时长", "休息时长", "轮次数目"};
+        static const char *en_items[] = {"FOCUS MIN", "REST MIN", "ROUNDS"};
         return IsZh(lang) ? zh_items : en_items;
     }
 
@@ -761,6 +761,33 @@ namespace UIStrings
     {
         return IsZh(lang) ? "长按取消 / 单击确认" : "LONG: CANCEL / CLICK: OK";
     }
+
+    inline const char *PomodoroWaitingTip(SystemLang_t lang, bool completed)
+    {
+        if (IsZh(lang)) return completed ? "本组已完成 / 单击重新开始" : "休息结束 / 单击开始下一轮";
+        return completed ? "SET COMPLETE / CLICK TO RESTART" : "REST DONE / CLICK TO START NEXT";
+    }
+
+    inline const char *PomodoroRoundLabel(SystemLang_t lang)
+    { return IsZh(lang) ? "轮次" : "ROUND"; }
+
+    inline const char *PomodoroStatsTitle(SystemLang_t lang)
+    { return IsZh(lang) ? "专注统计" : "FOCUS STATISTICS"; }
+
+    inline const char *PomodoroStatsClear(SystemLang_t lang)
+    { return IsZh(lang) ? "清空当前统计" : "CLEAR CURRENT STATS"; }
+
+    inline const char *PomodoroCompletedLabel(SystemLang_t lang)
+    { return IsZh(lang) ? "完成轮数" : "COMPLETED ROUNDS"; }
+
+    inline const char *PomodoroFocusTimeLabel(SystemLang_t lang)
+    { return IsZh(lang) ? "总专注时长" : "TOTAL FOCUS TIME"; }
+
+    inline const char *PomodoroStatsClearTitle(SystemLang_t lang)
+    { return IsZh(lang) ? "清空当前预设统计？" : "CLEAR CURRENT PRESET STATS?"; }
+
+    inline const char *PomodoroStatsClearHint(SystemLang_t lang)
+    { return IsZh(lang) ? "长按取消 / 单击确认" : "LONG: CANCEL / CLICK: CONFIRM"; }
 
     inline const char *PomodoroPresetTitle(SystemLang_t lang)
     {
@@ -774,9 +801,9 @@ namespace UIStrings
 
     inline const char *PomodoroMenuItem(SystemLang_t lang, int index)
     {
-        static const char *zh_items[] = {"", "选择系统预设库", "修改当前预设时间"};
-        static const char *en_items[] = {"", "SELECT PRESET", "EDIT CURRENT PRESET"};
-        if (index < 0 || index >= 3)
+        static const char *zh_items[] = {"", "选择系统预设库", "修改当前预设", "显示统计信息"};
+        static const char *en_items[] = {"", "SELECT PRESET", "EDIT CURRENT PRESET", "SHOW STATISTICS"};
+        if (index < 0 || index >= 4)
             return "";
         return IsZh(lang) ? zh_items[index] : en_items[index];
     }

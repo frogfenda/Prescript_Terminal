@@ -2,9 +2,11 @@
 #pragma once
 #include <stdint.h>
 namespace SysClockRules {
-constexpr int WorkMaxMinutes = 120, RestMaxMinutes = 60, CountdownMaxMinutes = 99;
+constexpr int WorkMaxMinutes = 120, RestMaxMinutes = 60, CountdownMaxMinutes = 99, PomodoroMaxRounds = 12;
 inline bool PomodoroDuration(int work, int rest)
 { return work >= 1 && work <= WorkMaxMinutes && rest >= 1 && rest <= RestMaxMinutes; }
+inline bool PomodoroRounds(int rounds)
+{ return rounds >= 1 && rounds <= PomodoroMaxRounds; }
 inline bool CountdownDuration(int minutes, int seconds)
 { return minutes >= 0 && minutes <= CountdownMaxMinutes && seconds >= 0 && seconds <= 59 && (minutes || seconds); }
 inline bool AlarmTime(int hour, int minute)

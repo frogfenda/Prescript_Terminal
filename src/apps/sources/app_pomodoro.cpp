@@ -35,8 +35,8 @@ struct PomodoroSnapshot
 {
     SysDurationSnapshot timer;
     PomodoroPhase phase;
-    bool active, completion_pending;
-    uint32_t revision, session;
+    bool active, completion_pending, waiting_for_next, set_completed;
+    uint32_t round, rounds, revision, session;
     const char *name; // 借用应用快照名称，仅当帧使用；下一次 Start 后可能失效，不逐帧复制长字符串。
 };
 namespace {
@@ -44,7 +44,8 @@ SysDurationTimer timer;
 PomodoroPreset preset;
 PomodoroPhase phase=PomodoroPhase::Work;
 bool active=false,work_notice=false,rest_notice=false;
-uint32_t session=0,revision=0;
+bool waiting_for_next=false,set_completed=false;
+uint32_t session_round=0,session=0,revision=0;
 void Schedule(uint32_t now)
 { SysSleep_ScheduleDeadlineMs(SysSleepSource::Pomodoro,timer.snapshot(now).deadline_ms,SysSleepWakeAction::Foreground); }
 void FlushNotices()
@@ -60,12 +61,25 @@ void FlushNotices()
             SysReminderPresentation::Interrupt,SysReminderKind::Custom,UIStrings::PomodoroRestDonePrescript(lang)))
         { rest_notice=false; ++revision; }
 }
+void RecordFocusCompletion()
+{
+    const int index=sysConfig.pomodoro_current_idx;
+    if (index<0 || index>=PrescriptConst::MAX_POMODORO_PRESETS) return;
+    auto &saved=sysConfig.pomodoro_presets[index];
+    if (saved.completed_rounds!=UINT32_MAX) ++saved.completed_rounds;
+    const uint32_t seconds=preset.work_min*60U;
+    saved.focus_seconds=(UINT32_MAX-saved.focus_seconds<seconds)?UINT32_MAX:saved.focus_seconds+seconds;
+    sysConfig.save();
 }
-bool Pomodoro_SetPreset(int index,const char *name,int work,int rest)
+}
+bool Pomodoro_SetPreset(int index,const char *name,int work,int rest,int rounds=-1)
 {
     if (index<0 || index>=PrescriptConst::MAX_POMODORO_PRESETS || !SysClockRules::PomodoroDuration(work,rest)) return false;
     String safe=name ? name : ""; safe.trim(); if (safe.isEmpty()) safe="PRESET";
-    auto &target=sysConfig.pomodoro_presets[index]; target.name=safe; target.work_min=work; target.rest_min=rest;
+    auto &target=sysConfig.pomodoro_presets[index];
+    const int safe_rounds=rounds<1 ? (int)target.rounds : rounds;
+    if (!SysClockRules::PomodoroRounds(safe_rounds)) return false;
+    target.name=safe; target.work_min=work; target.rest_min=rest; target.rounds=safe_rounds;
     sysConfig.save(); return true;
 }
 
@@ -90,11 +104,17 @@ bool Pomodoro_Start()
     const int index=sysConfig.pomodoro_current_idx;
     if (index>=PrescriptConst::MAX_POMODORO_PRESETS) return false;
     const auto &selected=sysConfig.pomodoro_presets[index];
-    if (!SysClockRules::PomodoroDuration(selected.work_min,selected.rest_min)) return false;
+    if (!SysClockRules::PomodoroDuration(selected.work_min,selected.rest_min) || !SysClockRules::PomodoroRounds(selected.rounds)) return false;
     SysReminder_CancelClock(SysClockReminderSource::Pomodoro);
-    preset=selected; phase=PomodoroPhase::Work; active=true;
+    preset=selected; phase=PomodoroPhase::Work; active=true; waiting_for_next=false; set_completed=false; session_round=0;
     if (++session==0) ++session;
     ++revision;
+    const uint32_t now=millis(); timer.start(preset.work_min*60000U,now); Schedule(now); return true;
+}
+bool Pomodoro_StartNextRound()
+{
+    if (active || !waiting_for_next || work_notice || rest_notice || session_round>=preset.rounds) return false;
+    waiting_for_next=false; set_completed=false; phase=PomodoroPhase::Work; active=true; ++revision;
     const uint32_t now=millis(); timer.start(preset.work_min*60000U,now); Schedule(now); return true;
 }
 void Pomodoro_Update(uint32_t now)
@@ -104,9 +124,11 @@ void Pomodoro_Update(uint32_t now)
         const uint32_t completed_at=timer.snapshot(now).deadline_ms;
         timer.acknowledge(); SysSleep_Cancel(SysSleepSource::Pomodoro); ++revision;
         if (phase==PomodoroPhase::Work) {
+            if (session_round<preset.rounds) ++session_round;
+            RecordFocusCompletion();
             phase=PomodoroPhase::Rest; work_notice=true;
             timer.start(preset.rest_min*60000U,completed_at); Schedule(now);
-        } else { active=false; rest_notice=true; }
+        } else { active=false; waiting_for_next=session_round<preset.rounds; set_completed=!waiting_for_next; rest_notice=true; }
     }
     FlushNotices();
 }
@@ -120,13 +142,13 @@ bool Pomodoro_FinishPhase(uint32_t expected_session,PomodoroPhase expected_phase
         phase=PomodoroPhase::Rest;
         timer.start(preset.rest_min*60000U,now); Schedule(now); return true;
     }
-    timer.cancel(now); active=false; work_notice=rest_notice=false;
+    timer.cancel(now); active=false; waiting_for_next=session_round<preset.rounds; set_completed=!waiting_for_next; work_notice=rest_notice=false;
     SysSleep_Cancel(SysSleepSource::Pomodoro); SysReminder_CancelClock(SysClockReminderSource::Pomodoro); return true;
 }
 PomodoroSnapshot Pomodoro_GetSnapshot()
 {
     const auto state=timer.snapshot(millis());
-    return {state,phase,active,work_notice||rest_notice,revision,session,preset.name.c_str()};
+    return {state,phase,active,work_notice||rest_notice,waiting_for_next,set_completed,session_round,preset.rounds,revision,session,preset.name.c_str()};
 }
 /** 主循环 HUD 查询只复制两个小字段；业务仍归本 App，不把阶段状态迁入 SYS。 */
 bool Pomodoro_GetHudStatus(bool *rest,int *remaining_seconds)
@@ -140,7 +162,7 @@ bool Pomodoro_GetHudStatus(bool *rest,int *remaining_seconds)
 
 // 【运行页绘制开始】
 // 复用倒计时的两段导轨、红绳和底部提示；读数与预设名称按 428×142 的剩余区域分行排布。
-void Pomodoro_DrawRunning(TacticalLinkEngine &link,SystemLang_t lang,int phase,int seconds,const char *name,int name_width)
+void Pomodoro_DrawRunning(TacticalLinkEngine &link,SystemLang_t lang,int phase,int seconds,const char *name,int name_width,uint32_t round,uint32_t rounds)
 {
     link.draw(UITheme::EditFlow::LinkY(),UIStrings::PomodoroRunSteps(lang),2,phase,110);
     const int screen_w=HAL_Get_Screen_Width();
@@ -150,6 +172,8 @@ void Pomodoro_DrawRunning(TacticalLinkEngine &link,SystemLang_t lang,int phase,i
     UIText::DrawClippedFaded(max(24,(screen_w-name_width)/2),name_y,name,0.55f,24,screen_w-24);
     char time[20]; snprintf(time,sizeof(time),"%02d : %02d",seconds/60,seconds%60);
     UIText::DrawCentered(time_y,time);
+    char round_text[32]; snprintf(round_text,sizeof(round_text),"%s %u/%u",UIStrings::PomodoroRoundLabel(lang),(unsigned)(round ? round : 1),(unsigned)rounds);
+    UIText::DrawCentered(time_y+HAL_Get_Font_Line_Height(HAL_FONT_BODY)+4,round_text);
     UIFrame::DrawTip(UIStrings::PomodoroRunningTip(lang,phase));
 }
 // 【运行页绘制结束】
@@ -175,9 +199,16 @@ class AppPomodoroRun : public AppBase {
         if (confirming) {
             UIFrame::DrawDangerConfirm(UIStrings::DangerTitle(lang),
                 UIStrings::PomodoroFinishTitle(lang,(int)confirm_phase),UIStrings::PomodoroFinishHint(lang));
+        } else if (!snapshot.active) {
+            link.draw(UITheme::EditFlow::LinkY(),UIStrings::PomodoroRunSteps(lang),2,snapshot.set_completed ? 1 : 0,110);
+            UIText::DrawCentered(UITheme::EditFlow::DialY(),UIStrings::PomodoroWaitingTip(lang,snapshot.set_completed));
+            char round_text[32];
+            snprintf(round_text,sizeof(round_text),"%s %u/%u",UIStrings::PomodoroRoundLabel(lang),(unsigned)snapshot.round,(unsigned)snapshot.rounds);
+            UIText::DrawCentered(UITheme::EditFlow::DialY()+HAL_Get_Font_Line_Height(HAL_FONT_BODY)+4,round_text);
+            UIFrame::DrawTip(UIStrings::PomodoroWaitingTip(lang,snapshot.set_completed));
         } else {
             const int seconds=(int)SysDurationDisplaySeconds(snapshot.timer.remaining_ms);
-            Pomodoro_DrawRunning(link,lang,(int)snapshot.phase,seconds,snapshot.name,name_width);
+            Pomodoro_DrawRunning(link,lang,(int)snapshot.phase,seconds,snapshot.name,name_width,snapshot.round,snapshot.rounds);
         }
         last_sec=SysDurationDisplaySeconds(snapshot.timer.remaining_ms); last_revision=snapshot.revision;
         HAL_Screen_Update();
@@ -187,7 +218,7 @@ public:
     void onCreate() override
     {
         auto snapshot=Pomodoro_GetSnapshot();
-        if (!snapshot.active && !snapshot.completion_pending) {
+        if (!snapshot.active && !snapshot.completion_pending && !snapshot.waiting_for_next && !snapshot.set_completed) {
             Pomodoro_Start(); snapshot=Pomodoro_GetSnapshot();
         }
         confirming=false; link.reset((int)snapshot.phase);
@@ -200,8 +231,8 @@ public:
     void onLoop() override
     {
         const auto snapshot=Pomodoro_GetSnapshot();
-        if (!snapshot.active) { appManager.popApp(); return; }
         bool changed=snapshot.revision!=last_revision || SysDurationDisplaySeconds(snapshot.timer.remaining_ms)!=last_sec;
+        if (!snapshot.active) { if (changed) drawUI(); return; }
         if (confirming) {
             if (confirmationCurrent(snapshot)) return; // 确认期间照常计时，静态弹窗不跟着秒数反复推屏。
             confirming=false; changed=true;
@@ -214,7 +245,11 @@ public:
     {
         Pomodoro_Update(millis());
         const auto snapshot=Pomodoro_GetSnapshot();
-        if (!snapshot.active) { appManager.popApp(); return; }
+        if (!snapshot.active) {
+            if (snapshot.waiting_for_next) Pomodoro_StartNextRound();
+            else if (snapshot.set_completed) Pomodoro_Start();
+            drawUI(); return;
+        }
         SYS_SOUND_CONFIRM();
         if (!confirming) {
             confirm_session=snapshot.session; confirm_phase=snapshot.phase; confirming=true;
@@ -222,7 +257,7 @@ public:
             confirming=false;
             if (confirmationCurrent(snapshot) && Pomodoro_FinishPhase(confirm_session,confirm_phase)) {
                 const auto current=Pomodoro_GetSnapshot();
-                if (!current.active) { appManager.popApp(); return; }
+                if (!current.active) { drawUI(); return; }
                 link.jumpTo((int)current.phase);
             }
         }
@@ -243,6 +278,7 @@ private:
     int phase;
     int t_work;
     int t_rest;
+    int t_rounds;
     int preset_index;
 
     DialAnimator dialAnim;        // 实例化刻度盘引擎
@@ -255,11 +291,12 @@ private:
         SystemLang_t lang = appManager.getLanguage();
 
         // 1. 顶部战术链路区
-        linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::PomodoroEditStepNames(lang), 2, phase, 120);
+        linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::PomodoroEditStepNames(lang), 3, phase, 120);
 
         // 中部弧面滚轮；位置与底部提示共同分配剩余高度。
         if (phase == 0) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), t_work, 1, SysClockRules::WorkMaxMinutes, "");
-        else dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), t_rest, 1, SysClockRules::RestMaxMinutes, "");
+        else if (phase == 1) dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), t_rest, 1, SysClockRules::RestMaxMinutes, "");
+        else dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), t_rounds, 1, SysClockRules::PomodoroMaxRounds, "");
 
         // 4. 底部状态与操作指引
         UIFrame::DrawTip(UIStrings::PomodoroEditTip(lang));
@@ -276,6 +313,7 @@ public:
         const auto &preset=sysConfig.pomodoro_presets[preset_index];
         t_work = preset.work_min;
         t_rest = preset.rest_min;
+        t_rounds = SysClockRules::PomodoroRounds(preset.rounds) ? preset.rounds : 4;
         phase = 0;
         linkAnim.reset(phase);
         drawUI();
@@ -296,10 +334,14 @@ public:
             t_work += delta;
             if (t_work < 1) t_work = SysClockRules::WorkMaxMinutes;
             if (t_work > SysClockRules::WorkMaxMinutes) t_work = 1;
-        } else {
+        } else if (phase == 1) {
             t_rest += delta;
             if (t_rest < 1) t_rest = SysClockRules::RestMaxMinutes;
             if (t_rest > SysClockRules::RestMaxMinutes) t_rest = 1;
+        } else {
+            t_rounds += delta;
+            if (t_rounds < 1) t_rounds = SysClockRules::PomodoroMaxRounds;
+            if (t_rounds > SysClockRules::PomodoroMaxRounds) t_rounds = 1;
         }
 
         dialAnim.trigger(delta);
@@ -312,11 +354,11 @@ public:
     void onKeyShort() override {
         dialAnim.reset();
         SYS_SOUND_CONFIRM();
-        if (phase == 0) {
-            phase = 1;
+        if (phase < 2) {
+            ++phase;
             drawUI();
         } else {
-            if (!Pomodoro_SetPreset(preset_index,sysConfig.pomodoro_presets[preset_index].name.c_str(),t_work,t_rest)) return;
+            if (!Pomodoro_SetPreset(preset_index,sysConfig.pomodoro_presets[preset_index].name.c_str(),t_work,t_rest,t_rounds)) return;
             appManager.popApp();
         }
     }
@@ -325,8 +367,8 @@ public:
     void onKeyLong() override {
         dialAnim.reset();
         SYS_SOUND_NAV();
-        if (phase == 1) {
-            phase = 0;
+        if (phase > 0) {
+            --phase;
             drawUI();
         } else {
             appManager.popApp();
@@ -344,7 +386,7 @@ protected:
         PomodoroPreset& p = sysConfig.pomodoro_presets[index];
         const char* mark = (index == sysConfig.pomodoro_current_idx) ? " <" : "";
         char suffix[40];
-        snprintf(suffix,sizeof(suffix)," (%u/%u)%s",(unsigned)p.work_min,(unsigned)p.rest_min,mark);
+        snprintf(suffix,sizeof(suffix)," (%u/%u x%u)%s",(unsigned)p.work_min,(unsigned)p.rest_min,(unsigned)p.rounds,mark);
         label=p.name; label+=suffix; // 完整文本交给 AppMenuBase 的两行排版/省略，不先截断 UTF-8。
         return label.c_str();
     }
@@ -357,9 +399,33 @@ protected:
 };
 AppPomodoroPresets instancePomodoroPresets; AppBase* appPomodoroPresets = &instancePomodoroPresets;
 
-class AppPomodoroMenu : public AppMenuBase {
+class AppPomodoroStats : public AppMenuBase {
 protected:
     int getMenuCount() override { return 3; }
+    const char *getTitle() override { return UIStrings::PomodoroStatsTitle(appManager.getLanguage()); }
+    const char *getItemText(int index) override {
+        static char line[96];
+        const auto lang=appManager.getLanguage();
+        const int selected=sysConfig.pomodoro_current_idx<PrescriptConst::MAX_POMODORO_PRESETS ? sysConfig.pomodoro_current_idx : 0;
+        const auto &p=sysConfig.pomodoro_presets[selected];
+        if (index==0) snprintf(line,sizeof(line),"%s: %u",UIStrings::PomodoroCompletedLabel(lang),(unsigned)p.completed_rounds);
+        else if (index==1) { const uint32_t minutes=p.focus_seconds/60U; snprintf(line,sizeof(line),"%s: %u:%02u",UIStrings::PomodoroFocusTimeLabel(lang),(unsigned)(minutes/60U),(unsigned)(minutes%60U)); }
+        else snprintf(line,sizeof(line),"%s [%s]",UIStrings::PomodoroStatsClear(lang),p.name.c_str());
+        return line;
+    }
+    void onItemClicked(int index) override {
+        if (index!=2) return;
+        SYS_SOUND_GLITCH();
+        const int selected=sysConfig.pomodoro_current_idx<PrescriptConst::MAX_POMODORO_PRESETS ? sysConfig.pomodoro_current_idx : 0;
+        auto &p=sysConfig.pomodoro_presets[selected]; p.completed_rounds=0; p.focus_seconds=0; sysConfig.save();
+    }
+    void onLongPressed() override { SYS_SOUND_NAV(); appManager.popApp(); }
+};
+AppPomodoroStats instancePomodoroStats; AppBase* appPomodoroStats=&instancePomodoroStats;
+
+class AppPomodoroMenu : public AppMenuBase {
+protected:
+    int getMenuCount() override { return 4; }
     const char* getTitle() override { return UIStrings::PomodoroTitle(appManager.getLanguage()); }
     const char* getItemText(int index) override {
         static String label;
@@ -371,7 +437,7 @@ protected:
             label+=" ["; label+=snapshot.active ? snapshot.name : sysConfig.pomodoro_presets[selected].name.c_str(); label+="]";
             return label.c_str();
         }
-        if (index == 1 || index == 2)
+        if (index >= 1 && index <= 3)
             return UIStrings::PomodoroMenuItem(lang, index);
         return "";
     }
@@ -380,6 +446,7 @@ protected:
         if (index == 0) appManager.push(AppId::PomodoroRun);
         if (index == 1) appManager.push(AppId::PomodoroPresets);
         if (index == 2) appManager.push(AppId::PomodoroEdit);
+        if (index == 3) appManager.push(AppId::PomodoroStats);
     }
     void onLongPressed() override { appManager.popApp(); }
 public:

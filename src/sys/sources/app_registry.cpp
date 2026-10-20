@@ -29,6 +29,7 @@ extern AppBase *appPomodoro;
 extern AppBase *appPomodoroRun;
 extern AppBase *appPomodoroPresets;
 extern AppBase *appPomodoroEdit;
+extern AppBase *appPomodoroStats;
 extern AppBase *appAlarm;
 extern AppBase *appAlarmEdit;
 extern AppBase *appSchedule;
@@ -78,6 +79,7 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::PomodoroRun: return appPomodoroRun;
         case AppId::PomodoroPresets: return appPomodoroPresets;
         case AppId::PomodoroEdit: return appPomodoroEdit;
+        case AppId::PomodoroStats: return appPomodoroStats;
         case AppId::Alarm: return appAlarm;
         case AppId::AlarmEdit: return appAlarmEdit;
         case AppId::Schedule: return appSchedule;
@@ -128,6 +130,7 @@ const char* AppRegistry_Name(AppId id)
         case AppId::PomodoroRun: return "PomodoroRun";
         case AppId::PomodoroPresets: return "PomodoroPresets";
         case AppId::PomodoroEdit: return "PomodoroEdit";
+        case AppId::PomodoroStats: return "PomodoroStats";
         case AppId::Alarm: return "Alarm";
         case AppId::AlarmEdit: return "AlarmEdit";
         case AppId::Schedule: return "Schedule";

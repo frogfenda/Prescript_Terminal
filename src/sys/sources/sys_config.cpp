@@ -53,7 +53,7 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
     cfg.wifi_pass = "";
     cfg.language = (uint8_t)TerminalLang::DEFAULT_LANG;
     cfg.sleep_time_ms = PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
-    cfg.true_sleep_time_ms = PrescriptConst::NEVER_SLEEP_MS;
+    cfg.true_sleep_time_ms = 30000;
     cfg.decode_anim_style = 0;
     cfg.auto_push_enable = false;
     cfg.auto_push_min_min = 30;
@@ -92,6 +92,9 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
         cfg.pomodoro_presets[i].name = fallback_names[i];
         cfg.pomodoro_presets[i].work_min = fallback_work[i];
         cfg.pomodoro_presets[i].rest_min = fallback_rest[i];
+        cfg.pomodoro_presets[i].rounds = 4;
+        cfg.pomodoro_presets[i].completed_rounds = 0;
+        cfg.pomodoro_presets[i].focus_seconds = 0;
     }
     for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++)
         cfg.char_progress[i] = 0;
@@ -163,7 +166,7 @@ void SysConfig::load()
     if (TerminalLang::LOCKED)
         language = (uint8_t)TerminalLang::DEFAULT_LANG;
     sleep_time_ms = doc["sleep_time_ms"] | PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
-    true_sleep_time_ms = doc["true_sleep_time_ms"] | PrescriptConst::NEVER_SLEEP_MS;
+    true_sleep_time_ms = doc["true_sleep_time_ms"] | 30000UL;
     decode_anim_style = doc["decode_anim_style"] | 0;
     auto_push_enable = doc["auto_push_enable"] | false;
     auto_push_min_min = doc["auto_push_min_min"] | 30;
@@ -181,8 +184,12 @@ void SysConfig::load()
         pomodoro_presets[i].name = pm_arr[i]["n"] | "预设";
         pomodoro_presets[i].work_min = pm_arr[i]["w"] | 25;
         pomodoro_presets[i].rest_min = pm_arr[i]["r"] | 5;
-        if (!SysClockRules::PomodoroDuration(pomodoro_presets[i].work_min,pomodoro_presets[i].rest_min)) {
-            pomodoro_presets[i].work_min=25; pomodoro_presets[i].rest_min=5; clock_repaired=true;
+        pomodoro_presets[i].rounds = pm_arr[i]["rounds"] | 4;
+        pomodoro_presets[i].completed_rounds = pm_arr[i]["done"] | 0UL;
+        pomodoro_presets[i].focus_seconds = pm_arr[i]["focus_s"] | 0UL;
+        if (!SysClockRules::PomodoroDuration(pomodoro_presets[i].work_min,pomodoro_presets[i].rest_min) ||
+            !SysClockRules::PomodoroRounds(pomodoro_presets[i].rounds)) {
+            pomodoro_presets[i].work_min=25; pomodoro_presets[i].rest_min=5; pomodoro_presets[i].rounds=4; clock_repaired=true;
         }
     }
     JsonObject coin_node = doc["coin_app"];
@@ -438,6 +445,9 @@ void SysConfig::saveLanguageProfile(SystemLang_t lang)
         obj["n"] = pomodoro_presets[i].name;
         obj["w"] = pomodoro_presets[i].work_min;
         obj["r"] = pomodoro_presets[i].rest_min;
+        obj["rounds"] = pomodoro_presets[i].rounds;
+        obj["done"] = pomodoro_presets[i].completed_rounds;
+        obj["focus_s"] = pomodoro_presets[i].focus_seconds;
     }
 
     // 【新增】：写入硬币技能预设
