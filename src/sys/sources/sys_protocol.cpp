@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】文本协议解析实现。识别 GET/TXT/ALM/SCH/PRE/WIFI/COIN/SPC/DEV_BIND 等命令，校验日期、时间、槽位和必填字段，并保留 | 与换行宏命令兼容。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
@@ -447,88 +447,4 @@ bool SysProtocol_NextMacroCommand(const String &raw, int &cursor, String &out_cm
             return true;
     }
     return false;
-}
-
-const char *SysProtocol_CommandName(SysCommandType type)
-{
-    switch (type)
-    {
-    case SysCommandType::GetSync:
-        return "GET_SYNC";
-    case SysCommandType::GetLanguage:
-        return "GET_LANG";
-    case SysCommandType::TextNotify:
-        return "TXT";
-    case SysCommandType::AlarmAdd:
-        return "ALM";
-    case SysCommandType::AlarmDel:
-        return "ALM_DEL";
-    case SysCommandType::PomodoroUpdate:
-        return "POM";
-    case SysCommandType::ScheduleAdd:
-        return "SCH";
-    case SysCommandType::ScheduleDel:
-        return "SCH_DEL";
-    case SysCommandType::PrescriptAdd:
-        return "PRE";
-    case SysCommandType::PrescriptDel:
-        return "PRE_DEL";
-    case SysCommandType::WifiSet:
-        return "WIFI";
-    case SysCommandType::CoinAdd:
-        return "COIN";
-    case SysCommandType::CoinDel:
-        return "COIN_DEL";
-    case SysCommandType::SpecialForce:
-        return "SPC";
-    case SysCommandType::GetSpecialText:
-        return "GET_SPC_TXT";
-    case SysCommandType::GetTarget:
-        return "GET_TGT";
-    case SysCommandType::TargetAdd:
-        return "TGT_ADD";
-    case SysCommandType::TargetDel:
-        return "TGT_DEL";
-    case SysCommandType::TargetSet:
-        return "TGT_SET";
-    case SysCommandType::GetIdentity:
-        return "GET_IDENTITY";
-    case SysCommandType::BindingProof:
-        return "BIND_PROOF";
-    case SysCommandType::DeviceBindV2:
-        return "DEV_BIND_V2";
-    case SysCommandType::Invalid:
-        return "INVALID";
-    case SysCommandType::Unknown:
-    default:
-        return "UNKNOWN";
-    }
-}
-
-// 【函数说明】标记会触发弹窗、写文件、改配置的命令，Router 只对这些命令捕获业务结果并回 ACK。
-bool SysProtocol_IsMutating(SysCommandType type)
-{
-    switch (type)
-    {
-    case SysCommandType::TextNotify:
-    case SysCommandType::AlarmAdd:
-    case SysCommandType::AlarmDel:
-    case SysCommandType::PomodoroUpdate:
-    case SysCommandType::ScheduleAdd:
-    case SysCommandType::ScheduleDel:
-    case SysCommandType::PrescriptAdd:
-    case SysCommandType::PrescriptDel:
-    case SysCommandType::WifiSet:
-    case SysCommandType::CoinAdd:
-    case SysCommandType::CoinDel:
-    case SysCommandType::SpecialForce:
-    case SysCommandType::TargetAdd:
-    case SysCommandType::TargetDel:
-    case SysCommandType::TargetSet:
-    case SysCommandType::DeviceBindV2:
-    case SysCommandType::BindingProof:
-        return true;
-    default:
-        return false;
-    }
 }

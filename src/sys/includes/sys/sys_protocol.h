@@ -80,7 +80,3 @@ SysParsedCommand SysProtocol_ParseSingle(const String &raw);
 // cursor 初始传 0；返回 true 代表拿到了一条非空子命令。
 // 【接口说明】从包含 | 和换行的宏命令字符串中取出下一条非空子命令，cursor 记录扫描位置。
 bool SysProtocol_NextMacroCommand(const String &raw, int &cursor, String &out_cmd);
-
-const char *SysProtocol_CommandName(SysCommandType type);
-// 【接口说明】判断命令是否会改变设备状态；Router 只对这类命令开启业务回执捕获并发送 ACK。
-bool SysProtocol_IsMutating(SysCommandType type);

@@ -847,6 +847,14 @@
                 // 【终极修复】：每次同步前，必须清空所有的数组！否则就会出现幽灵数据和无限堆叠！
                 terminalAlarms = []; terminalSchedules = []; terminalPrescripts = []; terminalCoins = [];
                 renderUI();
+            } else if (val.startsWith("SYNC:CLEAR:")) {
+                // 单域回读只清理对应本地列表，避免 ALM/SCH/PRE 等数据互相覆盖。
+                const scope = val.substring(11).toUpperCase();
+                if (scope === "ALM") terminalAlarms = [];
+                else if (scope === "SCH") terminalSchedules = [];
+                else if (scope === "PRE") terminalPrescripts = [];
+                else if (scope === "COIN") terminalCoins = [];
+                renderUI();
             } else if (val.startsWith("SYNC:ALM:")) {
                 try { terminalAlarms.push(JSON.parse(val.substring(9))); renderUI(); } catch (e) { }
             } else if (val.startsWith("SYNC:SCH:")) {

@@ -18,6 +18,7 @@
 #include "sys/sys_haptic.h"
 #include "sys/sys_feedback.h"
 #include "sys/sys_specials.h"
+#include "sys/sys_command_result.h"
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_event.h"
@@ -98,16 +99,22 @@ void PushNotify_Trigger_Special_Forced(bool keep_stack)
         appManager.launch(AppId::PushNotify);
 }
 
-// 【事件回调】网页/蓝牙请求强制触发特殊指令时，先装载指定 ID，再打开警报弹窗。
-void _Cb_SpcForce(void *payload)
+// 【命令入口】网页/蓝牙请求强制触发特殊指令时，先装载指定 ID，再打开警报弹窗。
+void PushNotify_Trigger_Special_Command(const char *raw_id)
 {
-    Evt_SpcForce_t *p = (Evt_SpcForce_t *)payload;
-    if (!p)
+    if (!raw_id)
         return;
 
-    String id = String(p->id);
+    String id = String(raw_id);
+    id.trim();
+    if (id.isEmpty())
+    {
+        SysCmdResult_Error("EMPTY_ID");
+        return;
+    }
     sysSpecials.forceDrawByID(id);
     PushNotify_Trigger_Special_Forced(false);
+    SysCmdResult_Ok("TRIGGERED", id);
 }
 
 class AppPushNotify : public AppBase
@@ -161,7 +168,6 @@ private:
 public:
     void onSystemInit() override
     {
-        SysEvent_Subscribe(EVT_SPECIAL_FORCE, _Cb_SpcForce);
     }
 
     void onCreate() override

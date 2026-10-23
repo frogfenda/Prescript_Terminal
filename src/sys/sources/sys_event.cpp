@@ -22,7 +22,11 @@ void SysEvent_Subscribe(SysEventID evt, SysEventCallback cb) {
         g_subscribers[g_sub_count].evt = evt;
         g_subscribers[g_sub_count].cb = cb;
         g_sub_count++;
+        if (evt == EVT_BLE_SYNC_REQ)
+            Serial.printf("[蓝牙同步] 已注册回读订阅者，当前数量=%d。\n", g_sub_count);
     }
+    else if (evt == EVT_BLE_SYNC_REQ)
+        Serial.println("[蓝牙同步] 回读订阅者注册失败：事件总线容量已满。");
 }
 
 // 广播分发

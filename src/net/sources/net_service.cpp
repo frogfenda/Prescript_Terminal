@@ -192,17 +192,16 @@ namespace
         SetState(state);
     }
 
-    void OnWifiSet(void *payload)
+    void OnWifiSet(const char *ssid, const char *password)
     {
-        Evt_WifiSet_t *request = static_cast<Evt_WifiSet_t *>(payload);
-        if (!request || !request->ssid || String(request->ssid).isEmpty())
+        if (!ssid || String(ssid).isEmpty())
         {
             SysCmdResult_Error("EMPTY_SSID");
             return;
         }
 
-        const size_t ssid_length = strlen(request->ssid);
-        const size_t password_length = request->pass ? strlen(request->pass) : 0;
+        const size_t ssid_length = strlen(ssid);
+        const size_t password_length = password ? strlen(password) : 0;
         if (ssid_length >= kWifiSsidCapacity || password_length >= kWifiPasswordCapacity)
         {
             Serial.println("[网络服务] WiFi 配置被拒绝：SSID 或密码长度超过设备上限。 ");
@@ -210,11 +209,11 @@ namespace
             return;
         }
 
-        sysConfig.wifi_ssid = String(request->ssid);
-        sysConfig.wifi_pass = request->pass ? String(request->pass) : String();
+        sysConfig.wifi_ssid = String(ssid);
+        sysConfig.wifi_pass = password ? String(password) : String();
         sysConfig.save();
 
-        Serial.printf("[网络服务] WiFi 配置已保存，SSID=%s，开始公共联网周期。\n", request->ssid);
+        Serial.printf("[网络服务] WiFi 配置已保存，SSID=%s，开始公共联网周期。\n", ssid);
         SysCmdResult_Ok("SAVED", sysConfig.wifi_ssid);
         NetService_StartCommonCycle(false);
     }
@@ -483,6 +482,11 @@ namespace
     }
 }
 
+void NetService_SetWifiCommand(const char *ssid, const char *password)
+{
+    OnWifiSet(ssid ? ssid : "", password ? password : "");
+}
+
 void NetService_Init()
 {
     SetState(NetServiceState::Disconnected);
@@ -528,7 +532,6 @@ void NetService_Init()
     NetBuiltinTasks_RegisterAll();
 
     ScheduleNextCommonCycle(kDisconnectedCycleIntervalMs);
-    SysEvent_Subscribe(EVT_WIFI_SET, OnWifiSet);
 
     s_sessionQueue = xQueueCreate(1, sizeof(QueuedSession));
     if (!s_sessionQueue)

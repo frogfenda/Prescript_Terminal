@@ -14,7 +14,6 @@
 #include "sys/sys_constants.h"
 
 // 阶段流转、运行快照和预设属于本 App；共享的计时、提醒、唤醒机制继续复用 SYS。
-void _Cb_PomUpd(void* payload);
 void _Cb_PomSync(void* payload);
 
 // 【计时业务开始】
@@ -453,20 +452,12 @@ public:
     void onResume() override { AppMenuBase::onResume(); }
     // 【函数说明】订阅 POMODORO_UPDATE 事件，让网页 POM 命令能更新预设。
     void onSystemInit() override {
-        SysEvent_Subscribe(EVT_POMODORO_UPDATE, _Cb_PomUpd);
         SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_PomSync);
         appManager.registerBackgroundApp(this);
     }
     // 与前台页面生命周期无关；沿用 AppManager 在输入和提醒消费前的后台 tick。
     void onBackgroundTick() override { Pomodoro_Update(millis()); }
 };
-// === 番茄钟专属拆包回调 ===
-// 【函数说明】事件总线回调：把 Router 解析出的番茄预设参数交给 Pomodoro_UpdatePreset。
-void _Cb_PomUpd(void* payload) {
-    Evt_PomUpd_t* p = (Evt_PomUpd_t*)payload;
-    Pomodoro_UpdatePreset(p->idx, p->name, p->w, p->r);
-}
-
 // 【函数说明】WebBLE 同步回调：沿用原有逐条发送方式，字段由安全 JSON 出口统一转义。
 void _Cb_PomSync(void* payload) {
     if (!SysEvent_BleSyncScopeMatches(payload, "POM")) return;

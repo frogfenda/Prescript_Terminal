@@ -54,8 +54,6 @@ struct CoinEntity
 class CoinEventReceiver {
 public:
     CoinEventReceiver() {
-        SysEvent_Subscribe(EVT_COIN_PRESET_ADD, onCoinAdd);
-        SysEvent_Subscribe(EVT_COIN_PRESET_DEL, onCoinDel);
         SysEvent_Subscribe(EVT_BLE_SYNC_REQ, onSyncReq); 
     }
     
@@ -74,16 +72,15 @@ public:
     }
 
     // 【函数说明】处理 COIN 命令：按技能名查找现有预设，存在则更新，不存在则追加，并保存配置和写 ACK。
-    static void onCoinAdd(void* payload) {
-        Evt_CoinAdd_t* p = (Evt_CoinAdd_t*)payload;
-        String name = String(p->name);
+    static void onCoinAdd(int bp, int cp, int cc, const char *colors, const char *raw_name) {
+        String name = String(raw_name ? raw_name : "");
         name.trim();
         if (name.length() == 0)
         {
             SysCmdResult_Error("EMPTY_NAME");
             return;
         }
-        if (p->cc < 1 || p->cc > PrescriptConst::MAX_COIN_COUNT)
+        if (cc < 1 || cc > PrescriptConst::MAX_COIN_COUNT)
         {
             SysCmdResult_Error("INVALID_COIN_COUNT");
             return;
@@ -106,10 +103,10 @@ public:
         }
 
         sysConfig.coin_presets[idx].name = name;
-        sysConfig.coin_presets[idx].base_power = p->bp;
-        sysConfig.coin_presets[idx].coin_power = p->cp;
-        sysConfig.coin_presets[idx].coin_count = p->cc;
-        sysConfig.coin_presets[idx].coin_colors = String(p->colors);
+        sysConfig.coin_presets[idx].base_power = bp;
+        sysConfig.coin_presets[idx].coin_power = cp;
+        sysConfig.coin_presets[idx].coin_count = cc;
+        sysConfig.coin_presets[idx].coin_colors = String(colors ? colors : "");
         sysConfig.save();
         SysBLE_Notify("SYNC:CLEAR:COIN");
 
@@ -120,9 +117,8 @@ public:
     }
 
     // 【函数说明】处理 COIN_DEL 命令：按技能名删除预设，移动后续元素填补空位，保存配置并返回 DELETED/NOT_FOUND。
-    static void onCoinDel(void* payload) {
-        Evt_CoinDel_t* p = (Evt_CoinDel_t*)payload;
-        String name = String(p->name);
+    static void onCoinDel(const char *raw_name) {
+        String name = String(raw_name ? raw_name : "");
         name.trim();
         if (name.length() == 0)
         {
@@ -152,6 +148,18 @@ public:
 };
 
 CoinEventReceiver g_coinEventReceiver;
+
+// 【命令入口】命令注册表直接调用这两个包装函数；它们复用硬币配置校验和保存逻辑，
+// 但不再经过命令型事件总线。payload 只在本次同步调用栈内有效。
+void Coin_AddPresetMobile(int base_power, int coin_power, int coin_count, const char *colors, const char *name)
+{
+    CoinEventReceiver::onCoinAdd(base_power, coin_power, coin_count, colors, name);
+}
+
+void Coin_DeletePresetMobile(const char *name)
+{
+    CoinEventReceiver::onCoinDel(name);
+}
 
 // ==========================================
 // 核心物理引擎 (基类)：解锁 48KB 显存，多通道材质并发加载

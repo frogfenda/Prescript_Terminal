@@ -18,9 +18,6 @@
 #include "lang/ui_strings.h"
 
 int g_alarm_edit_idx = -1;
-// 【函数说明】事件总线回调：把 Router 传来的 Evt_AlmAdd_t 转交给 Alarm_AddPresetMobile 处理。
-void _Cb_AlmAdd(void* payload);
-void _Cb_AlmDel(void* payload);
 // 【函数说明】WebBLE 同步回调：逐条把当前闹钟配置打包成 SYNC:ALM JSON 文本回传网页。
 void _Cb_AlmSync(void* payload);
 
@@ -425,24 +422,10 @@ public:
     }
     // 【函数说明】系统启动时订阅 ALM 添加、删除、同步事件；旧冲突清理与到点业务由 SysCalendar 负责。
     void onSystemInit() override {
-        SysEvent_Subscribe(EVT_ALARM_ADD, _Cb_AlmAdd);
-        SysEvent_Subscribe(EVT_ALARM_DEL, _Cb_AlmDel);
         SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_AlmSync);
         
     }
 };
-// === 闹钟专用的邮局拆包回调 ===
-// 【函数说明】事件总线回调：把 Router 传来的 Evt_AlmAdd_t 转交给 Alarm_AddPresetMobile 处理。
-void _Cb_AlmAdd(void* payload) {
-    Evt_AlmAdd_t* p = (Evt_AlmAdd_t*)payload;
-    Alarm_AddPresetMobile(p->name, p->hour, p->min, p->text);
-}
-
-// 【函数说明】事件总线回调：把 Router 传来的闹钟名称转交给 Alarm_DeleteMobile 删除。
-void _Cb_AlmDel(void* payload) {
-    Evt_AlmDel_t* p = (Evt_AlmDel_t*)payload;
-    Alarm_DeleteMobile(p->name);
-}
 // 【函数说明】WebBLE 同步回调：逐条把当前闹钟配置打包成 SYNC:ALM JSON 文本回传网页。
 void _Cb_AlmSync(void* payload) {
     if (!SysEvent_BleSyncScopeMatches(payload, "ALM")) return;

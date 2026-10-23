@@ -19,13 +19,6 @@
 #include "sys/sys_gesture.h"
 #include "sys/sys_device_binding.h"
 
-void _Cb_SysNotify(void *payload)
-{
-    Evt_Notify_t *p = (Evt_Notify_t *)payload;
-    if (p)
-        SysReminder_Submit(SysReminderKind::Custom, p->text, p->keep_stack);
-}
-
 AppManager appManager;
 
 extern void SysBLE_Notify(const char *data);
@@ -91,9 +84,6 @@ void AppManager::begin()
 
     SysRes_Init();
 
-    
-    // 系统级的特殊拦截保留在这里
-    SysEvent_Subscribe(EVT_NOTIFY_CUSTOM, _Cb_SysNotify);
     
     // App 注册集中在 AppRegistry，AppManager 不再维护零散 install 清单。
     AppRegistry_InstallSystemApps();

@@ -11,6 +11,7 @@ logs/
 tools/*
 docs/
 .claude/
+.dsh/
 network-outbox-architecture.md
 NETWORK_OUTBOX_HANDOFF.md
 scripts/load_binding_secret.py

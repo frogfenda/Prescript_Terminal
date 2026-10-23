@@ -83,9 +83,16 @@ void SysBLE_Init()
 // 【函数说明】向已连接网页发送一条文本 Notify，ACK、SYNC、LANG、SPC_META 都通过这个出口返回。
 void SysBLE_Notify(const char *data)
 {
-    if (g_ble_char != nullptr && data != nullptr)
+    if (data == nullptr)
+        return;
+    if (g_ble_char == nullptr)
     {
-        g_ble_char->setValue(reinterpret_cast<const uint8_t *>(data), strlen(data));
-        g_ble_char->notify();
+        // BLE 服务尚未完成创建时，回读数据无法发送；保留明确日志便于区分
+        // “命令未进入路由”和“路由已执行但无线特征未就绪”。
+        Serial.println("[蓝牙回读] 通知失败：BLE 特征尚未就绪。");
+        return;
     }
+
+    g_ble_char->setValue(reinterpret_cast<const uint8_t *>(data), strlen(data));
+    g_ble_char->notify();
 }

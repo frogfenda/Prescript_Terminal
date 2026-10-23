@@ -19,9 +19,6 @@
 #include "lang/ui_strings.h"
 
 int g_schedule_edit_idx = -1;
-// 【函数说明】事件回调：把 Router 传入的时间戳、标题、文本、隐藏标志交给 Schedule_AddMobile。
-void _Cb_SchAdd(void* payload);
-void _Cb_SchDel(void* payload);
 void _Cb_SchSync(void* payload);
 
 void Schedule_DeleteMobile(const char *title)
@@ -593,29 +590,11 @@ public:
     }
     // 【函数说明】订阅日程添加/删除/同步事件；到点业务由主循环的 SysCalendar 统一处理。
     void onSystemInit() override {
-        // 1. 去邮局订阅自己的频道
-        SysEvent_Subscribe(EVT_SCHEDULE_ADD, _Cb_SchAdd);
-        SysEvent_Subscribe(EVT_SCHEDULE_DEL, _Cb_SchDel);
         SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_SchSync);
         
     }
 
 };
-// === 日程表专用的邮局拆包回调 ===
-// 【函数说明】事件回调：把 Router 传入的时间戳、标题、文本、隐藏标志交给 Schedule_AddMobile。
-void _Cb_SchAdd(void *payload)
-{
-    Evt_SchAdd_t *p = (Evt_SchAdd_t *)payload;
-    Schedule_AddMobile(p->tt, p->title, p->text, p->is_hidden);
-}
-
-// 【函数说明】事件回调：把 Router 传入的标题交给 Schedule_DeleteMobile。
-void _Cb_SchDel(void *payload)
-{
-    Evt_SchDel_t *p = (Evt_SchDel_t *)payload;
-    Schedule_DeleteMobile(p->title);
-}
-
 // 收到路由器的同步口哨声，日程表自己把自己的数据发给蓝牙！
 // 【函数说明】WebBLE 同步回调：把日程数组打包成 SYNC:SCH JSON 回传网页。
 void _Cb_SchSync(void *payload)
