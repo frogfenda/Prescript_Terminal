@@ -47,6 +47,8 @@ extern AppBase *appHumanFrameDrift;
 extern AppBase *appMagDiagnostics;
 extern AppBase *appSensorCalibrationTest;
 extern AppBase *appDeviceBinding;
+extern AppBase *appAlarmItem;
+extern AppBase *appScheduleItem;
 
 // 时间设置相关 App 在 app_time_setting.cpp 中定义。
 extern AppBase *appTimeSetting;
@@ -100,6 +102,8 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::MagDiagnostics: return appMagDiagnostics;
         case AppId::SensorCalibrationTest: return appSensorCalibrationTest;
         case AppId::DeviceBinding: return appDeviceBinding;
+        case AppId::AlarmItem: return appAlarmItem;
+        case AppId::ScheduleItem: return appScheduleItem;
         default: return nullptr;
     }
 }
@@ -151,6 +155,8 @@ const char* AppRegistry_Name(AppId id)
         case AppId::MagDiagnostics: return "MagDiagnostics";
         case AppId::SensorCalibrationTest: return "SensorCalibrationTest";
         case AppId::DeviceBinding: return "DeviceBinding";
+        case AppId::AlarmItem: return "AlarmItem";
+        case AppId::ScheduleItem: return "ScheduleItem";
         default: return "Unknown";
     }
 }

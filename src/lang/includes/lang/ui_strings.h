@@ -675,16 +675,34 @@ namespace UIStrings
         return IsZh(lang) ? zh_items : en_items;
     }
 
-    inline const char *AlarmDeleteConfirmHint(SystemLang_t lang)
-    {
-        return IsZh(lang) ? "长按确认抹除 / 单击返回编辑" : "LONG: DELETE / CLICK: BACK";
-    }
-
+    // 删除已移到二级菜单；编辑已有闹钟时第一步长按只返回二级菜单。
     inline const char *AlarmEditFirstTip(SystemLang_t lang, bool editingExisting)
     {
         if (IsZh(lang))
-            return editingExisting ? "长按删此闹钟 / 单击确认" : "长按取消新建 / 单击确认";
-        return editingExisting ? "LONG: DELETE / CLICK: NEXT" : "LONG: CANCEL / CLICK: NEXT";
+            return editingExisting ? "长按返回 / 单击下一步" : "长按取消新建 / 单击确认";
+        return editingExisting ? "LONG: BACK / CLICK: NEXT" : "LONG: CANCEL / CLICK: NEXT";
+    }
+
+    // 【闹钟二级菜单】状态前缀与 AlarmActiveState 拼成“状态：开”。
+    inline const char *AlarmItemStatePrefix(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "状态：" : "STATE: ";
+    }
+
+    inline const char *AlarmItemSetTime(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "更改时间" : "SET TIME";
+    }
+
+    inline const char *AlarmItemDelete(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "删除此闹钟" : "DELETE ALARM";
+    }
+
+    // 闹钟/日程二级菜单共用的删除确认正文格式，%s 为闹钟名或日程标题。
+    inline const char *DeleteRecordPrompt(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "删除 [%s] ?" : "DEL [%s] ?";
     }
 
     inline const char *AlarmEditSaveTip(SystemLang_t lang)
@@ -1133,23 +1151,43 @@ namespace UIStrings
         return IsZh(lang) ? zh_items[index] : en_items[index];
     }
 
-    inline const char *ScheduleDeleteConfirmHint(SystemLang_t lang)
+    /**
+     * 日程编辑器底部提示。
+     * first/last 指当前编辑模式内的第一步和最后一步（改时间模式只有月日时分，改内容模式只有类型和动作）；
+     * context：0 新建，1 编辑已有日程，2 从过期库恢复。第一步长按分别是取消新建、返回二级菜单、取消恢复。
+     */
+    inline const char *ScheduleEditTip(SystemLang_t lang, bool first, bool last, int context)
     {
-        return IsZh(lang) ? "长按确认抹除 / 单击返回编辑" : "LONG: DELETE / CLICK: BACK";
+        const bool zh = IsZh(lang);
+        if (last)
+            return zh ? "长按返回 / 单击保存" : "LONG: BACK / CLICK: SAVE";
+        if (first && context == 0)
+            return zh ? "长按取消新建 / 单击下一步" : "LONG: CANCEL / CLICK: NEXT";
+        if (first && context == 2)
+            return zh ? "长按取消恢复 / 单击下一步" : "LONG: CANCEL / CLICK: NEXT";
+        return zh ? "长按返回 / 单击下一步" : "LONG: BACK / CLICK: NEXT";
     }
 
-    inline const char *ScheduleEditTip(SystemLang_t lang, int phase, bool editingExisting, bool expired)
+    // 【日程二级菜单】时间与内容分开修改；删除确认复用 DeleteRecordPrompt / DeleteUserHint。
+    inline const char *ScheduleItemSetTime(SystemLang_t lang)
     {
-        if (phase == 0)
-        {
-            if (editingExisting)
-                return expired ? (IsZh(lang) ? "长按取消恢复 / 单击下一步" : "LONG: CANCEL / CLICK: NEXT")
-                               : (IsZh(lang) ? "长按删此日程 / 单击下一步" : "LONG: DELETE / CLICK: NEXT");
-            return IsZh(lang) ? "长按取消新建 / 单击下一步" : "LONG: CANCEL / CLICK: NEXT";
-        }
-        if (phase == 5)
-            return IsZh(lang) ? "长按返回 / 单击保存" : "LONG: BACK / CLICK: SAVE";
-        return IsZh(lang) ? "长按返回 / 单击下一步" : "LONG: BACK / CLICK: NEXT";
+        return IsZh(lang) ? "重新配置时间" : "SET TIME";
+    }
+
+    inline const char *ScheduleItemSetContent(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "更改标题与提示" : "TITLE & ACTION";
+    }
+
+    inline const char *ScheduleItemDelete(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "删除此日程" : "DELETE SCHEDULE";
+    }
+
+    // 类型/动作滚轮的首项：当前值不是任何预设（例如手机写入的自定义标题）时出现，保存时原样保留。
+    inline const char *KeepCurrentOption(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "保持当前" : "KEEP";
     }
 
     inline const char *ScheduleExpiredTitle(SystemLang_t lang)

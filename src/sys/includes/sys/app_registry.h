@@ -71,7 +71,11 @@ enum class AppId : uint8_t
     SensorCalibrationTest,
 
     // 系统设置中的设备身份绑定页；追加在枚举末尾，保持既有 AppId 数值稳定。
-    DeviceBinding
+    DeviceBinding,
+
+    // 闹钟/日程列表单击条目后进入的二级菜单；追加在末尾，保持既有 AppId 数值稳定。
+    AlarmItem,
+    ScheduleItem
 };
 
 /** 根据 AppId 返回对应 App 单例指针，AppManager 的 push/launch/replace 会调用它完成页面跳转。 */
