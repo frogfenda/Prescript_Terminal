@@ -10,22 +10,23 @@
 #include "ui/ui_frame.h"
 #include "sys/sys_config.h"
 #include "sys/sys_clock_rules.h"
-#include "sys/sys_ble_json.h"
 #include "sys/sys_psram_json.h"
-#include "sys/sys_event.h"
-#include "sys/sys_ble.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_command_result.h"
 #include "lang/ui_strings.h"
 
 // 当前二级菜单/编辑器操作的闹钟下标；-1 表示编辑器处于“新建”模式。
 int g_alarm_edit_idx = -1;
-// 【函数说明】WebBLE 同步回调：逐条把当前闹钟配置打包成 SYNC:ALM JSON 文本回传网页。
-void _Cb_AlmSync(void* payload);
+// 注册 ALM 命令组；定义在文件末尾的【蓝牙命令区】。
+static void Alarm_RegisterCommands();
 
 namespace
 {
     // 选中闹钟时记下的名字。手机按名字增删闹钟，名字在本地也唯一，用它核对下标是否仍指向同一条。
     String s_alarm_edit_name;
+
+    // 本机新建闹钟时写入的默认提示文字（保持原有行为）。
+    constexpr const char *kDefaultAlarmText = "SYSTEM OVERRIDE. WAKE UP NOW.";
 
     /** 同一分钟只允许一个闹钟；exclude_index 让编辑现有闹钟时忽略自身。 */
     bool Alarm_IsMinuteOccupied(int hour, int minute, int exclude_index = -1)
@@ -38,6 +39,14 @@ namespace
                 return true;
         }
         return false;
+    }
+
+    int Alarm_FindByName(const String &name)
+    {
+        for (int i = 0; i < sysConfig.alarm_count; ++i)
+            if (sysConfig.alarms[i].name == name)
+                return i;
+        return -1;
     }
 
     /**
@@ -73,113 +82,101 @@ namespace
         for (int n = 1; n <= PrescriptConst::MAX_ALARMS + 1; ++n)
         {
             snprintf(candidate, sizeof(candidate), "Alarm%d", n);
-            bool used = false;
-            for (int i = 0; i < sysConfig.alarm_count; ++i)
-            {
-                if (sysConfig.alarms[i].name == candidate)
-                {
-                    used = true;
-                    break;
-                }
-            }
-            if (!used)
+            if (Alarm_FindByName(candidate) < 0)
                 break;
         }
         return String(candidate);
     }
 
-}
+    // ===== 闹钟业务入口：本机界面和蓝牙命令共用，规则只写在这里 =====
 
-void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text)
-{
-    String safeName = String(name ? name : "");
-    safeName.trim();
-    if (safeName.length() == 0)
+    /**
+     * 按名称新增或更新闹钟。新增和更新后都处于开启状态。
+     * 规则：名称去空白后不能为空；时间合法；同一分钟只能有一个闹钟（更新时忽略自身）；新增受数量上限限制。
+     * 结果码：ADDED / UPDATED（警告级）/ EMPTY_NAME / INVALID_TIME / TIME_OCCUPIED / FULL。
+     */
+    SysOpResult Alarm_Upsert(const String &raw_name, int hour, int minute, const String &text)
     {
-        SysCmdResult_Error("EMPTY_NAME");
-        return;
-    }
-    if (!SysClockRules::AlarmTime(hour,min))
-    {
-        SysCmdResult_Error("INVALID_TIME");
-        return;
-    }
+        String name = raw_name;
+        name.trim();
+        if (name.length() == 0)
+            return SysOpResult::Error("EMPTY_NAME");
+        if (!SysClockRules::AlarmTime(hour, minute))
+            return SysOpResult::Error("INVALID_TIME");
 
-    int idx = -1;
-    for (int i = 0; i < sysConfig.alarm_count; i++)
-    {
-        if (sysConfig.alarms[i].name == safeName)
+        int index = Alarm_FindByName(name);
+        const bool updated = index >= 0;
+        if (Alarm_IsMinuteOccupied(hour, minute, index))
+            return SysOpResult::Error("TIME_OCCUPIED", name);
+        if (!updated)
         {
-            idx = i;
-            break;
+            if (sysConfig.alarm_count >= PrescriptConst::MAX_ALARMS)
+                return SysOpResult::Error("FULL");
+            index = sysConfig.alarm_count++;
         }
-    }
 
-    bool updated = (idx >= 0);
-    if (Alarm_IsMinuteOccupied(hour, min, idx))
-    {
-        SysCmdResult_Error("TIME_OCCUPIED");
-        return;
-    }
-
-    if (idx < 0)
-    {
-        if (sysConfig.alarm_count >= PrescriptConst::MAX_ALARMS)
-        {
-            SysCmdResult_Error("FULL");
-            return;
-        }
-        idx = sysConfig.alarm_count;
-        sysConfig.alarm_count++;
-    }
-
-    sysConfig.alarms[idx].hour = hour;
-    sysConfig.alarms[idx].min = min;
-    sysConfig.alarms[idx].is_active = true;
-    sysConfig.alarms[idx].name = safeName;
-    sysConfig.alarms[idx].prescript = text ? text : "";
-    sysConfig.save();
-
-    if (updated)
-        SysCmdResult_Warn("UPDATED", safeName);
-    else
-        SysCmdResult_Ok("ADDED", safeName);
-}
-
-// 【函数说明】处理 ALM_DEL 命令：遍历闹钟数组删除同名项，移动后续元素填补空位，保存配置并报告 DELETED 或 NOT_FOUND。
-void Alarm_DeleteMobile(const char *name)
-{
-    String target = String(name ? name : "");
-    target.trim();
-    if (target.length() == 0)
-    {
-        SysCmdResult_Error("EMPTY_NAME");
-        return;
-    }
-
-    int deletedCount = 0;
-    for (int i = 0; i < sysConfig.alarm_count; i++)
-    {
-        if (sysConfig.alarms[i].name == target)
-        {
-            for (int j = i; j < sysConfig.alarm_count - 1; j++)
-            {
-                sysConfig.alarms[j] = sysConfig.alarms[j + 1];
-            }
-            sysConfig.alarm_count--;
-            deletedCount++;
-            i--;
-        }
-    }
-
-    if (deletedCount > 0)
-    {
+        AlarmPreset &alarm = sysConfig.alarms[index];
+        alarm.hour = hour;
+        alarm.min = minute;
+        alarm.is_active = true;
+        alarm.name = name;
+        alarm.prescript = text;
         sysConfig.save();
-        SysCmdResult_Ok("DELETED", target);
+        return updated ? SysOpResult::Warn("UPDATED", name) : SysOpResult::Ok("ADDED", name);
     }
-    else
+
+    /** 修改指定闹钟的时间；同一分钟已有其他闹钟时拒绝。结果码：UPDATED / NOT_FOUND / INVALID_TIME / TIME_OCCUPIED。 */
+    SysOpResult Alarm_SetTime(int index, int hour, int minute)
     {
-        SysCmdResult_Error("NOT_FOUND", target);
+        if (index < 0 || index >= sysConfig.alarm_count)
+            return SysOpResult::Error("NOT_FOUND");
+        if (!SysClockRules::AlarmTime(hour, minute))
+            return SysOpResult::Error("INVALID_TIME");
+        if (Alarm_IsMinuteOccupied(hour, minute, index))
+            return SysOpResult::Error("TIME_OCCUPIED", sysConfig.alarms[index].name);
+        sysConfig.alarms[index].hour = hour;
+        sysConfig.alarms[index].min = minute;
+        sysConfig.save();
+        return SysOpResult::Ok("UPDATED", sysConfig.alarms[index].name);
+    }
+
+    /** 开启或关闭指定闹钟；开启前检查同一分钟是否已有其他闹钟。结果码：ENABLED / DISABLED / NOT_FOUND / TIME_OCCUPIED。 */
+    SysOpResult Alarm_SetActive(int index, bool active)
+    {
+        if (index < 0 || index >= sysConfig.alarm_count)
+            return SysOpResult::Error("NOT_FOUND");
+        AlarmPreset &alarm = sysConfig.alarms[index];
+        if (active && Alarm_IsMinuteOccupied(alarm.hour, alarm.min, index))
+            return SysOpResult::Error("TIME_OCCUPIED", alarm.name);
+        alarm.is_active = active;
+        sysConfig.save();
+        return SysOpResult::Ok(active ? "ENABLED" : "DISABLED", alarm.name);
+    }
+
+    /** 删除指定下标的闹钟。结果码：DELETED / NOT_FOUND。 */
+    SysOpResult Alarm_DeleteAt(int index)
+    {
+        if (index < 0 || index >= sysConfig.alarm_count)
+            return SysOpResult::Error("NOT_FOUND");
+        const String name = sysConfig.alarms[index].name;
+        for (int i = index; i < sysConfig.alarm_count - 1; i++)
+            sysConfig.alarms[i] = sysConfig.alarms[i + 1];
+        sysConfig.alarm_count--;
+        sysConfig.save();
+        return SysOpResult::Ok("DELETED", name);
+    }
+
+    /** 按名称删除闹钟（名称去空白后比较）。结果码：DELETED / NOT_FOUND / EMPTY_NAME。 */
+    SysOpResult Alarm_DeleteByName(const String &raw_name)
+    {
+        String name = raw_name;
+        name.trim();
+        if (name.length() == 0)
+            return SysOpResult::Error("EMPTY_NAME");
+        const int index = Alarm_FindByName(name);
+        if (index < 0)
+            return SysOpResult::Error("NOT_FOUND", name);
+        return Alarm_DeleteAt(index);
     }
 }
 
@@ -309,41 +306,16 @@ public:
                 return;
             }
 
-            if (Alarm_IsMinuteOccupied(h, m, g_alarm_edit_idx))
+            // 编辑只改时间；新建用最小未用编号自动命名，规则与蓝牙 ALM.ADD 共用同一业务入口。
+            const SysOpResult result = (g_alarm_edit_idx >= 0)
+                                           ? Alarm_SetTime(g_alarm_edit_idx, h, m)
+                                           : Alarm_Upsert(Alarm_NextAutoName(), h, m, kDefaultAlarmText);
+            if (!result.ok())
             {
-                Serial.printf("[闹钟-警告] %02d:%02d 已存在闹钟，本次修改未保存。\n", h, m);
+                Serial.printf("[闹钟-警告] %02d:%02d 保存失败：%s。\n", h, m, result.code);
                 SYS_SOUND_LONG();
                 return;
             }
-
-            if (g_alarm_edit_idx >= 0)
-            {
-                sysConfig.alarms[g_alarm_edit_idx].hour = h;
-                sysConfig.alarms[g_alarm_edit_idx].min = m;
-            }
-            else
-            {
-                if (sysConfig.alarm_count >= PrescriptConst::MAX_ALARMS)
-                {
-                    Serial.println("[闹钟-警告] 闹钟数量已满，本次新增未保存。");
-                    SYS_SOUND_LONG();
-                    return;
-                }
-
-                // 这是本地新建闹钟的逻辑
-                int idx = sysConfig.alarm_count;
-                sysConfig.alarms[idx].hour = h;
-                sysConfig.alarms[idx].min = m;
-                sysConfig.alarms[idx].is_active = true;
-
-                // 自动名取最小未用编号，保证与现有闹钟不重名（手机端按名字定位闹钟）。
-                sysConfig.alarms[idx].name = Alarm_NextAutoName();
-
-                sysConfig.alarms[idx].prescript = "SYSTEM OVERRIDE. WAKE UP NOW.";
-                sysConfig.alarm_count++;
-            }
-            // 记得保留原有的这行保存代码
-            sysConfig.save();
             appManager.popApp();
         }
     }
@@ -403,10 +375,7 @@ class AppAlarmItemMenu : public AppMenuBase
             return;
         }
         SYS_SOUND_GLITCH();
-        for (int i = g_alarm_edit_idx; i < sysConfig.alarm_count - 1; i++)
-            sysConfig.alarms[i] = sysConfig.alarms[i + 1];
-        sysConfig.alarm_count--;
-        sysConfig.save();
+        Alarm_DeleteAt(g_alarm_edit_idx);
         g_alarm_edit_idx = -1;
         appManager.popApp();
     }
@@ -471,17 +440,14 @@ protected:
 
         if (index == 0)
         {
-            // 开关逻辑沿用原列表行为：启用前检查同一分钟是否已有其他闹钟。
-            AlarmPreset &a = sysConfig.alarms[g_alarm_edit_idx];
-            bool enable = !a.is_active;
-            if (enable && Alarm_IsMinuteOccupied(a.hour, a.min, g_alarm_edit_idx))
+            // 启用前检查同一分钟是否已有其他闹钟（规则在 Alarm_SetActive 中）。
+            const bool enable = !sysConfig.alarms[g_alarm_edit_idx].is_active;
+            if (!Alarm_SetActive(g_alarm_edit_idx, enable).ok())
             {
                 Serial.println("[闹钟-警告] 同一分钟已有其他闹钟，当前闹钟不能启用。");
                 SYS_SOUND_LONG();
                 return;
             }
-            a.is_active = enable;
-            sysConfig.save();
             drawMenuUI(visual_selection);
         }
         else if (index == 1)
@@ -608,26 +574,63 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
-    // 【函数说明】系统启动时订阅 ALM 添加、删除、同步事件；旧冲突清理与到点业务由 SysCalendar 负责。
-    void onSystemInit() override {
-        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_AlmSync);
-        
-    }
+    // 【函数说明】系统启动时注册 ALM 命令组；到点业务和冲突清理由 SysCalendar 负责。
+    void onSystemInit() override { Alarm_RegisterCommands(); }
 };
-// 【函数说明】WebBLE 同步回调：逐条把当前闹钟配置打包成 SYNC:ALM JSON 文本回传网页。
-void _Cb_AlmSync(void* payload) {
-    if (!SysEvent_BleSyncScopeMatches(payload, "ALM")) return;
-    for (int i=0;i<sysConfig.alarm_count;++i) {
-        JsonDocument doc(SysPsramJsonAllocator::Instance());
-        const auto &item=sysConfig.alarms[i];
-        doc["h"]=item.hour; doc["m"]=item.min; doc["n"]=item.name; doc["t"]=item.prescript;
-        SysBLE_NotifyJson("SYNC:ALM:",doc);
-        delay(50);
-    }
-}
-
-
-
-
 AppAlarmMenu instanceAlarmMenu;
 AppBase *appAlarm = &instanceAlarmMenu;
+
+// ===== 【蓝牙命令区】ALM 闹钟 =====
+// 处理函数只把参数交给闹钟业务入口，并把结果翻译成 ACK；规则都在上面的业务入口里。
+
+static const SysCmdArgSpec kAlmAddArgs[] = {
+    SYS_ARG_INT("hour", 0, 23),
+    SYS_ARG_INT("min", 0, 59),
+    SYS_ARG_STR("name", 1, 24, ARG_TRIM),
+    SYS_ARG_REST("text", 0, 0, 0),
+};
+
+static const SysCmdArgSpec kAlmDelArgs[] = {
+    SYS_ARG_REST("name", 1, 24, ARG_TRIM),
+};
+
+// ALM.ADD：按名称新增或更新，并开启该闹钟。
+static void Cmd_AlmAdd(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(Alarm_Upsert(args.string(2), args.num(0), args.num(1), args.string(3)));
+}
+
+// ALM.DEL：按名称删除。
+static void Cmd_AlmDel(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(Alarm_DeleteByName(args.string(0)));
+}
+
+// ALM.LIST：第 index 个闹钟 → {"h","m","n","t","a"}。
+static bool Stream_AlmList(uint16_t index, JsonDocument &out)
+{
+    if (index >= sysConfig.alarm_count)
+        return false;
+    const AlarmPreset &alarm = sysConfig.alarms[index];
+    out["h"] = alarm.hour;
+    out["m"] = alarm.min;
+    out["n"] = alarm.name;
+    out["t"] = alarm.prescript;
+    out["a"] = alarm.is_active;
+    return true;
+}
+
+static const SysCmdSpec kAlmCmds[] = {
+    {"LIST", nullptr, 0, CMD_SYNC, nullptr, Stream_AlmList},
+    {"ADD", kAlmAddArgs, SYS_COUNT_OF(kAlmAddArgs), 0, Cmd_AlmAdd, nullptr},
+    {"DEL", kAlmDelArgs, SYS_COUNT_OF(kAlmDelArgs), 0, Cmd_AlmDel, nullptr},
+};
+
+static const SysCmdGroup kAlmGroup = {"ALM", 1, SRC_ALL, kAlmCmds, SYS_COUNT_OF(kAlmCmds)};
+
+static void Alarm_RegisterCommands()
+{
+    SysCommand_RegisterGroup(&kAlmGroup);
+}
+
+// ===== 【蓝牙命令区结束】 =====

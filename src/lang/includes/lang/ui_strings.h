@@ -782,8 +782,8 @@ namespace UIStrings
 
     inline const char *PomodoroWaitingTip(SystemLang_t lang, bool completed)
     {
-        if (IsZh(lang)) return completed ? "本组已完成 / 单击重新开始" : "休息结束 / 单击开始下一轮";
-        return completed ? "SET COMPLETE / CLICK TO RESTART" : "REST DONE / CLICK TO START NEXT";
+        if (IsZh(lang)) return completed ? "本组已完成 / 单击重新开始" : "休息结束 / 单击下一轮 / 长按结束专注";
+        return completed ? "SET COMPLETE / CLICK TO RESTART" : "REST DONE / CLICK NEXT / LONG END";
     }
 
     inline const char *PomodoroRoundLabel(SystemLang_t lang)

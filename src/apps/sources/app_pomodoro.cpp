@@ -7,14 +7,13 @@
 #include "apps/app_menu_base.h"
 #include "sys/app_manager.h"
 #include "ui/ui_frame.h"
-#include "sys/sys_event.h"
-#include "sys/sys_ble.h"
-#include "sys/sys_ble_json.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_psram_json.h"
 #include "sys/sys_constants.h"
 
 // 阶段流转、运行快照和预设属于本 App；共享的计时、提醒、唤醒机制继续复用 SYS。
-void _Cb_PomSync(void* payload);
+// 注册 POM 命令组；定义在文件末尾的【蓝牙命令区】。
+static void Pomodoro_RegisterCommands();
 
 // 【计时业务开始】
 /*
@@ -45,6 +44,7 @@ PomodoroPhase phase=PomodoroPhase::Work;
 bool active=false,work_notice=false,rest_notice=false;
 bool waiting_for_next=false,set_completed=false;
 uint32_t session_round=0,session=0,revision=0;
+int session_preset_index=-1;
 void Schedule(uint32_t now)
 { SysSleep_ScheduleDeadlineMs(SysSleepSource::Pomodoro,timer.snapshot(now).deadline_ms,SysSleepWakeAction::Foreground); }
 void FlushNotices()
@@ -62,7 +62,7 @@ void FlushNotices()
 }
 void RecordFocusCompletion()
 {
-    const int index=sysConfig.pomodoro_current_idx;
+    const int index=session_preset_index;
     if (index<0 || index>=PrescriptConst::MAX_POMODORO_PRESETS) return;
     auto &saved=sysConfig.pomodoro_presets[index];
     if (saved.completed_rounds!=UINT32_MAX) ++saved.completed_rounds;
@@ -71,15 +71,21 @@ void RecordFocusCompletion()
     sysConfig.save();
 }
 }
-bool Pomodoro_SetPreset(int index,const char *name,int work,int rest,int rounds=-1)
+/**
+ * 【专注业务入口】修改一个预设槽位；本机编辑器和蓝牙 POM.SET 共用。
+ * rounds 小于 1 表示保持原轮数；名称为空时使用 "PRESET"。
+ * 结果码：UPDATED / INVALID_SLOT / INVALID_DURATION / INVALID_ROUNDS。
+ */
+SysOpResult Pomodoro_SetPreset(int index,const char *name,int work,int rest,int rounds=-1)
 {
-    if (index<0 || index>=PrescriptConst::MAX_POMODORO_PRESETS || !SysClockRules::PomodoroDuration(work,rest)) return false;
+    if (index<0 || index>=PrescriptConst::MAX_POMODORO_PRESETS) return SysOpResult::Error("INVALID_SLOT");
+    if (!SysClockRules::PomodoroDuration(work,rest)) return SysOpResult::Error("INVALID_DURATION");
     String safe=name ? name : ""; safe.trim(); if (safe.isEmpty()) safe="PRESET";
     auto &target=sysConfig.pomodoro_presets[index];
     const int safe_rounds=rounds<1 ? (int)target.rounds : rounds;
-    if (!SysClockRules::PomodoroRounds(safe_rounds)) return false;
+    if (!SysClockRules::PomodoroRounds(safe_rounds)) return SysOpResult::Error("INVALID_ROUNDS");
     target.name=safe; target.work_min=work; target.rest_min=rest; target.rounds=safe_rounds;
-    sysConfig.save(); return true;
+    sysConfig.save(); return SysOpResult::Ok("UPDATED",String(index));
 }
 
 bool Pomodoro_SelectPreset(int index)
@@ -91,12 +97,6 @@ bool Pomodoro_SelectPreset(int index)
     }
     return true;
 }
-void Pomodoro_UpdatePreset(int index,const char *name,int work,int rest)
-{
-    if (index<0 || index>=PrescriptConst::MAX_POMODORO_PRESETS) { SysCmdResult_Error("INVALID_SLOT"); return; }
-    if (!Pomodoro_SetPreset(index,name,work,rest)) { SysCmdResult_Error("INVALID_DURATION"); return; }
-    SysCmdResult_Ok("UPDATED",String(index));
-}
 bool Pomodoro_Start()
 {
     if (active || work_notice || rest_notice) return false;
@@ -106,6 +106,7 @@ bool Pomodoro_Start()
     if (!SysClockRules::PomodoroDuration(selected.work_min,selected.rest_min) || !SysClockRules::PomodoroRounds(selected.rounds)) return false;
     SysReminder_CancelClock(SysClockReminderSource::Pomodoro);
     preset=selected; phase=PomodoroPhase::Work; active=true; waiting_for_next=false; set_completed=false; session_round=0;
+    session_preset_index=index;
     if (++session==0) ++session;
     ++revision;
     const uint32_t now=millis(); timer.start(preset.work_min*60000U,now); Schedule(now); return true;
@@ -115,6 +116,19 @@ bool Pomodoro_StartNextRound()
     if (active || !waiting_for_next || work_notice || rest_notice || session_round>=preset.rounds) return false;
     waiting_for_next=false; set_completed=false; phase=PomodoroPhase::Work; active=true; ++revision;
     const uint32_t now=millis(); timer.start(preset.work_min*60000U,now); Schedule(now); return true;
+}
+void Pomodoro_Update(uint32_t now);
+/** 等待下一轮时结束整组；已经自然完成的专注轮次和统计不会被清除。 */
+bool Pomodoro_EndSet()
+{
+    const uint32_t now=millis();
+    Pomodoro_Update(now);
+    timer.cancel(now); active=false; waiting_for_next=false; set_completed=true;
+    work_notice=rest_notice=false;
+    SysSleep_Cancel(SysSleepSource::Pomodoro);
+    SysReminder_CancelClock(SysClockReminderSource::Pomodoro);
+    ++revision;
+    return true;
 }
 void Pomodoro_Update(uint32_t now)
 {
@@ -262,12 +276,16 @@ public:
         }
         drawUI();
     }
-    // 与倒计时一致：确认页长按取消；运行页长按退出界面，保留后台计时和剩余时长。
+    // 确认页长按取消；运行中长按退出界面并保留后台计时；休息结束等待时长按结束整组。
     void onKeyLong() override
     {
         SYS_SOUND_NAV();
         if (confirming) { confirming=false; drawUI(); }
-        else appManager.popApp();
+        else {
+            const auto snapshot=Pomodoro_GetSnapshot();
+            if (!snapshot.active && snapshot.waiting_for_next) Pomodoro_EndSet();
+            appManager.popApp();
+        }
     }
 };
 AppPomodoroRun instancePomodoroRun; AppBase* appPomodoroRun = &instancePomodoroRun;
@@ -357,7 +375,7 @@ public:
             ++phase;
             drawUI();
         } else {
-            if (!Pomodoro_SetPreset(preset_index,sysConfig.pomodoro_presets[preset_index].name.c_str(),t_work,t_rest,t_rounds)) return;
+            if (!Pomodoro_SetPreset(preset_index,sysConfig.pomodoro_presets[preset_index].name.c_str(),t_work,t_rest,t_rounds).ok()) return;
             appManager.popApp();
         }
     }
@@ -452,25 +470,57 @@ public:
     void onResume() override { AppMenuBase::onResume(); }
     // 【函数说明】订阅 POMODORO_UPDATE 事件，让网页 POM 命令能更新预设。
     void onSystemInit() override {
-        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_PomSync);
+        Pomodoro_RegisterCommands();
         appManager.registerBackgroundApp(this);
     }
     // 与前台页面生命周期无关；沿用 AppManager 在输入和提醒消费前的后台 tick。
     void onBackgroundTick() override { Pomodoro_Update(millis()); }
 };
-// 【函数说明】WebBLE 同步回调：沿用原有逐条发送方式，字段由安全 JSON 出口统一转义。
-void _Cb_PomSync(void* payload) {
-    if (!SysEvent_BleSyncScopeMatches(payload, "POM")) return;
-    for (int i=0;i<PrescriptConst::MAX_POMODORO_PRESETS;++i) {
-        JsonDocument doc(SysPsramJsonAllocator::Instance());
-        const auto &preset=sysConfig.pomodoro_presets[i];
-        doc["slot"]=i; doc["n"]=preset.name; doc["w"]=preset.work_min;
-        doc["r"]=preset.rest_min; doc["cur"]=sysConfig.pomodoro_current_idx;
-        SysBLE_NotifyJson("SYNC:POM:",doc);
-        delay(20);
-    }
+AppPomodoroMenu instancePomodoroMenu; AppBase* appPomodoro = &instancePomodoroMenu;
+
+// ===== 【蓝牙命令区】POM 专注 =====
+// 处理函数只把参数交给 Pomodoro_SetPreset，并把结果翻译成 ACK。
+
+static const SysCmdArgSpec kPomSetArgs[] = {
+    SYS_ARG_INT("slot", 0, PrescriptConst::MAX_POMODORO_PRESETS - 1),
+    SYS_ARG_STR("name", 0, 24, ARG_TRIM),
+    SYS_ARG_INT("work", 1, SysClockRules::WorkMaxMinutes),
+    SYS_ARG_INT("rest", 1, SysClockRules::RestMaxMinutes),
+    SYS_ARG_INT_OPT("rounds", 1, SysClockRules::PomodoroMaxRounds),
+};
+
+// POM.SET：修改一个预设；省略 rounds 时保持原轮数。
+static void Cmd_PomSet(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(Pomodoro_SetPreset(args.num(0), args.str(1), args.num(2), args.num(3),
+                               args.has(4) ? args.num(4) : -1));
 }
 
-// 供系统开机时调用的注册入口
+// POM.LIST：第 index 个预设 → {"slot","n","w","r","rd","cur"}。
+static bool Stream_PomList(uint16_t index, JsonDocument &out)
+{
+    if (index >= PrescriptConst::MAX_POMODORO_PRESETS)
+        return false;
+    const auto &preset = sysConfig.pomodoro_presets[index];
+    out["slot"] = index;
+    out["n"] = preset.name;
+    out["w"] = preset.work_min;
+    out["r"] = preset.rest_min;
+    out["rd"] = preset.rounds;
+    out["cur"] = sysConfig.pomodoro_current_idx;
+    return true;
+}
 
-AppPomodoroMenu instancePomodoroMenu; AppBase* appPomodoro = &instancePomodoroMenu;
+static const SysCmdSpec kPomCmds[] = {
+    {"LIST", nullptr, 0, CMD_SYNC, nullptr, Stream_PomList},
+    {"SET", kPomSetArgs, SYS_COUNT_OF(kPomSetArgs), 0, Cmd_PomSet, nullptr},
+};
+
+static const SysCmdGroup kPomGroup = {"POM", 1, SRC_ALL, kPomCmds, SYS_COUNT_OF(kPomCmds)};
+
+static void Pomodoro_RegisterCommands()
+{
+    SysCommand_RegisterGroup(&kPomGroup);
+}
+
+// ===== 【蓝牙命令区结束】 =====

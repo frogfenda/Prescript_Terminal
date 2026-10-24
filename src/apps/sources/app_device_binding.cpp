@@ -8,7 +8,6 @@ App 才能通过 BLE 读取机器码、向账号服务器申请挑战、取得�
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
 #include "sys/sys_device_binding.h"
-#include "sys/sys_ble.h"
 #include "sys/sys_audio.h"
 #include "lang/ui_strings.h"
 #include "ui/ui_frame.h"
@@ -44,10 +43,8 @@ public:
     void onCreate() override
     {
         // 进入页面不继承上一次残留状态；绑定模式只能由本次页面的主键明确开启。
-        const bool was_active = SysDeviceBinding_IsModeActive();
+        // 退出时若原本处于绑定模式，SysDeviceBinding_ExitMode 会推送 EVT:BIND.MODE。
         SysDeviceBinding_ExitMode();
-        if (was_active)
-            SysBLE_Notify("BIND_MODE:INACTIVE");
         active_ = false;
         drawPage();
     }
@@ -65,10 +62,7 @@ public:
     {
         // 所有离开路径最终都会经过 onDestroy；这里是绑定模式唯一的生命周期兜底。
         if (SysDeviceBinding_IsModeActive())
-        {
             SysDeviceBinding_ExitMode();
-            SysBLE_Notify("BIND_MODE:INACTIVE");
-        }
         active_ = false;
     }
     void onKnob(int) override {}
@@ -79,7 +73,6 @@ public:
             return;
         SysDeviceBinding_EnterMode();
         active_ = true;
-        SysBLE_Notify("BIND_MODE:ACTIVE");
         sysAudio.playTone(1500, 100);
         drawPage();
     }

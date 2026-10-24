@@ -9,7 +9,13 @@
 /** 当前固件是否注入了可用的产品绑定主密钥。 */
 bool SysDeviceBinding_IsProofAvailable();
 
-/** 进入一次性的 App 账号认领模式；只保留在 RAM，默认十分钟后失效。 */
+/** 注册 BIND 命令组（只允许蓝牙来源）；由 main.cpp 在启动时调用一次。 */
+void SysDeviceBinding_RegisterCommands();
+
+/**
+ * 进入一次性的 App 账号认领模式；只保留在 RAM，默认十分钟后失效。
+ * 进入和退出（包括超时）都会向已连接的客户端推送 EVT:BIND.MODE。
+ */
 void SysDeviceBinding_EnterMode();
 void SysDeviceBinding_ExitMode();
 void SysDeviceBinding_Update();

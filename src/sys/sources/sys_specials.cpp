@@ -10,21 +10,9 @@
 #include "sys/sys_psram_json.h"
 #include "sys/sys_psram_text.h"
 #include <ArduinoJson.h> // 必须引入 JSON 引擎
-#include "sys/sys_ble.h" // 确保引入了蓝牙接口
-#include "sys/sys_event.h"
 #include "lang/terminal_lang.h"
 
 SysSpecials sysSpecials;
-static bool s_specials_sync_subscribed = false;
-// 【新增】：收到蓝牙同步请求时的回调函数
-// 【函数说明】WebBLE 同步回调：发送特殊指令元数据，让网页显示人物链条、概率、进度、颜色和启用状态。
-static void _Cb_Spc_Sync_Req(void *payload)
-{
-    if (!SysEvent_BleSyncScopeMatches(payload, "SPC"))
-        return;
-    // 收到广播，特异点引擎主动交出元数据
-    sysSpecials.syncMetaData();
-}
 // --- PSRAM 数据结构定义 ---
 struct PureSpecial
 {
@@ -52,7 +40,6 @@ SysPsramVector<PureSpecial> pool_pure_specials;
 SysPsramVector<CharChain> pool_char_chains;
 
 // 【函数说明】按当前语言读取 FATFS 中的 specials.json，解析人物链条和纯特殊指令。
-// 运行时语言切换会再次调用本函数，因此 BLE 同步事件只允许订阅一次，避免切换多次后重复回传 SPC_META。
 void SysSpecials::begin()
 {
     pool_pure_specials.clear();
@@ -112,12 +99,6 @@ void SysSpecials::begin()
 
     Serial.printf("[特殊指令] 已预加载：特殊指令=%d，人物链条=%d，路径=%s。\n",
                   pool_pure_specials.size(), pool_char_chains.size(), resolvedPath.c_str());
-    // 【新增】：向邮局订阅蓝牙同步广播。运行时切换语言会重载资源，但不能重复登记同一个回调。
-    if (!s_specials_sync_subscribed)
-    {
-        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_Spc_Sync_Req);
-        s_specials_sync_subscribed = true;
-    }
 }
 
 // 【函数说明】指令抽取核心：先按人物链条概率尝试推进特殊剧情，再抽纯特殊指令，最后回落到普通指令池。
@@ -285,69 +266,82 @@ void SysSpecials::forceDrawByID(const String &id)
     }
 }
 
-// 【函数说明】把所有特殊指令的 ID、名称、概率、进度、颜色和启用状态通过 BLE 发给网页。
-void SysSpecials::syncMetaData()
+// 【函数说明】按 ID 判断特殊指令是否存在（人物链条或纯特殊指令）。
+bool SysSpecials::hasID(const String &id) const
 {
-    // 1. 同步纯指令 (异想体等)
-    for (int i = 0; i < pool_pure_specials.size(); i++)
-    {
-        auto &ps = pool_pure_specials[i];
-        char buf[256];
-        // 协议格式：SPC_META:P|ID|名称|概率|进度|颜色HEX|弹窗标题|启用状态
-        snprintf(buf, sizeof(buf), "SPC_META:P|%s|%s|%d|1/1|0x%04X|%s|1",
-                 ps.id.c_str(), ps.id.c_str(), ps.prob, ps.color, ps.popup_title.c_str());
-        SysBLE_Notify(buf);
-        delay(20); // 必须加微小延时，防止 BLE 队列撑爆
-    }
-
-    // 2. 同步人物剧本链条
-    for (int i = 0; i < pool_char_chains.size(); i++)
-    {
-        auto &cc = pool_char_chains[i];
-        int prog = sysConfig.char_progress[i];
-        int total = cc.texts.size();
-        int enabled = (sysConfig.special_toggles & (1 << i)) ? 1 : 0;
-        char buf[256];
-        snprintf(buf, sizeof(buf), "SPC_META:C|%s|%s|%d|%d/%d|0x%04X|%s|%d",
-                 cc.char_id.c_str(), cc.name.c_str(), cc.prob, prog, total, cc.color, cc.popup_title.c_str(), enabled);
-        SysBLE_Notify(buf);
-        delay(20);
-    }
+    for (const auto &ps : pool_pure_specials)
+        if (ps.id == id)
+            return true;
+    for (const auto &cc : pool_char_chains)
+        if (cc.char_id == id)
+            return true;
+    return false;
 }
 
-// 【函数说明】按 ID 查找特殊指令正文并通过 SPC_TXT 回传网页。
-void SysSpecials::syncTextByID(const String &id)
+/**
+ * 【函数说明】按序号取一条特殊指令的元数据，供 SPC.LIST 逐条输出：先纯特殊指令，后人物链条。
+ * 字段：kind（P 纯特殊 / C 人物链条）、id、name、prob、prog、total、color（0xRRRR 十六进制）、title、enabled。
+ */
+bool SysSpecials::metaAt(uint16_t index, JsonDocument &out) const
 {
-    // 1. 在人物链条中寻找
-    for (int i = 0; i < pool_char_chains.size(); i++)
+    char color[8];
+    if (index < pool_pure_specials.size())
     {
-        if (pool_char_chains[i].char_id == id)
-        {
-            int prog = sysConfig.char_progress[i];
-            String target_text;
-            if (prog < pool_char_chains[i].texts.size())
-            {
-                target_text = pool_char_chains[i].texts[prog].c_str(); // 返回当前进度对应的下一条文本
-            }
-            else
-            {
-                target_text = (appManager.getLanguage() == LANG_ZH) ? "[ 观测日志已完结，目标数据归档完毕 ]" : "[ OBSERVATION LOG COMPLETE. TARGET DATA ARCHIVED. ]"; // 进度抽完的兜底
-            }
-            // 协议格式：SPC_TXT:ID|具体文本
-            String msg = "SPC_TXT:" + id + "|" + target_text;
-            SysBLE_Notify(msg.c_str());
-            return;
-        }
+        const auto &ps = pool_pure_specials[index];
+        snprintf(color, sizeof(color), "0x%04X", ps.color);
+        out["kind"] = "P";
+        out["id"] = ps.id.c_str();
+        out["name"] = ps.id.c_str();
+        out["prob"] = ps.prob;
+        out["prog"] = 1;
+        out["total"] = 1;
+        out["color"] = color;
+        out["title"] = ps.popup_title.c_str();
+        out["enabled"] = true;
+        return true;
     }
+    const size_t chain = index - pool_pure_specials.size();
+    if (chain >= pool_char_chains.size())
+        return false;
+    const auto &cc = pool_char_chains[chain];
+    snprintf(color, sizeof(color), "0x%04X", cc.color);
+    out["kind"] = "C";
+    out["id"] = cc.char_id.c_str();
+    out["name"] = cc.name.c_str();
+    out["prob"] = cc.prob;
+    out["prog"] = sysConfig.char_progress[chain];
+    out["total"] = static_cast<int>(cc.texts.size());
+    out["color"] = color;
+    out["title"] = cc.popup_title.c_str();
+    out["enabled"] = (sysConfig.special_toggles & (1 << chain)) != 0;
+    return true;
+}
 
-    // 2. 在纯指令中寻找
-    for (auto &ps : pool_pure_specials)
+/**
+ * 【函数说明】按 ID 取特殊指令正文：人物链条返回当前进度对应的下一条，链条已抽完时返回结案提示；
+ * 纯特殊指令返回其固定正文。找不到 ID 时返回 false。
+ */
+bool SysSpecials::textByID(const String &id, String &out) const
+{
+    for (size_t i = 0; i < pool_char_chains.size(); i++)
+    {
+        if (!(pool_char_chains[i].char_id == id))
+            continue;
+        const int prog = sysConfig.char_progress[i];
+        if (prog < static_cast<int>(pool_char_chains[i].texts.size()))
+            out = pool_char_chains[i].texts[prog].c_str();
+        else
+            out = (appManager.getLanguage() == LANG_ZH) ? "[ 观测日志已完结，目标数据归档完毕 ]"
+                                                        : "[ OBSERVATION LOG COMPLETE. TARGET DATA ARCHIVED. ]";
+        return true;
+    }
+    for (const auto &ps : pool_pure_specials)
     {
         if (ps.id == id)
         {
-            String msg = "SPC_TXT:" + id + "|" + ps.text.c_str();
-            SysBLE_Notify(msg.c_str());
-            return;
+            out = ps.text.c_str();
+            return true;
         }
     }
+    return false;
 }

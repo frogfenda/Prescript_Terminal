@@ -81,14 +81,23 @@ namespace PrescriptConst
 
     constexpr uint8_t MAX_NAV_STACK = 5;
     constexpr uint8_t MAX_BG_APPS = 10;
-    constexpr uint8_t MAX_EVENT_SUBSCRIBERS = 28;
     constexpr uint8_t MAX_POMODORO_PRESETS = 5;
     constexpr uint8_t MAX_COIN_PRESETS = 10;
     constexpr uint8_t MAX_COIN_COUNT = 18;
     constexpr uint8_t MAX_ALARMS = 10;
     constexpr uint8_t MAX_SCHEDULES = 15;
     constexpr uint8_t MAX_CHAR_CHAINS = 8;
-    constexpr uint8_t MAX_BLE_QUEUE = 8;
+    // 【蓝牙指令协议 v2】一行请求最长字节数（含结尾换行），命令行队列槽位，以及每条命令最多的参数个数。
+    constexpr uint16_t CMD_LINE_MAX = 512;
+    constexpr uint8_t MAX_CMD_QUEUE = 8;
+    constexpr uint8_t MAX_CMD_ARGS = 8;
+    // 已注册命令组上限；当前 11 组，留出新应用的余量。
+    constexpr uint8_t MAX_CMD_GROUPS = 16;
+    // 蓝牙回包发送缓冲（PSRAM 字节环）。快照中的完整行在空间足够时入环，再按 MTU 拆分。
+    constexpr uint32_t BLE_TX_BUFFER_BYTES = 16384;
+    // 回包快照按需分配、优先使用 PSRAM；限制总字节和记录数，避免资源异常耗尽内存或长时间占用主循环。
+    constexpr uint32_t CMD_REPLY_MAX_BYTES = 131072;
+    constexpr uint16_t CMD_REPLY_MAX_RECORDS = 4096;
     constexpr uint8_t MAX_PRESCRIPT_TARGETS = 12;
     constexpr uint8_t MAX_PRESCRIPT_TARGET_LEN = 24;
     constexpr uint8_t MAX_KARMA_MODES = 3;
@@ -124,6 +133,9 @@ namespace PrescriptConst
     constexpr const char *FURIOSO_IMAGE_DIR = "/Resources/furioso/images/";
 
     constexpr const char *BLE_DEVICE_NAME = "Terminal_01";
-    constexpr const char *BLE_SERVICE_UUID = "0000DEAD-0000-1000-8000-00805F9B34FB";
-    constexpr const char *BLE_CHAR_UUID = "0000BEEF-0000-1000-8000-00805F9B34FB";
+    // 协议 v2 的自定义 128 位 UUID：固定基址，服务和特征只改前 4 个十六进制位。
+    // RX 由客户端写入请求行，TX 由设备 Notify 回包行；详见 docs/ble-protocol-v2.md。
+    constexpr const char *BLE_SERVICE_UUID = "5C9A0001-7E3B-4F6A-9D2E-1B8C4A6F3D10";
+    constexpr const char *BLE_RX_CHAR_UUID = "5C9A0002-7E3B-4F6A-9D2E-1B8C4A6F3D10";
+    constexpr const char *BLE_TX_CHAR_UUID = "5C9A0003-7E3B-4F6A-9D2E-1B8C4A6F3D10";
 }

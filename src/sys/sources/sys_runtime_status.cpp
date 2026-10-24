@@ -7,13 +7,6 @@
 #include <time.h>
 
 /*
- * 跨核心推送请求标记。
- * 当前用于 BLE Core 0 的即时推送捷径：后台任务不直接切 App，
- * 而是设置这个标记，由 AppManager 主循环安全消费。
- */
-static volatile bool s_push_notify_requested = false;
-
-/*
  * HUD 上一次的状态缓存。
  * AppMenuBase 每轮会调用 SysRuntime_HudStatusChanged()，
  * 如果这里判断没有变化，就不会重画整个菜单 HUD。
@@ -98,30 +91,4 @@ bool SysRuntime_HudStatusChanged()
     s_has_last = true;
 
     return changed;
-}
-
-/**
- * 请求 AppManager 在主循环中弹出推送通知。
- *
- * 这个函数用于后台模块跨上下文通知 UI：
- * 后台模块只置位，不直接切换 App，避免跨任务直接操作页面栈。
- */
-void SysRuntime_RequestPushNotify()
-{
-    s_push_notify_requested = true;
-}
-
-/**
- * AppManager 消费一次推送请求。
- *
- * 返回 true 表示本轮需要启动 PushNotify；
- * 返回 false 表示没有待处理请求。
- */
-bool SysRuntime_ConsumePushNotifyRequest()
-{
-    if (!s_push_notify_requested)
-        return false;
-
-    s_push_notify_requested = false;
-    return true;
 }

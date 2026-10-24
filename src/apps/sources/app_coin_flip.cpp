@@ -11,9 +11,7 @@
 #include "sys/sys_config.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_haptic.h"
-#include "sys/sys_event.h" 
-#include "sys/sys_ble.h"   
-#include "sys/sys_ble_json.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_psram_json.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_command_result.h"
@@ -48,117 +46,112 @@ struct CoinEntity
     bool needs_redraw;
 };
 
-// ==========================================
-// 【系统总线】：全自动监听蓝牙下发的预设指令
-// ==========================================
-class CoinEventReceiver {
-public:
-    CoinEventReceiver() {
-        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, onSyncReq); 
-    }
-    
-    // 【函数说明】WebBLE 同步回调：把当前硬币预设数组逐条打包成 SYNC:COIN JSON 回传网页。
-    static void onSyncReq(void* payload) {
-        if (!SysEvent_BleSyncScopeMatches(payload, "COIN"))
-            return;
-        for (int i = 0; i < sysConfig.coin_preset_count; i++) {
-            CoinPreset& p = sysConfig.coin_presets[i];
-            JsonDocument doc(SysPsramJsonAllocator::Instance());
-            doc["n"]=p.name; doc["bp"]=p.base_power; doc["cp"]=p.coin_power;
-            doc["cc"]=p.coin_count; doc["cl"]=p.coin_colors;
-            SysBLE_NotifyJson("SYNC:COIN:",doc);
-            vTaskDelay(pdMS_TO_TICKS(20)); 
-        }
+// 注册 COIN 命令组；定义在文件末尾的【蓝牙命令区】。
+static void Coin_RegisterCommands();
+
+// ===== 硬币预设业务入口：本机预设编辑器和蓝牙命令共用，规则只写在这里 =====
+namespace
+{
+    int Coin_FindByName(const String &name)
+    {
+        for (int i = 0; i < sysConfig.coin_preset_count; i++)
+            if (sysConfig.coin_presets[i].name == name)
+                return i;
+        return -1;
     }
 
-    // 【函数说明】处理 COIN 命令：按技能名查找现有预设，存在则更新，不存在则追加，并保存配置和写 ACK。
-    static void onCoinAdd(int bp, int cp, int cc, const char *colors, const char *raw_name) {
-        String name = String(raw_name ? raw_name : "");
+    /**
+     * 为本机新建的预设生成名字：取最小的未被占用的“预设-N / PRESET-N”。
+     * 旧做法用“当前数量+1”，删除中间项后会与现有名字重复；而蓝牙按名字新增或覆盖预设。
+     */
+    String Coin_NextAutoName()
+    {
+        char candidate[24];
+        const char *format = UIStrings::CoinAutoPresetFormat(appManager.getLanguage());
+        for (int n = 1; n <= PrescriptConst::MAX_COIN_PRESETS + 1; ++n)
+        {
+            snprintf(candidate, sizeof(candidate), format, n);
+            if (Coin_FindByName(candidate) < 0)
+                break;
+        }
+        return String(candidate);
+    }
+
+    /** 写入一个槽位的数值字段（名称由调用方决定是否修改）。 */
+    void Coin_WriteValues(CoinPreset &preset, int base_power, int coin_power, int coin_count, const String &colors)
+    {
+        preset.base_power = base_power;
+        preset.coin_power = coin_power;
+        preset.coin_count = coin_count;
+        preset.coin_colors = colors;
+    }
+
+    /**
+     * 按名称新增或覆盖一个技能预设。
+     * 规则：名称去空白后不能为空；硬币数 1～MAX_COIN_COUNT；新增受预设数量上限限制。
+     * 结果码：ADDED / UPDATED（警告级）/ EMPTY_NAME / INVALID_COIN_COUNT / FULL。
+     */
+    SysOpResult Coin_Upsert(const String &raw_name, int base_power, int coin_power, int coin_count, const String &colors)
+    {
+        String name = raw_name;
         name.trim();
         if (name.length() == 0)
-        {
-            SysCmdResult_Error("EMPTY_NAME");
-            return;
-        }
-        if (cc < 1 || cc > PrescriptConst::MAX_COIN_COUNT)
-        {
-            SysCmdResult_Error("INVALID_COIN_COUNT");
-            return;
-        }
+            return SysOpResult::Error("EMPTY_NAME");
+        if (coin_count < 1 || coin_count > PrescriptConst::MAX_COIN_COUNT)
+            return SysOpResult::Error("INVALID_COIN_COUNT");
 
-        int idx = -1;
-        for(int i=0; i<sysConfig.coin_preset_count; i++) {
-            if (sysConfig.coin_presets[i].name == name) { idx = i; break; }
-        }
-
-        bool updated = (idx >= 0);
-        if (idx == -1) {
+        int index = Coin_FindByName(name);
+        const bool updated = index >= 0;
+        if (!updated)
+        {
             if (sysConfig.coin_preset_count >= PrescriptConst::MAX_COIN_PRESETS)
-            {
-                SysCmdResult_Error("FULL");
-                return;
-            }
-            idx = sysConfig.coin_preset_count;
-            sysConfig.coin_preset_count++;
+                return SysOpResult::Error("FULL");
+            index = sysConfig.coin_preset_count++;
         }
-
-        sysConfig.coin_presets[idx].name = name;
-        sysConfig.coin_presets[idx].base_power = bp;
-        sysConfig.coin_presets[idx].coin_power = cp;
-        sysConfig.coin_presets[idx].coin_count = cc;
-        sysConfig.coin_presets[idx].coin_colors = String(colors ? colors : "");
+        CoinPreset &preset = sysConfig.coin_presets[index];
+        preset.name = name;
+        Coin_WriteValues(preset, base_power, coin_power, coin_count, colors);
         sysConfig.save();
-        SysBLE_Notify("SYNC:CLEAR:COIN");
-
-        if (updated)
-            SysCmdResult_Warn("UPDATED", name);
-        else
-            SysCmdResult_Ok("ADDED", name);
+        return updated ? SysOpResult::Warn("UPDATED", name) : SysOpResult::Ok("ADDED", name);
     }
 
-    // 【函数说明】处理 COIN_DEL 命令：按技能名删除预设，移动后续元素填补空位，保存配置并返回 DELETED/NOT_FOUND。
-    static void onCoinDel(const char *raw_name) {
-        String name = String(raw_name ? raw_name : "");
+    /** 修改指定槽位的数值，名称不变。结果码：UPDATED / NOT_FOUND / INVALID_COIN_COUNT。 */
+    SysOpResult Coin_UpdateAt(int index, int base_power, int coin_power, int coin_count, const String &colors)
+    {
+        if (index < 0 || index >= sysConfig.coin_preset_count)
+            return SysOpResult::Error("NOT_FOUND");
+        if (coin_count < 1 || coin_count > PrescriptConst::MAX_COIN_COUNT)
+            return SysOpResult::Error("INVALID_COIN_COUNT");
+        Coin_WriteValues(sysConfig.coin_presets[index], base_power, coin_power, coin_count, colors);
+        sysConfig.save();
+        return SysOpResult::Ok("UPDATED", sysConfig.coin_presets[index].name);
+    }
+
+    /** 删除指定槽位。结果码：DELETED / NOT_FOUND。 */
+    SysOpResult Coin_DeleteAt(int index)
+    {
+        if (index < 0 || index >= sysConfig.coin_preset_count)
+            return SysOpResult::Error("NOT_FOUND");
+        const String name = sysConfig.coin_presets[index].name;
+        for (int i = index; i < sysConfig.coin_preset_count - 1; i++)
+            sysConfig.coin_presets[i] = sysConfig.coin_presets[i + 1];
+        sysConfig.coin_preset_count--;
+        sysConfig.save();
+        return SysOpResult::Ok("DELETED", name);
+    }
+
+    /** 按名称删除（名称去空白后比较）。结果码：DELETED / NOT_FOUND / EMPTY_NAME。 */
+    SysOpResult Coin_DeleteByName(const String &raw_name)
+    {
+        String name = raw_name;
         name.trim();
         if (name.length() == 0)
-        {
-            SysCmdResult_Error("EMPTY_NAME");
-            return;
-        }
-
-        int idx = -1;
-        for(int i=0; i<sysConfig.coin_preset_count; i++) {
-            if (sysConfig.coin_presets[i].name == name) { idx = i; break; }
-        }
-
-        if (idx != -1) {
-            for (int i=idx; i<sysConfig.coin_preset_count-1; i++) {
-                sysConfig.coin_presets[i] = sysConfig.coin_presets[i+1];
-            }
-            sysConfig.coin_preset_count--;
-            sysConfig.save();
-            SysBLE_Notify("SYNC:CLEAR:COIN");
-            SysCmdResult_Ok("DELETED", name);
-        }
-        else
-        {
-            SysCmdResult_Error("NOT_FOUND", name);
-        }
+            return SysOpResult::Error("EMPTY_NAME");
+        const int index = Coin_FindByName(name);
+        if (index < 0)
+            return SysOpResult::Error("NOT_FOUND", name);
+        return Coin_DeleteAt(index);
     }
-};
-
-CoinEventReceiver g_coinEventReceiver;
-
-// 【命令入口】命令注册表直接调用这两个包装函数；它们复用硬币配置校验和保存逻辑，
-// 但不再经过命令型事件总线。payload 只在本次同步调用栈内有效。
-void Coin_AddPresetMobile(int base_power, int coin_power, int coin_count, const char *colors, const char *name)
-{
-    CoinEventReceiver::onCoinAdd(base_power, coin_power, coin_count, colors, name);
-}
-
-void Coin_DeletePresetMobile(const char *name)
-{
-    CoinEventReceiver::onCoinDel(name);
 }
 
 // ==========================================
@@ -880,32 +873,16 @@ public:
             phase++;
             drawUI();
         } else {
-            if (g_coin_edit_idx >= 0) {
-                int idx = g_coin_edit_idx;
-                sysConfig.coin_presets[idx].base_power = bp;
-                sysConfig.coin_presets[idx].coin_power = cp;
-                sysConfig.coin_presets[idx].coin_count = cc;
-                String c_str = ""; for(int i=0; i<cc; i++) c_str += String(cl);
-                sysConfig.coin_presets[idx].coin_colors = c_str;
-            } else {
-                if (sysConfig.coin_preset_count >= PrescriptConst::MAX_COIN_PRESETS) {
-                    Serial.println("[硬币] 预设数量已满，无法继续录入。");
-                    SYS_SOUND_NAV();
-                    appManager.popApp();
-                    return;
-                }
-                int idx = sysConfig.coin_preset_count;
-                sysConfig.coin_presets[idx].base_power = bp;
-                sysConfig.coin_presets[idx].coin_power = cp;
-                sysConfig.coin_presets[idx].coin_count = cc;
-                String c_str = ""; for(int i=0; i<cc; i++) c_str += String(cl);
-                sysConfig.coin_presets[idx].coin_colors = c_str;
-                char autoName[16];
-                snprintf(autoName, sizeof(autoName), UIStrings::CoinAutoPresetFormat(appManager.getLanguage()), idx + 1);
-                sysConfig.coin_presets[idx].name = autoName;
-                sysConfig.coin_preset_count++;
+            // 每枚硬币一位材质编号；编辑保留原名称，新建用最小未用编号自动命名，规则与蓝牙 COIN.ADD 共用。
+            String colors;
+            for (int i = 0; i < cc; i++) colors += String(cl);
+            const SysOpResult result = (g_coin_edit_idx >= 0)
+                                           ? Coin_UpdateAt(g_coin_edit_idx, bp, cp, cc, colors)
+                                           : Coin_Upsert(Coin_NextAutoName(), bp, cp, cc, colors);
+            if (!result.ok()) {
+                Serial.printf("[硬币] 预设保存失败：%s。\n", result.code);
+                SYS_SOUND_NAV();
             }
-            sysConfig.save();
             appManager.popApp();
         }
     }
@@ -916,10 +893,7 @@ public:
         if (phase == 4) {
             if (g_coin_edit_idx >= 0) {
                 SYS_SOUND_GLITCH();
-                for (int i = g_coin_edit_idx; i < sysConfig.coin_preset_count - 1; i++)
-                    sysConfig.coin_presets[i] = sysConfig.coin_presets[i + 1];
-                sysConfig.coin_preset_count--;
-                sysConfig.save();
+                Coin_DeleteAt(g_coin_edit_idx);
                 appManager.popApp();
             } else {
                 SYS_SOUND_NAV();
@@ -1012,7 +986,66 @@ protected:
             appManager.popApp();
         }
     }
+public:
+    // 【函数说明】作为系统应用安装时注册 COIN 命令组。
+    void onSystemInit() override { Coin_RegisterCommands(); }
 };
 
 AppCoinMenu instanceCoinMenu;
 AppBase *appCoinFlip = &instanceCoinMenu;
+
+// ===== 【蓝牙命令区】COIN 硬币 =====
+// 处理函数只把参数交给硬币预设业务入口，并把结果翻译成 ACK。
+
+static const SysCmdArgSpec kCoinAddArgs[] = {
+    SYS_ARG_INT("base", -99, 999),
+    SYS_ARG_INT("power", -99, 999),
+    SYS_ARG_INT("count", 1, PrescriptConst::MAX_COIN_COUNT),
+    SYS_ARG_STR("colors", 0, PrescriptConst::MAX_COIN_COUNT, ARG_TRIM),
+    SYS_ARG_REST("name", 1, 24, ARG_TRIM),
+};
+
+static const SysCmdArgSpec kCoinDelArgs[] = {
+    SYS_ARG_REST("name", 1, 24, ARG_TRIM),
+};
+
+// COIN.ADD：按名称新增或覆盖技能预设。
+static void Cmd_CoinAdd(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(Coin_Upsert(args.string(4), args.num(0), args.num(1), args.num(2), args.string(3)));
+}
+
+// COIN.DEL：按名称删除。
+static void Cmd_CoinDel(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(Coin_DeleteByName(args.string(0)));
+}
+
+// COIN.LIST：第 index 个预设 → {"n","bp","cp","cc","cl"}。
+static bool Stream_CoinList(uint16_t index, JsonDocument &out)
+{
+    if (index >= sysConfig.coin_preset_count)
+        return false;
+    const CoinPreset &preset = sysConfig.coin_presets[index];
+    out["n"] = preset.name;
+    out["bp"] = preset.base_power;
+    out["cp"] = preset.coin_power;
+    out["cc"] = preset.coin_count;
+    out["cl"] = preset.coin_colors;
+    return true;
+}
+
+static const SysCmdSpec kCoinCmds[] = {
+    {"LIST", nullptr, 0, CMD_SYNC, nullptr, Stream_CoinList},
+    {"ADD", kCoinAddArgs, SYS_COUNT_OF(kCoinAddArgs), 0, Cmd_CoinAdd, nullptr},
+    {"DEL", kCoinDelArgs, SYS_COUNT_OF(kCoinDelArgs), 0, Cmd_CoinDel, nullptr},
+};
+
+static const SysCmdGroup kCoinGroup = {"COIN", 1, SRC_ALL, kCoinCmds, SYS_COUNT_OF(kCoinCmds)};
+
+static void Coin_RegisterCommands()
+{
+    SysCommand_RegisterGroup(&kCoinGroup);
+}
+
+// ===== 【蓝牙命令区结束】 =====

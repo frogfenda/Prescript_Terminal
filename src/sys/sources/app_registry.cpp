@@ -176,4 +176,6 @@ void AppRegistry_InstallSystemApps()
     appManager.installApp(AppId::Gacha);
     appManager.installApp(AppId::GachaStats);
     appManager.installApp(AppId::PushNotify);
+    // 硬币应用没有后台逻辑，安装只为在 onSystemInit 里注册 COIN 命令组。
+    appManager.installApp(AppId::CoinFlip);
 }

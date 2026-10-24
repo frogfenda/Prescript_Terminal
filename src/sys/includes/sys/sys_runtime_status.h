@@ -21,6 +21,3 @@ struct SysHudStatus
 SysHudStatus SysRuntime_GetHudStatus();
 bool SysRuntime_HudStatusChanged();
 
-void SysRuntime_RequestPushNotify();
-// 【接口说明】主循环消费并清除随机指令请求。
-bool SysRuntime_ConsumePushNotifyRequest();

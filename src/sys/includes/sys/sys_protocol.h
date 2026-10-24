@@ -1,82 +1,45 @@
 /*
-【模块职责】文本协议解析接口。把 BLE、NFC、API 传入的字符串命令转换为 SysParsedCommand，不发布事件、不写文件。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+【模块职责】协议 v2 行解析。把一行请求拆成“组.动词”、可选编号和参数字段，并处理转义。
+【重要约束】纯函数：不依赖 Arduino String、不分配内存、不执行命令，可在主机端单独测试。
+行格式见 docs/ble-protocol-v2.md 第 3 节：<组>.<动词>[#<编号>][:<参数1>[:<参数2>...]]
 */
-// 文件：src/sys/sys_protocol.h
 #pragma once
-#include <Arduino.h>
+#include <stddef.h>
+#include <stdint.h>
 
-// Stage 5: 纯协议解析层。
-// 这里只把 BLE/NFC/API 的文本命令解析成结构化命令，不发布事件、不触发 UI。
-
-enum class SysCommandType : uint8_t
+// 请求头的长度上限：组码 1～11 字符，动词 1～15 字符，编号 1～8 字符（各自留 1 字节给 \0）。
+struct SysCmdHead
 {
-    Unknown = 0,
-    Invalid,
-    GetSync,
-    GetLanguage,
-    TextNotify,
-    AlarmAdd,
-    AlarmDel,
-    PomodoroUpdate,
-    ScheduleAdd,
-    ScheduleDel,
-    PrescriptAdd,
-    PrescriptDel,
-    WifiSet,
-    CoinAdd,
-    CoinDel,
-    SpecialForce,
-    GetSpecialText,
-    GetTarget,
-    TargetAdd,
-    TargetDel,
-    TargetSet,
-    GetIdentity,
-    BindingProof,
-    DeviceBindV2
+    char group[12];
+    char verb[16];
+    char id[9];
+    const char *args;  // 指向第一个冒号之后；没有参数区时为 nullptr
+    size_t args_length;
 };
 
-struct SysParsedCommand
-{
-    SysCommandType type = SysCommandType::Unknown;
-    String raw;
-    String error;
+/**
+ * 【接口说明】解析请求头。line 不要求以 \0 结尾。
+ * 成功返回 true，并让 out.args 指向参数区（只借用 line，不复制）；
+ * 组码、动词或编号的字符或长度不合法时返回 false，调用方应回 BAD_REQUEST。
+ */
+bool SysProtocol_ParseHead(const char *line, size_t length, SysCmdHead &out);
 
-    // 通用字符串参数
-    String name;
-    String title;
-    String text;
-    String id;
-    String ssid;
-    String pass;
-    String public_id;
-    String device_key;
-    String challenge_id;
-    String challenge;
-    String colors;
-    String sync_lang;
+/**
+ * 【接口说明】从任意一段请求开头（可能已被截断或不合法）尽量取出“组.动词”和编号，用于拒收时的错误回包。
+ * 取不到时 name 写成 "?"、id 写成空串。
+ */
+void SysProtocol_ExtractReplyTarget(const char *text, char *name, size_t name_size, char *id, size_t id_size);
 
-    // 通用数值参数
-    int lang = 0;
-    int hour = 0;
-    int minute = 0;
-    int index = 0;
-    int work_min = 0;
-    int rest_min = 0;
-    int base_power = 0;
-    int coin_power = 0;
-    int coin_count = 0;
-    uint32_t timestamp = 0;
-    uint32_t credential_version = 0;
-    bool hidden = false;
-};
+// SplitArgs 的特殊返回值。
+constexpr int SYS_PROTOCOL_ARGS_TOO_MANY = -1;   // 字段数超过 max_fields
+constexpr int SYS_PROTOCOL_ARGS_NO_SPACE = -2;   // 输出缓冲不够
 
-// 从一条完整命令解析出结构体。
-// 【接口说明】解析一条已经分割好的命令，返回类型、文本、时间、语言、硬币参数等结构化字段；错误时 type=Invalid 并给出 error。
-SysParsedCommand SysProtocol_ParseSingle(const String &raw);
-
-// 宏命令分割器：支持 \n 和 |，保持旧协议兼容。
-// cursor 初始传 0；返回 true 代表拿到了一条非空子命令。
-// 【接口说明】从包含 | 和换行的宏命令字符串中取出下一条非空子命令，cursor 记录扫描位置。
-bool SysProtocol_NextMacroCommand(const String &raw, int &cursor, String &out_cmd);
+/**
+ * 【接口说明】把参数区按冒号拆成字段并反转义（\: → 冒号，\\ → 反斜杠，\n → 换行；其他反斜杠原样保留）。
+ * - rest_last 为 true 时，第 max_fields 个字段收下剩余全部内容，其中未转义的冒号原样保留；
+ * - 字段依次写入 out_buffer，各以 \0 结尾；fields[i] 指向第 i 个字段，lengths[i] 为其字节数；
+ * - args 为 nullptr 表示没有参数区，返回 0；"A:" 这样的结尾冒号会产生一个空字段。
+ * 返回字段数，或上面两个负值之一。
+ */
+int SysProtocol_SplitArgs(const char *args, size_t length, uint8_t max_fields, bool rest_last,
+                          char *out_buffer, size_t buffer_size, const char **fields, uint16_t *lengths);

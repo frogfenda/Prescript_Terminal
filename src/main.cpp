@@ -19,6 +19,7 @@
 #include "sys/sys_power.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_prescript_target.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_motion.h"
 #include "sys/sys_mag.h"
 #include "sys/sys_human_motion.h"
@@ -93,10 +94,16 @@ void setup()
     sysAudio.begin();
     sysPower.begin();
     HAL_Init();
+
+    /*
+     * 蓝牙指令框架必须先于各应用的 onSystemInit 建立：SYS 组先注册，
+     * 随后 appManager.begin() 安装系统应用时，各应用在自己的 onSystemInit 里注册命令组。
+     * 设备绑定模块没有一次性初始化入口，在这里显式注册 BIND 组。
+     */
+    SysCommand_Init();
+    SysDeviceBinding_RegisterCommands();
     appManager.begin();
 
-    extern void SysRouter_Init();
-    SysRouter_Init();
     SysPrescriptTarget_Init();
 
     sysHaptic.begin();

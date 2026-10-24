@@ -19,12 +19,16 @@
 #include "sys/sys_feedback.h"
 #include "sys/sys_specials.h"
 #include "sys/sys_command_result.h"
+#include "sys/sys_command_registry.h"
+#include "sys/sys_reminder.h"
+#include "sys/sys_psram_json.h"
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
-#include "sys/sys_event.h"
 #include "ui/ui_theme.h"
 
 bool g_push_notify_keep_stack = false;
+// 注册 PUSH 和 SPC 命令组；定义在文件末尾的【蓝牙命令区】。
+static void PushNotify_RegisterCommands();
 
 
 void PushNotify_Trigger_Random(bool keep_stack)
@@ -99,22 +103,21 @@ void PushNotify_Trigger_Special_Forced(bool keep_stack)
         appManager.launch(AppId::PushNotify);
 }
 
-// 【命令入口】网页/蓝牙请求强制触发特殊指令时，先装载指定 ID，再打开警报弹窗。
-void PushNotify_Trigger_Special_Command(const char *raw_id)
+/**
+ * 【推送业务入口】强制触发指定 ID 的特殊指令：先装载，再打开警报弹窗。
+ * ID 不存在时仍弹出“未登记的特异点”警告（保持原有的设备表现），结果为警告级 NOT_FOUND。
+ * 结果码：TRIGGERED / NOT_FOUND（警告级）/ EMPTY_ID。
+ */
+static SysOpResult PushNotify_FireSpecial(const String &raw_id)
 {
-    if (!raw_id)
-        return;
-
-    String id = String(raw_id);
+    String id = raw_id;
     id.trim();
     if (id.isEmpty())
-    {
-        SysCmdResult_Error("EMPTY_ID");
-        return;
-    }
+        return SysOpResult::Error("EMPTY_ID");
+    const bool known = sysSpecials.hasID(id);
     sysSpecials.forceDrawByID(id);
     PushNotify_Trigger_Special_Forced(false);
-    SysCmdResult_Ok("TRIGGERED", id);
+    return known ? SysOpResult::Ok("TRIGGERED", id) : SysOpResult::Warn("NOT_FOUND", id);
 }
 
 class AppPushNotify : public AppBase
@@ -168,6 +171,7 @@ private:
 public:
     void onSystemInit() override
     {
+        PushNotify_RegisterCommands();
     }
 
     void onCreate() override
@@ -227,3 +231,83 @@ public:
 
 AppPushNotify instancePushNotify;
 AppBase *appPushNotify = &instancePushNotify;
+
+// ===== 【蓝牙命令区】PUSH 推送 / SPC 特殊指令 =====
+// SPC 组需要调用本页面的触发函数，因此和 PUSH 组一起放在推送应用里；特殊指令数据仍由 sysSpecials 管理。
+
+static const SysCmdArgSpec kPushTextArgs[] = {
+    SYS_ARG_REST("text", 1, 0, ARG_TRIM),
+};
+
+// PUSH.TEXT：把一条自定义指令送入提醒队列，按顺序弹出。
+static void Cmd_PushText(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    if (SysReminder_Submit(SysReminderKind::Custom, args.str(0), true))
+        ctx.ok("QUEUED");
+    else
+        ctx.error("QUEUE_FULL");
+}
+
+// PUSH.NOW：立即推送一条随机指令。
+static void Cmd_PushNow(SysCmdCtx &ctx, const SysCmdArgs &)
+{
+    if (SysReminder_Submit(SysReminderKind::Random, nullptr, true))
+        ctx.ok("QUEUED");
+    else
+        ctx.error("QUEUE_FULL");
+}
+
+static const SysCmdSpec kPushCmds[] = {
+    {"TEXT", kPushTextArgs, SYS_COUNT_OF(kPushTextArgs), 0, Cmd_PushText, nullptr},
+    {"NOW", nullptr, 0, 0, Cmd_PushNow, nullptr},
+};
+
+static const SysCmdGroup kPushGroup = {"PUSH", 1, SRC_ALL, kPushCmds, SYS_COUNT_OF(kPushCmds)};
+
+static const SysCmdArgSpec kSpcIdArgs[] = {
+    SYS_ARG_REST("id", 1, 32, ARG_TRIM),
+};
+
+// SPC.FIRE：强制触发指定特殊指令。
+static void Cmd_SpcFire(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(PushNotify_FireSpecial(args.string(0)));
+}
+
+// SPC.TEXT：查询指定特殊指令当前的正文 → DAT {"id","text"}。
+static void Cmd_SpcText(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    String text;
+    if (!sysSpecials.textByID(args.string(0), text))
+    {
+        ctx.error("NOT_FOUND", args.string(0));
+        return;
+    }
+    JsonDocument document(SysPsramJsonAllocator::Instance());
+    document["id"] = args.str(0);
+    document["text"] = text;
+    ctx.data(document);
+    ctx.ok("OK");
+}
+
+// SPC.LIST：逐条输出特殊指令元数据。
+static bool Stream_SpcList(uint16_t index, JsonDocument &out)
+{
+    return sysSpecials.metaAt(index, out);
+}
+
+static const SysCmdSpec kSpcCmds[] = {
+    {"LIST", nullptr, 0, CMD_SYNC, nullptr, Stream_SpcList},
+    {"TEXT", kSpcIdArgs, SYS_COUNT_OF(kSpcIdArgs), 0, Cmd_SpcText, nullptr},
+    {"FIRE", kSpcIdArgs, SYS_COUNT_OF(kSpcIdArgs), 0, Cmd_SpcFire, nullptr},
+};
+
+static const SysCmdGroup kSpcGroup = {"SPC", 1, SRC_ALL, kSpcCmds, SYS_COUNT_OF(kSpcCmds)};
+
+static void PushNotify_RegisterCommands()
+{
+    SysCommand_RegisterGroup(&kPushGroup);
+    SysCommand_RegisterGroup(&kSpcGroup);
+}
+
+// ===== 【蓝牙命令区结束】 =====

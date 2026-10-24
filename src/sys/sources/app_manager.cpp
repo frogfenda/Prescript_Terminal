@@ -9,19 +9,15 @@
 #include "sys/sys_ble.h"
 #include "sys/sys_fs.h"
 #include "sys/sys_res.h"
-#include "sys/sys_router.h"
-#include "sys/sys_event.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_auto_push.h"
 #include "sys/sys_nfc.h"
-#include "sys/sys_ble_queue.h"
 #include "sys/sys_runtime_status.h"
 #include "sys/sys_reminder.h"
 #include "sys/sys_gesture.h"
 #include "sys/sys_device_binding.h"
 
 AppManager appManager;
-
-extern void SysBLE_Notify(const char *data);
 
 AppManager::AppManager()
 {
@@ -183,24 +179,12 @@ void AppManager::run()
         bg_apps[i]->onBackgroundTick();
     }
 
-    if (SysRuntime_ConsumePushNotifyRequest())
-    {
-        SysReminder_Submit(SysReminderKind::Random, nullptr, true);
-    }
-
     /* 所有后台/事件提醒先完成入队，再在本轮统一展示一条，避免互相覆盖。 */
     SysReminder_Update();
 
-    // ==========================================
-    // 【核心修复】：在绝对安全的主线程 (Core 1) 拆快递！
-    // ==========================================
-    String pending_ble_msg;
-    if (SysBleQueue_Pop(pending_ble_msg)) {
-        SysRouter_ProcessBLE(pending_ble_msg);
-    }
-    // ==========================================
-    // 【解耦中心】：调用极其干净的路由协议分发器
-   
+    // 蓝牙 / NFC / 串口请求统一在主循环执行：每轮最多执行一条请求，或推进一段列表流。
+    SysCommand_Update();
+
     uint32_t current_time = millis();
     last_tick = current_time;
 

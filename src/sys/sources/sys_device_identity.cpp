@@ -317,22 +317,15 @@ SysDeviceIdentitySnapshot SysDeviceIdentity_GetSnapshot()
     return snapshot;
 }
 
-String SysDeviceIdentity_BuildPublicResponse()
+void SysDeviceIdentity_FillPublicJson(JsonDocument &document)
 {
     const SysDeviceIdentitySnapshot snapshot = SysDeviceIdentity_GetSnapshot();
-    JsonDocument document;
     document["schema_version"] = snapshot.schema_version;
     document["storage_ready"] = snapshot.storage_ready;
     document["provisioned"] = snapshot.provisioned;
     document["credential_version"] = snapshot.credential_version;
     document["machine_code"] = snapshot.machine_code;
     document["public_id"] = snapshot.public_id;
-
-    // ArduinoJson 写入 String 时会从头覆盖目标内容，不能先把协议前缀放进
-    // 同一个 String，否则设备实际只会发出 JSON，App 无法识别消息类型。
-    String payload;
-    serializeJson(document, payload);
-    return "IDENTITY:" + payload;
 }
 
 SysDeviceIdentityBindResult SysDeviceIdentity_Bind(const String &public_id, const String &device_key)

@@ -89,26 +89,7 @@ void PushNotify_Trigger_Custom(
     const char *custom_text,
     bool keep_stack = false,
     uint16_t font_color = 0x07FF);
-// 【接口说明】协议层删除闹钟入口；按名称删除配置中的闹钟并写业务 ACK。
-void Alarm_DeleteMobile(const char *name);
-void Alarm_AddPresetMobile(const char *name, int hour, int min, const char *text);
-// 【接口说明】协议层添加日程入口；按时间戳、标题、文本写入普通/隐藏日程。
-void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden = false);
-void Schedule_DeleteMobile(const char *title);
-// 【接口说明】直接执行外部 POM 命令；回执写入当前 SysCmdResult 上下文。
-void Pomodoro_UpdatePreset(int index, const char *name, int work, int rest);
-// 【接口说明】直接执行 PRE/PRE_DEL 命令；文本库写入仍由指令档案 App 所有。
-void DBArchive_AddCommand(SystemLang_t lang, const String &text);
-bool DBArchive_DeleteCommand(SystemLang_t lang, const String &text);
-// 【接口说明】直接执行 COIN/COIN_DEL 命令；配置保存和同步清理在硬币 App 内完成。
-void Coin_AddPresetMobile(int base_power, int coin_power, int coin_count, const char *colors, const char *name);
-void Coin_DeletePresetMobile(const char *name);
-// 【接口说明】直接执行 WIFI 命令；网络状态机仍由 NetService 所有。
-void NetService_SetWifiCommand(const char *ssid, const char *password);
-// 【接口说明】直接执行 SPC 命令，装载目标并打开特殊指令弹窗。
-void PushNotify_Trigger_Special_Command(const char *id);
 /** 主循环只读查询番茄应用；返回是否正在计时，两个可空输出分别为休息阶段、向上取整的剩余秒数。 */
 bool Pomodoro_GetHudStatus(bool *rest, int *remaining_seconds);
-// BLE RX and cross-core push requests are routed through sys_ble_queue / sys_runtime_status.
 
 #endif

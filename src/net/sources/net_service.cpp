@@ -23,9 +23,9 @@
 #include "net/net_outbox.h"
 #include "net/net_task_registry.h"
 #include "net/net_builtin_tasks.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_config.h"
-#include "sys/sys_event.h"
 #include "sys/sys_sleep_scheduler.h"
 
 namespace
@@ -192,21 +192,21 @@ namespace
         SetState(state);
     }
 
-    void OnWifiSet(const char *ssid, const char *password)
+    /**
+     * 【网络业务入口】保存 WiFi 配置并立即开始一次公共联网周期。
+     * 结果码：SAVED / EMPTY_SSID / WIFI_TOO_LONG。
+     */
+    SysOpResult OnWifiSet(const char *ssid, const char *password)
     {
         if (!ssid || String(ssid).isEmpty())
-        {
-            SysCmdResult_Error("EMPTY_SSID");
-            return;
-        }
+            return SysOpResult::Error("EMPTY_SSID");
 
         const size_t ssid_length = strlen(ssid);
         const size_t password_length = password ? strlen(password) : 0;
         if (ssid_length >= kWifiSsidCapacity || password_length >= kWifiPasswordCapacity)
         {
             Serial.println("[网络服务] WiFi 配置被拒绝：SSID 或密码长度超过设备上限。 ");
-            SysCmdResult_Error("WIFI_TOO_LONG");
-            return;
+            return SysOpResult::Error("WIFI_TOO_LONG");
         }
 
         sysConfig.wifi_ssid = String(ssid);
@@ -214,8 +214,8 @@ namespace
         sysConfig.save();
 
         Serial.printf("[网络服务] WiFi 配置已保存，SSID=%s，开始公共联网周期。\n", ssid);
-        SysCmdResult_Ok("SAVED", sysConfig.wifi_ssid);
         NetService_StartCommonCycle(false);
+        return SysOpResult::Ok("SAVED", sysConfig.wifi_ssid);
     }
 
     void MergeSummary(NetTaskRunSummary &target, const NetTaskRunSummary &source)
@@ -482,13 +482,12 @@ namespace
     }
 }
 
-void NetService_SetWifiCommand(const char *ssid, const char *password)
-{
-    OnWifiSet(ssid ? ssid : "", password ? password : "");
-}
+// 注册 NET 命令组；定义在文件末尾的【蓝牙命令区】。
+static void NetService_RegisterCommands();
 
 void NetService_Init()
 {
+    NetService_RegisterCommands();
     SetState(NetServiceState::Disconnected);
     s_lastOutcome = NetSessionOutcome::None;
     s_onlineTaskSequence = 0;
@@ -788,3 +787,29 @@ void NetService_Disconnect()
     SetState(NetServiceState::Disconnected);
     Serial.println("[网络服务] 已按用户请求关闭 WiFi。 ");
 }
+
+// ===== 【蓝牙命令区】NET 网络 =====
+// 处理函数只把参数交给 WiFi 业务入口；密码可省略（开放网络），日志不打印密码。
+
+static const SysCmdArgSpec kNetWifiArgs[] = {
+    SYS_ARG_STR("ssid", 1, 32, 0),
+    SYS_ARG_REST("pass", 0, 64, ARG_OPTIONAL),
+};
+
+static void Cmd_NetWifi(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(OnWifiSet(args.str(0), args.str(1)));
+}
+
+static const SysCmdSpec kNetCmds[] = {
+    {"WIFI", kNetWifiArgs, SYS_COUNT_OF(kNetWifiArgs), 0, Cmd_NetWifi, nullptr},
+};
+
+static const SysCmdGroup kNetGroup = {"NET", 1, SRC_ALL, kNetCmds, SYS_COUNT_OF(kNetCmds)};
+
+static void NetService_RegisterCommands()
+{
+    SysCommand_RegisterGroup(&kNetGroup);
+}
+
+// ===== 【蓝牙命令区结束】 =====

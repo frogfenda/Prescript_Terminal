@@ -1,9 +1,10 @@
 /*
-【模块职责】特殊指令接口。管理人物链条、异想体/纯特殊指令、概率抽取、颜色和 WebBLE 同步。
+【模块职责】特殊指令接口。管理人物链条、异想体/纯特殊指令、概率抽取和颜色；蓝牙 SPC 组通过只读接口取数。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 #pragma once
 #include <Arduino.h>
+#include <ArduinoJson.h>
 
 // 统一的渲染数据包，UI层只管拿去画
 struct DrawResult
@@ -30,11 +31,12 @@ public:
     // 【接口说明】按 ID 强制选中特殊指令。
     void forceDrawByID(const String &id);
     DrawResult getResult() { return current_draw; }
-    // 【新增】：向蓝牙同步所有特异点元数据 (不包含庞大文本)
-    void syncMetaData();
-    // 【新增】：按需索取具体的文本指令
-    // 【接口说明】向网页同步指定特殊指令正文。
-    void syncTextByID(const String &id);
+    // 【接口说明】ID 是否属于已加载的人物链条或纯特殊指令。
+    bool hasID(const String &id) const;
+    // 【接口说明】按序号取一条元数据（先纯特殊指令、后人物链条），供 SPC.LIST 逐条输出；越界返回 false。
+    bool metaAt(uint16_t index, JsonDocument &out) const;
+    // 【接口说明】按 ID 取正文：人物链条取当前进度的下一条；找不到返回 false。
+    bool textByID(const String &id, String &out) const;
 };
 
 extern SysSpecials sysSpecials;

@@ -1,12 +1,13 @@
 /*
 【模块职责】FM17550 NFC 系统服务。后台扫描 MIFARE Classic 与 NTAG/Ultralight 卡，提取其中的
-Prescript 文本命令并投入主循环共享队列；同时负责扩展板缺席、通信异常和系统休眠时的状态恢复。
+Prescript 请求行并投入主循环命令行队列；同时负责扩展板缺席、通信异常和系统休眠时的状态恢复。
 【能力边界】当前产品功能已移除手机模拟卡，保留的模拟查询接口只为现有 HUD/App 安全降级。
 */
 #include "sys/sys_nfc.h"
 
 #include "bsp/bsp_nfc_fm17550.h"
 #include "sys/sys_ble_queue.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_config.h"
 #include "sys/sys_feedback.h"
 #include "sys/sys_sleep_scheduler.h"
@@ -102,45 +103,6 @@ namespace
         }
     }
 
-    // 在卡片原始文本中找协议层支持的最早命令头，保证 NFC 与 BLE 使用同一套命令集合。
-    int findCommandStart(const String &rawText)
-    {
-        static const char *const kPrefixes[] = {
-            "GET:SPC_TXT:",
-            "GET:TARGET",
-            "GET:TGT",
-            "GET:SYNC",
-            "GET:LANG",
-            "GET:INFO",
-            "TGT_ADD:",
-            "TGT_DEL:",
-            "TGT_SET:",
-            "TXT:",
-            "ALM_DEL:",
-            "ALM:",
-            "POM:",
-            "SCH_HID:",
-            "SCH_DEL:",
-            "SCH:",
-            "PRE_DEL:ZH:",
-            "PRE_DEL:EN:",
-            "PRE:ZH:",
-            "PRE:EN:",
-            "WIFI:",
-            "COIN_DEL:",
-            "COIN:",
-            "SPC:"};
-
-        int earliest = -1;
-        for (const char *prefix : kPrefixes)
-        {
-            const int index = rawText.indexOf(prefix);
-            if (index >= 0 && (earliest < 0 || index < earliest))
-                earliest = index;
-        }
-        return earliest;
-    }
-
     void appendCardBytes(String &text,
                          const uint8_t *data,
                          size_t length,
@@ -156,7 +118,8 @@ namespace
             }
             if (value == 0x00 || value == 0xFF)
                 continue;
-            if (((value >= 32 && value <= 126) || value >= 128) && text.length() < kMaxRawTextLength)
+            // 保留换行（0x0A），一张卡可以写多行请求；其他控制字符仍丢弃。
+            if ((value == 0x0A || (value >= 32 && value <= 126) || value >= 128) && text.length() < kMaxRawTextLength)
                 text += (char)value;
         }
     }
@@ -295,17 +258,14 @@ namespace
         return !pageError || rawText.length() > 0;
     }
 
+    /**
+     * 从卡片原始文本中取出请求行并放入命令行队列（来源标记为 NFC）。
+     * 卡片开头常有 NDEF 头部字节，从第一个“已注册组码 + .”的位置开始取；之后按换行切成多行。
+     * 来源权限由命令框架检查（例如 BIND 组不允许 NFC），这里不再做子串过滤。
+     */
     bool enqueueExtractedCommand(const String &rawText)
     {
-        // 设备身份配发只允许由近场手机链路执行，NFC 卡片即使夹带在宏命令中也必须拒绝。
-        if (rawText.indexOf("DEV_BIND:") >= 0)
-        {
-            Serial.println("[NFC] 卡片包含受限的设备身份绑定命令，本次数据已拒绝。");
-            Feedback_PlayNfcReadError();
-            return false;
-        }
-
-        const int start = findCommandStart(rawText);
+        const int start = SysCommand_FindLineStart(rawText.c_str(), rawText.length());
         if (start < 0)
         {
             if (rawText.length() > 0)
@@ -317,11 +277,30 @@ namespace
             return false;
         }
 
-        const String cleanText = rawText.substring(start);
-        SysBleQueue_Push(cleanText);
+        int queued = 0;
+        int cursor = start;
+        while (cursor < (int)rawText.length())
+        {
+            int end = rawText.indexOf((char)0x0A, cursor);
+            if (end < 0)
+                end = rawText.length();
+            String line = rawText.substring(cursor, end);
+            line.trim();
+            cursor = end + 1;
+            if (line.length() == 0)
+                continue;
+            if (SysCmdQueue_Push(SysCmdSource::Nfc, line.c_str(), line.length()))
+                ++queued;
+        }
+
+        if (queued == 0)
+        {
+            Feedback_PlayNfcReadError();
+            return false;
+        }
         Feedback_PlayNfcReadOk();
-        // NFC 也可能承载 WIFI 密码等私密字段，运行日志只记录长度，不打印完整载荷。
-        Serial.printf("[NFC] 已提取并入队命令，长度=%u。\n", (unsigned int)cleanText.length());
+        // NFC 也可能承载 WiFi 密码等私密字段，运行日志只记录行数，不打印完整载荷。
+        Serial.printf("[NFC] 已提取并入队 %d 行请求。\n", queued);
         clearHealthCounters();
         return true;
     }

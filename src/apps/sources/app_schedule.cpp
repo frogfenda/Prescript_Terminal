@@ -10,17 +10,16 @@
 #include "ui/ui_frame.h"
 #include "sys/sys_config.h"
 #include <time.h>
-#include "sys/sys_event.h"
-#include "sys/sys_ble.h"
-#include "sys/sys_ble_json.h"
 #include "sys/sys_psram_json.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_time.h"
 #include "lang/ui_strings.h"
 
 // 当前二级菜单/编辑器操作的日程下标；新建模式下为 -1。
 int g_schedule_edit_idx = -1;
-void _Cb_SchSync(void* payload);
+// 注册 SCH 命令组；定义在文件末尾的【蓝牙命令区】。
+static void Schedule_RegisterCommands();
 
 /**
  * 日程编辑器的四种模式，决定走哪几步、保存哪些字段：
@@ -71,143 +70,131 @@ namespace
                item.is_expired == expect_expired &&
                !item.is_hidden;
     }
-}
 
-void Schedule_DeleteMobile(const char *title)
-{
-    String target = String(title ? title : "");
-    target.trim();
-    if (target.length() == 0)
+    const char *Get_Title_Preset(int idx)
     {
-        SysCmdResult_Error("EMPTY_TITLE");
-        return;
+        return UIStrings::ScheduleTitlePreset(appManager.getLanguage(), idx);
     }
 
-    int deletedCount = 0;
-    for (int i = 0; i < sysConfig.schedule_count; i++)
+    const char *Get_Text_Preset(int p_idx)
     {
-        if (sysConfig.schedules[i].title == target)
+        return UIStrings::ScheduleTextPreset(appManager.getLanguage(), p_idx);
+    }
+
+    /**
+     * 按 target_time 从早到晚排序日程数组，使菜单和到点检查都按时间顺序工作。
+     * track_index 为某条日程排序前的下标，返回它排序后的新下标；不需要跟踪时传 -1（返回 -1）。
+     * 改时间后二级菜单要继续指向同一条日程，靠这个返回值更新 g_schedule_edit_idx。
+     */
+    int Sort_Schedules(int track_index = -1)
+    {
+        for (int i = 0; i < sysConfig.schedule_count - 1; i++)
         {
-            for (int j = i; j < sysConfig.schedule_count - 1; j++)
+            for (int j = 0; j < sysConfig.schedule_count - i - 1; j++)
             {
-                sysConfig.schedules[j] = sysConfig.schedules[j + 1];
-            }
-            sysConfig.schedule_count--;
-            deletedCount++;
-            i--;
-        }
-    }
-
-    if (deletedCount > 0)
-    {
-        sysConfig.save();
-        SysCmdResult_Ok("DELETED", target);
-    }
-    else
-    {
-        SysCmdResult_Error("NOT_FOUND", target);
-    }
-}
-
-const char *Get_Title_Preset(int idx)
-{
-    return UIStrings::ScheduleTitlePreset(appManager.getLanguage(), idx);
-}
-const char *Get_Text_Preset(int p_idx)
-{
-    return UIStrings::ScheduleTextPreset(appManager.getLanguage(), p_idx);
-}
-
-/**
- * 【函数说明】按 target_time 从早到晚排序日程数组，使菜单和到点检查都按时间顺序工作。
- * track_index 为某条日程排序前的下标，返回它排序后的新下标；不需要跟踪时传 -1（返回 -1）。
- * 改时间后二级菜单要继续指向同一条日程，靠这个返回值更新 g_schedule_edit_idx。
- */
-int Sort_Schedules(int track_index = -1)
-{
-    for (int i = 0; i < sysConfig.schedule_count - 1; i++)
-    {
-        for (int j = 0; j < sysConfig.schedule_count - i - 1; j++)
-        {
-            if (sysConfig.schedules[j].target_time > sysConfig.schedules[j + 1].target_time)
-            {
-                ScheduleItem temp = sysConfig.schedules[j];
-                sysConfig.schedules[j] = sysConfig.schedules[j + 1];
-                sysConfig.schedules[j + 1] = temp;
-                if (track_index == j)
-                    track_index = j + 1;
-                else if (track_index == j + 1)
-                    track_index = j;
+                if (sysConfig.schedules[j].target_time > sysConfig.schedules[j + 1].target_time)
+                {
+                    ScheduleItem temp = sysConfig.schedules[j];
+                    sysConfig.schedules[j] = sysConfig.schedules[j + 1];
+                    sysConfig.schedules[j + 1] = temp;
+                    if (track_index == j)
+                        track_index = j + 1;
+                    else if (track_index == j + 1)
+                        track_index = j;
+                }
             }
         }
-    }
-    return track_index;
-}
-
-// 【函数说明】处理 SCH/SCH_HID 命令：校验重复和容量，必要时回收过期项，再写入普通/隐藏日程并排序保存。
-void Schedule_AddMobile(uint32_t target_time, const char *title, const char *text, bool is_hidden)
-{
-    String safeTitle = String(title ? title : "");
-    safeTitle.trim();
-    if (safeTitle.length() == 0)
-    {
-        SysCmdResult_Error("EMPTY_TITLE");
-        return;
-    }
-    if (target_time == 0)
-    {
-        SysCmdResult_Error("INVALID_TIME");
-        return;
+        return track_index;
     }
 
-    for (int i = 0; i < sysConfig.schedule_count; i++)
-    {
-        if (sysConfig.schedules[i].target_time == target_time &&
-            sysConfig.schedules[i].title == safeTitle)
-        {
-            SysCmdResult_Warn("EXISTS", safeTitle);
-            return;
-        }
-    }
+    // ===== 日程业务入口：本机界面和蓝牙命令共用，规则只写在这里 =====
 
-    bool recycledExpired = false;
-    if (sysConfig.schedule_count >= PrescriptConst::MAX_SCHEDULES)
+    /**
+     * 新增一条日程并按时间排序保存。
+     * 规则：标题去空白后不能为空；同一时间同一标题视为重复；数量已满时先回收一条已过期日程，没有可回收的才报满。
+     * 结果码：ADDED / ADDED_RECYCLED_EXPIRED（警告级）/ EXISTS（警告级）/ EMPTY_TITLE / INVALID_TIME / FULL。
+     */
+    SysOpResult Schedule_Add(uint32_t target_time, const String &raw_title, const String &text, bool is_hidden)
     {
-        bool freed = false;
+        String title = raw_title;
+        title.trim();
+        if (title.length() == 0)
+            return SysOpResult::Error("EMPTY_TITLE");
+        if (target_time == 0)
+            return SysOpResult::Error("INVALID_TIME");
+
         for (int i = 0; i < sysConfig.schedule_count; i++)
         {
-            if (sysConfig.schedules[i].is_expired)
+            if (sysConfig.schedules[i].target_time == target_time && sysConfig.schedules[i].title == title)
+                return SysOpResult::Warn("EXISTS", title);
+        }
+
+        bool recycled = false;
+        if (sysConfig.schedule_count >= PrescriptConst::MAX_SCHEDULES)
+        {
+            for (int i = 0; i < sysConfig.schedule_count; i++)
             {
+                if (!sysConfig.schedules[i].is_expired)
+                    continue;
                 for (int j = i; j < sysConfig.schedule_count - 1; j++)
                     sysConfig.schedules[j] = sysConfig.schedules[j + 1];
                 sysConfig.schedule_count--;
-                freed = true;
-                recycledExpired = true;
+                recycled = true;
                 break;
             }
+            if (!recycled)
+                return SysOpResult::Error("FULL");
         }
-        if (!freed)
-        {
-            SysCmdResult_Error("FULL");
-            return;
-        }
+
+        ScheduleItem &item = sysConfig.schedules[sysConfig.schedule_count++];
+        item.target_time = target_time;
+        item.title = title;
+        item.prescript = text;
+        item.is_expired = false;
+        item.is_restored = false;
+        item.is_hidden = is_hidden;
+        Sort_Schedules();
+        sysConfig.save();
+        return recycled ? SysOpResult::Warn("ADDED_RECYCLED_EXPIRED", title) : SysOpResult::Ok("ADDED", title);
     }
 
-    int idx = sysConfig.schedule_count;
-    sysConfig.schedules[idx].target_time = target_time;
-    sysConfig.schedules[idx].title = safeTitle;
-    sysConfig.schedules[idx].prescript = text ? text : "";
-    sysConfig.schedules[idx].is_expired = false;
-    sysConfig.schedules[idx].is_restored = false;
-    sysConfig.schedules[idx].is_hidden = is_hidden;
-    sysConfig.schedule_count++;
-    Sort_Schedules();
-    sysConfig.save();
+    /** 删除指定下标的日程。结果码：DELETED / NOT_FOUND。 */
+    SysOpResult Schedule_DeleteAt(int index)
+    {
+        if (index < 0 || index >= sysConfig.schedule_count)
+            return SysOpResult::Error("NOT_FOUND");
+        const String title = sysConfig.schedules[index].title;
+        for (int i = index; i < sysConfig.schedule_count - 1; i++)
+            sysConfig.schedules[i] = sysConfig.schedules[i + 1];
+        sysConfig.schedule_count--;
+        sysConfig.save();
+        return SysOpResult::Ok("DELETED", title);
+    }
 
-    if (recycledExpired)
-        SysCmdResult_Warn("ADDED_RECYCLED_EXPIRED", safeTitle);
-    else
-        SysCmdResult_Ok("ADDED", safeTitle);
+    /** 按标题删除所有同名日程（含已过期的）。结果码：DELETED / NOT_FOUND / EMPTY_TITLE。 */
+    SysOpResult Schedule_DeleteByTitle(const String &raw_title)
+    {
+        String title = raw_title;
+        title.trim();
+        if (title.length() == 0)
+            return SysOpResult::Error("EMPTY_TITLE");
+
+        int deleted = 0;
+        for (int i = 0; i < sysConfig.schedule_count; i++)
+        {
+            if (sysConfig.schedules[i].title != title)
+                continue;
+            for (int j = i; j < sysConfig.schedule_count - 1; j++)
+                sysConfig.schedules[j] = sysConfig.schedules[j + 1];
+            sysConfig.schedule_count--;
+            ++deleted;
+            --i;
+        }
+        if (deleted == 0)
+            return SysOpResult::Error("NOT_FOUND", title);
+        sysConfig.save();
+        return SysOpResult::Ok("DELETED", title);
+    }
 }
 
 /*
@@ -386,23 +373,19 @@ class AppScheduleEdit : public AppBase
 
         if (mode == ScheduleEditMode::Create)
         {
-            if (sysConfig.schedule_count >= PrescriptConst::MAX_SCHEDULES)
+            // 本机新建与蓝牙 SCH.ADD 共用同一业务入口：同时间同标题去重，满了先回收过期日程。
+            const SysOpResult result = Schedule_Add(static_cast<uint32_t>(new_target),
+                                                    resolveTitle(nullptr), resolveText(nullptr), false);
+            if (!result.ok())
             {
-                Serial.println("[日程-警告] 日程数量已满，本次新增未保存。");
+                Serial.printf("[日程-警告] 新增日程失败：%s。\n", result.code);
                 SYS_SOUND_LONG();
                 return;
             }
-            int idx = sysConfig.schedule_count;
-            sysConfig.schedules[idx].target_time = new_target;
-            sysConfig.schedules[idx].title = resolveTitle(nullptr);
-            sysConfig.schedules[idx].prescript = resolveText(nullptr);
-            sysConfig.schedules[idx].is_expired = false;
-            sysConfig.schedules[idx].is_restored = false;
-            sysConfig.schedules[idx].is_hidden = false; // 本机手工新建绝对不隐藏
-            sysConfig.schedule_count++;
-            Sort_Schedules();
+            appManager.popApp();
+            return;
         }
-        else
+
         {
             ScheduleItem &item = sysConfig.schedules[g_schedule_edit_idx];
             if (mode == ScheduleEditMode::Content || mode == ScheduleEditMode::Restore)
@@ -621,10 +604,7 @@ class AppScheduleItemMenu : public AppMenuBase
             return;
         }
         SYS_SOUND_GLITCH();
-        for (int i = g_schedule_edit_idx; i < sysConfig.schedule_count - 1; i++)
-            sysConfig.schedules[i] = sysConfig.schedules[i + 1];
-        sysConfig.schedule_count--;
-        sysConfig.save();
+        Schedule_DeleteAt(g_schedule_edit_idx);
         g_schedule_edit_idx = -1;
         appManager.popApp();
     }
@@ -890,32 +870,86 @@ public:
             current_selection = 0;
         AppMenuBase::onResume();
     }
-    // 【函数说明】订阅日程添加/删除/同步事件；到点业务由主循环的 SysCalendar 统一处理。
-    void onSystemInit() override {
-        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_SchSync);
-        
-    }
+    // 【函数说明】系统启动时注册 SCH 命令组；到点业务由主循环的 SysCalendar 统一处理。
+    void onSystemInit() override { Schedule_RegisterCommands(); }
 
 };
-// 收到路由器的同步口哨声，日程表自己把自己的数据发给蓝牙！
-// 【函数说明】WebBLE 同步回调：把日程数组打包成 SYNC:SCH JSON 回传网页。
-void _Cb_SchSync(void *payload)
-{
-    if (!SysEvent_BleSyncScopeMatches(payload, "SCH")) return;
-    for (int i=0;i<sysConfig.schedule_count;++i) {
-        const auto &item=sysConfig.schedules[i];
-        if (item.is_expired || item.is_hidden) continue;
-        const time_t epoch=item.target_time; struct tm local={}; localtime_r(&epoch,&local);
-        char date[32]; snprintf(date,sizeof(date),"%04d-%02d-%02dT%02d:%02d",
-            local.tm_year+1900,local.tm_mon+1,local.tm_mday,local.tm_hour,local.tm_min);
-        JsonDocument doc(SysPsramJsonAllocator::Instance());
-        doc["dt"]=date; doc["n"]=item.title; doc["t"]=item.prescript;
-        SysBLE_NotifyJson("SYNC:SCH:",doc);
-        delay(50);
-    }
-}
-
-
-
 AppScheduleMenu instanceScheduleMenu;
 AppBase *appSchedule = &instanceScheduleMenu;
+
+// ===== 【蓝牙命令区】SCH 日程 =====
+// 处理函数只把参数交给日程业务入口，并把结果翻译成 ACK；隐藏日程不提供蓝牙入口。
+
+static const SysCmdArgSpec kSchAddArgs[] = {
+    SYS_ARG_INT("year", 2020, 2099),
+    SYS_ARG_INT("mon", 1, 12),
+    SYS_ARG_INT("day", 1, 31),
+    SYS_ARG_INT("hour", 0, 23),
+    SYS_ARG_INT("min", 0, 59),
+    SYS_ARG_STR("title", 1, 24, ARG_TRIM),
+    SYS_ARG_REST("text", 0, 0, 0),
+};
+
+static const SysCmdArgSpec kSchDelArgs[] = {
+    SYS_ARG_REST("title", 1, 24, ARG_TRIM),
+};
+
+// SCH.ADD：把本地日期时间换成时间戳；2 月 30 日这类不存在的日期回 INVALID_DATE。
+static void Cmd_SchAdd(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    time_t target = 0;
+    if (!SysTime_LocalDateTimeToEpoch(static_cast<uint16_t>(args.num(0)), static_cast<uint8_t>(args.num(1)),
+                                      static_cast<uint8_t>(args.num(2)), static_cast<uint8_t>(args.num(3)),
+                                      static_cast<uint8_t>(args.num(4)), 0, &target))
+    {
+        ctx.error("INVALID_DATE");
+        return;
+    }
+    ctx.ack(Schedule_Add(static_cast<uint32_t>(target), args.string(5), args.string(6), false));
+}
+
+// SCH.DEL：按标题删除所有同名日程。
+static void Cmd_SchDel(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(Schedule_DeleteByTitle(args.string(0)));
+}
+
+// SCH.LIST：第 index 条“未过期且未隐藏”的日程 → {"dt","n","t"}。
+static bool Stream_SchList(uint16_t index, JsonDocument &out)
+{
+    uint16_t visible = 0;
+    for (int i = 0; i < sysConfig.schedule_count; ++i)
+    {
+        const ScheduleItem &item = sysConfig.schedules[i];
+        if (item.is_expired || item.is_hidden)
+            continue;
+        if (visible++ != index)
+            continue;
+        const time_t epoch = item.target_time;
+        struct tm local = {};
+        localtime_r(&epoch, &local);
+        char date[24];
+        snprintf(date, sizeof(date), "%04d-%02d-%02dT%02d:%02d",
+                 local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min);
+        out["dt"] = date;
+        out["n"] = item.title;
+        out["t"] = item.prescript;
+        return true;
+    }
+    return false;
+}
+
+static const SysCmdSpec kSchCmds[] = {
+    {"LIST", nullptr, 0, CMD_SYNC, nullptr, Stream_SchList},
+    {"ADD", kSchAddArgs, SYS_COUNT_OF(kSchAddArgs), 0, Cmd_SchAdd, nullptr},
+    {"DEL", kSchDelArgs, SYS_COUNT_OF(kSchDelArgs), 0, Cmd_SchDel, nullptr},
+};
+
+static const SysCmdGroup kSchGroup = {"SCH", 1, SRC_ALL, kSchCmds, SYS_COUNT_OF(kSchCmds)};
+
+static void Schedule_RegisterCommands()
+{
+    SysCommand_RegisterGroup(&kSchGroup);
+}
+
+// ===== 【蓝牙命令区结束】 =====

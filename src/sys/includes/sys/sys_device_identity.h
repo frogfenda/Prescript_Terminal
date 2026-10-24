@@ -5,6 +5,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 
 enum class SysDeviceIdentityBindResult : uint8_t
 {
@@ -33,8 +34,8 @@ bool SysDeviceIdentity_Init();
 // 【接口说明】返回不含秘密字段的身份快照，适合 UI、BLE 查询与诊断信息展示。
 SysDeviceIdentitySnapshot SysDeviceIdentity_GetSnapshot();
 
-// 【接口说明】生成 GET:IDENTITY 的安全响应文本；其中不含 device_key。
-String SysDeviceIdentity_BuildPublicResponse();
+// 【接口说明】把可公开的身份字段填进 JSON（BIND.INFO 使用）；绝不包含 device_key。
+void SysDeviceIdentity_FillPublicJson(JsonDocument &document);
 
 // 【接口说明】首次写入服务器分配的公开 ID 与设备通行码；已绑定设备不会被该入口覆盖。
 SysDeviceIdentityBindResult SysDeviceIdentity_Bind(const String &public_id, const String &device_key);

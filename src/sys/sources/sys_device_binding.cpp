@@ -5,7 +5,8 @@
 */
 #include "sys/sys_device_binding.h"
 #include "sys/sys_device_identity.h"
-#include "sys/sys_ble.h"
+#include "sys/sys_command_registry.h"
+#include "sys/sys_psram_json.h"
 #include "sys/sys_sleep_scheduler.h"
 
 #include <cstring>
@@ -55,6 +56,14 @@ namespace
         encoded[encoded_length] = '\0';
         return String(reinterpret_cast<const char *>(encoded));
     }
+
+    // 向客户端推送 EVT:BIND.MODE:{"active":true/false}。
+    void NotifyModeChanged(bool active)
+    {
+        JsonDocument document(SysPsramJsonAllocator::Instance());
+        document["active"] = active;
+        SysCommand_Event("BIND.MODE", document);
+    }
 }
 
 void SysDeviceBinding_EnterMode()
@@ -66,15 +75,20 @@ void SysDeviceBinding_EnterMode()
     s_lastChallenge = "";
     SysSleep_SetBlocker(SysSleepBlocker::BindingMode, true);
     Serial.println("[设备绑定] 已进入账号认领模式，等待 App 完成账号流程。");
+    NotifyModeChanged(true);
 }
 
 void SysDeviceBinding_ExitMode()
 {
+    const bool was_active = s_modeActive;
     s_modeActive = false;
     s_commitAllowed = false;
     s_lastChallengeId = "";
     s_lastChallenge = "";
     SysSleep_SetBlocker(SysSleepBlocker::BindingMode, false);
+    // 只有真正从开启变为关闭时才推送，页面反复调用 ExitMode 不会重复推送。
+    if (was_active)
+        NotifyModeChanged(false);
 }
 
 void SysDeviceBinding_Update()
@@ -82,7 +96,6 @@ void SysDeviceBinding_Update()
     if (s_modeActive && millis() - s_modeStartedMs >= kBindingModeTimeoutMs)
     {
         SysDeviceBinding_ExitMode();
-        SysBLE_Notify("BIND_MODE:INACTIVE");
         Serial.println("[设备绑定] 账号认领模式已超时关闭。");
     }
 }
@@ -165,3 +178,89 @@ bool SysDeviceBinding_BuildVerificationCode(
     memset(proof, 0, sizeof(proof));
     return verification_code.length() == 43;
 }
+
+// ===== 【蓝牙命令区】BIND 设备绑定 =====
+// 只允许蓝牙来源：NFC 卡片和串口都不能参与绑定。处理函数只调用绑定与身份模块的接口。
+
+static const SysCmdArgSpec kBindProofArgs[] = {
+    SYS_ARG_STR("challenge_id", 1, 64, ARG_TRIM),
+    SYS_ARG_REST("challenge", 1, 256, ARG_TRIM),
+};
+
+static const SysCmdArgSpec kBindCommitArgs[] = {
+    SYS_ARG_STR("public_id", 1, 64, ARG_TRIM),
+    SYS_ARG_INT("version", 1, 1000000),
+    SYS_ARG_REST("key", 1, 256, ARG_TRIM),
+};
+
+// BIND.INFO：绑定模式状态和可公开的身份字段。
+static void Cmd_BindInfo(SysCmdCtx &ctx, const SysCmdArgs &)
+{
+    JsonDocument document(SysPsramJsonAllocator::Instance());
+    document["mode_active"] = SysDeviceBinding_IsModeActive();
+    SysDeviceIdentity_FillPublicJson(document);
+    ctx.data(document);
+    ctx.ok("OK");
+}
+
+// BIND.PROOF：绑定模式中为账号挑战生成一次性证明 → DAT {"challenge_id","code"}。
+static void Cmd_BindProof(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    if (!SysDeviceBinding_IsModeActive())
+    {
+        ctx.error("BINDING_MODE_REQUIRED");
+        return;
+    }
+    String code;
+    if (!SysDeviceBinding_BuildModeProof(args.string(0), args.string(1), code))
+    {
+        ctx.error("PROOF_GENERATION_FAILED");
+        return;
+    }
+    JsonDocument document(SysPsramJsonAllocator::Instance());
+    document["challenge_id"] = args.str(0);
+    document["code"] = code;
+    ctx.data(document);
+    ctx.ok("PROOF_READY");
+}
+
+// BIND.COMMIT：提交服务器分配的公开 ID 和设备通行码；必须紧跟一次成功的 BIND.PROOF。
+static void Cmd_BindCommit(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    if (!SysDeviceBinding_IsCredentialCommitAllowed())
+    {
+        ctx.error("BINDING_PROOF_REQUIRED");
+        return;
+    }
+    const SysDeviceIdentityBindResult result = SysDeviceIdentity_ReplaceBinding(
+        args.string(0), args.string(2), static_cast<uint32_t>(args.num(1)));
+    switch (result)
+    {
+    case SysDeviceIdentityBindResult::Ok:
+        SysDeviceBinding_ConsumeCredentialCommit();
+        ctx.ok("BOUND", args.string(0));
+        break;
+    case SysDeviceIdentityBindResult::AlreadyBound: ctx.ack(SysOpResult::Warn("ALREADY_BOUND")); break;
+    case SysDeviceIdentityBindResult::InvalidPublicId: ctx.error("INVALID_PUBLIC_ID"); break;
+    case SysDeviceIdentityBindResult::InvalidDeviceKey: ctx.error("INVALID_DEVICE_KEY"); break;
+    case SysDeviceIdentityBindResult::MachineCodeUnavailable: ctx.error("MACHINE_CODE_UNAVAILABLE"); break;
+    case SysDeviceIdentityBindResult::StorageUnavailable: ctx.error("IDENTITY_STORAGE_UNAVAILABLE"); break;
+    case SysDeviceIdentityBindResult::SaveFailed:
+    default: ctx.error("IDENTITY_SAVE_FAILED"); break;
+    }
+}
+
+static const SysCmdSpec kBindCmds[] = {
+    {"INFO", nullptr, 0, 0, Cmd_BindInfo, nullptr},
+    {"PROOF", kBindProofArgs, SYS_COUNT_OF(kBindProofArgs), 0, Cmd_BindProof, nullptr},
+    {"COMMIT", kBindCommitArgs, SYS_COUNT_OF(kBindCommitArgs), 0, Cmd_BindCommit, nullptr},
+};
+
+static const SysCmdGroup kBindGroup = {"BIND", 1, SRC_BLE, kBindCmds, SYS_COUNT_OF(kBindCmds)};
+
+void SysDeviceBinding_RegisterCommands()
+{
+    SysCommand_RegisterGroup(&kBindGroup);
+}
+
+// ===== 【蓝牙命令区结束】 =====

@@ -6,7 +6,7 @@
 1. 显示当前语言的指令库文本；
 2. 用旋钮在“当前指令内部滚动”和“上一条/下一条指令”之间连续切换；
 3. 提供二次确认删除流程；
-4. 接收 BLE/NFC/Web 路由发布的 PRE / PRE_DEL 事件并写入 LittleFS。
+4. 提供 PRE 组蓝牙命令（文件末尾【蓝牙命令区】），增删文本后写回 LittleFS。
 
 大屏适配说明：
 - 旧版本按 284×76 写死 3~4 行显示、固定 40px 滚动条；
@@ -17,10 +17,8 @@
 #include "sys/app_manager.h"
 #include "sys/sys_fs.h"
 #include "sys/sys_config.h"
-#include "sys/sys_event.h"
 #include "sys/sys_command_result.h"
-#include "sys/sys_ble.h"
-#include "sys/sys_ble_json.h"
+#include "sys/sys_command_registry.h"
 #include "sys/sys_psram_json.h"
 #include "lang/terminal_lang.h"
 #include "lang/ui_strings.h"
@@ -52,23 +50,8 @@ void DBArchive_SaveToFile(SystemLang_t lang)
     Serial.printf("[指令档案] 已写入 %s，共 %u 条。\n", path, (unsigned)p->size());
 }
 
-// 【同步回调】GET:SYNC 广播到达时逐条回传当前语言的本机指令库。
-// PRE 写入命令本身不经过事件总线，但一对多同步通知仍由指令档案模块订阅。
-static void _Cb_PreSync(void *payload)
-{
-    if (!SysEvent_BleSyncScopeMatches(payload, "PRE"))
-        return;
-
-    const SystemLang_t lang = appManager.getLanguage();
-    SysPsramTextList *pool = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    for (const auto &entry : *pool)
-    {
-        JsonDocument doc(SysPsramJsonAllocator::Instance());
-        doc["t"] = entry.c_str();
-        SysBLE_NotifyJson("SYNC:PRE:", doc);
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
-}
+// 注册 PRE 命令组；定义在文件末尾的【蓝牙命令区】。
+static void Prescript_RegisterCommands();
 
 // 【外部接口】添加一条指令并立即写回 LittleFS。
 void DBArchive_AddRecord(SystemLang_t lang, const String &text)
@@ -95,48 +78,43 @@ bool DBArchive_DeleteRecord(SystemLang_t lang, int index)
     return false;
 }
 
-// 【命令入口】直接添加一条外部 PRE 指令；校验和回执由当前命令上下文承接。
-void DBArchive_AddCommand(SystemLang_t lang, const String &text)
+/**
+ * 【指令档案业务入口】按文本新增一条指令并写回 LittleFS。
+ * 指令库文件按行存储，文本里的换行替换成空格。结果码：ADDED / EMPTY_TEXT。
+ */
+static SysOpResult DBArchive_AddText(SystemLang_t lang, const String &text)
 {
     String new_text = text;
+    new_text.replace('\n', ' ');
     new_text.trim();
     if (new_text.length() == 0)
-    {
-        SysCmdResult_Error("EMPTY_TEXT");
-        return;
-    }
+        return SysOpResult::Error("EMPTY_TEXT");
     DBArchive_AddRecord(lang, new_text);
-    SysCmdResult_Ok("ADDED", new_text);
     Serial.printf("[指令档案] 已添加到%s库：%s\n", lang == LANG_ZH ? "中文" : "英文", new_text.c_str());
+    return SysOpResult::Ok("ADDED");
 }
 
-// 【命令入口】直接按文本删除第一条 PRE 指令；未找到时返回原协议错误码。
-bool DBArchive_DeleteCommand(SystemLang_t target_lang, const String &raw_text)
+/** 【指令档案业务入口】按文本删除第一条完全相同的指令。结果码：DELETED / NOT_FOUND / EMPTY_TEXT。 */
+static SysOpResult DBArchive_DeleteText(SystemLang_t lang, const String &raw_text)
 {
     String target = raw_text;
+    target.replace('\n', ' ');
     target.trim();
     if (target.length() == 0)
-    {
-        SysCmdResult_Error("EMPTY_TEXT");
-        return false;
-    }
+        return SysOpResult::Error("EMPTY_TEXT");
 
-    SysPsramTextList *target_pool = (target_lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-
-    for (int i = 0; i < (int)target_pool->size(); i++)
+    SysPsramTextList *pool = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    for (int i = 0; i < (int)pool->size(); i++)
     {
-        if ((*target_pool)[i] == target)
+        if ((*pool)[i] == target)
         {
-            DBArchive_DeleteRecord(target_lang, i);
-            SysCmdResult_Ok("DELETED", target);
+            DBArchive_DeleteRecord(lang, i);
             Serial.printf("[指令档案] 已按文本删除：%s\n", target.c_str());
-            return true;
+            return SysOpResult::Ok("DELETED");
         }
     }
-
-    SysCmdResult_Error("NOT_FOUND", target);
     Serial.printf("[指令档案] 未找到待删除文本：%s\n", target.c_str());
-    return false;
+    return SysOpResult::Error("NOT_FOUND");
 }
 
 class AppPrescriptList : public AppBase
@@ -500,10 +478,60 @@ public:
 
     void onSystemInit() override
     {
-        SysEvent_Subscribe(EVT_BLE_SYNC_REQ, _Cb_PreSync);
+        Prescript_RegisterCommands();
         appManager.registerBackgroundApp(this);
     }
 };
 
 AppPrescriptList instancePrescriptList;
 AppBase *appPrescriptList = &instancePrescriptList;
+
+// ===== 【蓝牙命令区】PRE 指令档案 =====
+// 处理函数只把参数交给指令档案业务入口；语言锁由框架按 CMD_LANG_LOCKED 统一检查。
+
+static const SysCmdArgSpec kPreTextArgs[] = {
+    SYS_ARG_CHOICE("lang", "ZH|EN"),
+    SYS_ARG_REST("text", 1, 0, ARG_TRIM),
+};
+
+static SystemLang_t PreArgLang(const SysCmdArgs &args)
+{
+    return args.choice(0) == 0 ? LANG_ZH : LANG_EN;
+}
+
+// PRE.ADD：向指定语言的指令库追加一条。
+static void Cmd_PreAdd(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(DBArchive_AddText(PreArgLang(args), args.string(1)));
+}
+
+// PRE.DEL：从指定语言的指令库删除第一条相同文本。
+static void Cmd_PreDel(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    ctx.ack(DBArchive_DeleteText(PreArgLang(args), args.string(1)));
+}
+
+// PRE.LIST：当前界面语言指令库的第 index 条 → {"t"}。
+static bool Stream_PreList(uint16_t index, JsonDocument &out)
+{
+    const SysPsramTextList *pool = (appManager.getLanguage() == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
+    if (index >= pool->size())
+        return false;
+    out["t"] = (*pool)[index].c_str();
+    return true;
+}
+
+static const SysCmdSpec kPreCmds[] = {
+    {"LIST", nullptr, 0, CMD_SYNC, nullptr, Stream_PreList},
+    {"ADD", kPreTextArgs, SYS_COUNT_OF(kPreTextArgs), CMD_LANG_LOCKED, Cmd_PreAdd, nullptr},
+    {"DEL", kPreTextArgs, SYS_COUNT_OF(kPreTextArgs), CMD_LANG_LOCKED, Cmd_PreDel, nullptr},
+};
+
+static const SysCmdGroup kPreGroup = {"PRE", 1, SRC_ALL, kPreCmds, SYS_COUNT_OF(kPreCmds)};
+
+static void Prescript_RegisterCommands()
+{
+    SysCommand_RegisterGroup(&kPreGroup);
+}
+
+// ===== 【蓝牙命令区结束】 =====

@@ -101,5 +101,3 @@ void NetService_Update();
 /** 强制中止当前会话，状态置为 SyncFailed。 */
 void NetService_Abort();
 
-/** 直接执行 WIFI 文本命令；命令路由调用此入口，不经过命令型事件总线。 */
-void NetService_SetWifiCommand(const char *ssid, const char *password);
