@@ -11,7 +11,7 @@
 
 #include "lang/ui_strings.h"
 #include "sys/app_manager.h"
-#include "sys/sys_mag.h"
+#include "sys/motion/sys_mag.h"
 #include "ui/ui_clock.h"
 
 namespace

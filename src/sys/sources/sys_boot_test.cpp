@@ -13,7 +13,7 @@
 #include "bsp/bsp_tm6605.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_imu_capture.h"
-#include "sys/sys_motion.h"
+#include "sys/motion/sys_motion.h"
 
 #ifndef PRESCRIPT_TM6605_BOOT_TEST
 #define PRESCRIPT_TM6605_BOOT_TEST 0

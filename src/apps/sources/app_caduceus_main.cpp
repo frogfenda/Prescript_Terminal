@@ -18,7 +18,7 @@ UICaduceus和UIPrescript承担，震动通过sys_feedback语义接口触发。
 #include "sys/resources/sys_caduceus_resources.h"
 #include "sys/sys_config.h"
 #include "sys/sys_feedback.h"
-#include "sys/sys_gesture.h"
+#include "sys/motion/sys_gesture.h"
 #include "sys/resources/sys_res.h"
 #include "ui/ui_caduceus.h"
 #include "ui/ui_frame.h"

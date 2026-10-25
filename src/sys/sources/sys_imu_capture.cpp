@@ -12,7 +12,7 @@
 
 #include "hal/hal.h"
 #include "hal/hal_fat_storage.h"
-#include "sys/sys_motion.h"
+#include "sys/motion/sys_motion.h"
 
 namespace
 {

@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】待机页。显示 standby.bin，处理空闲后 Light Sleep，并响应按键、RTC INT# 或 ESP 定时器唤醒。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
@@ -13,8 +13,8 @@
 #include "sys/sys_time.h"
 #include "sys/sys_calendar.h"
 #include "sys/sys_sleep_scheduler.h"
-#include "sys/sys_motion.h"
-#include "sys/sys_mag.h"
+#include "sys/motion/sys_motion.h"
+#include "sys/motion/sys_mag.h"
 
 class AppStandby : public AppBase
 {

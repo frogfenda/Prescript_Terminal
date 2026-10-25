@@ -1,10 +1,10 @@
-﻿/*
+/*
 【模块职责】配置持久化实现。把公共配置和语言配置分别序列化到 LittleFS，启动时读取实体默认配置并限制数组计数避免损坏配置导致越界。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/sys/sys_config.cpp
 #include "sys/sys_config.h"
-#include "sys/sys_fs.h"      // 引入我们上一版的 LittleFS 中枢
+#include "sys/storage/sys_fs.h"      // 引入我们上一版的 LittleFS 中枢
 #include "sys/sys_psram_json.h"
 #include "sys/sys_calendar.h"
 #include "sys/sys_clock_rules.h"

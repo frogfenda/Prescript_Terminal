@@ -11,7 +11,7 @@
  * 【重复调用】初始化完成后再次调用会直接返回，不重复申请PSRAM。
  * 【失败策略】双蛇杖的大批量资源不在这里读取；首次进入对应App后才由SysRes_Update逐份加载。
  */
-void SysRes_Init();
+void SysRes_Init(SystemLang_t lang);
 
 /**
  * 【接口说明】在Arduino主循环中推进最多一份双蛇杖音频或图片的预热。

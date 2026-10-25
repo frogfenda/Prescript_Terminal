@@ -7,7 +7,7 @@
 #include "ui/ui_menu_motion.h"
 #include "apps/app_menu_base.h"
 #include "ui/ui_text.h"
-#include "sys/sys_runtime_status.h"
+#include "ui/ui_hud.h"
 #include <math.h>
 
 namespace {
@@ -31,7 +31,7 @@ void DrawStatus(AppMenuBase &menu)
     char clock[10];
     SysTime_GetTimeString(clock);
     const int clock_w = HAL_Get_Text_Width(clock);
-    sysPower.drawBatteryIcon(8, 10);
+    UIHud_DrawBatteryIcon(8, 10);
     UIText::DrawClippedFaded(46, 5, menu.getMenuRenderTitle(), 0.5f, 46, sw - clock_w - 20);
     HAL_Screen_ShowSmallLine_Color(sw - clock_w - 8, 5, clock, Text);
     HAL_Draw_Line(8, 29, sw - 8, 29, Muted);
@@ -39,7 +39,7 @@ void DrawStatus(AppMenuBase &menu)
     char page[24];
     snprintf(page, sizeof(page), "%02d / %02d", menu.getMenuRenderSelection() + 1, menu.getMenuRenderCount());
     HAL_Screen_ShowSmallLine_Color(12, sh - 22, page, Text);
-    SysHudStatus status = SysRuntime_GetHudStatus();
+    SysHudStatus status = UIHud_GetRuntimeStatus();
     char running[40] = {};
     if (status.countdown_active && status.nfc_active)
         snprintf(running, sizeof(running), "BUS %02d  TMR %02d:%02d", status.nfc_remaining_sec,

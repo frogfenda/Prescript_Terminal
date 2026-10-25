@@ -12,7 +12,7 @@
 #include <esp_heap_caps.h>
 #include <Preferences.h>
 
-#include "sys/sys_nand_ftl.h"
+#include "hal/storage/hal_nand_ftl.h"
 
 #include "diskio_impl.h"
 #include "esp_vfs_fat.h"
@@ -75,40 +75,40 @@ namespace
         preferences.end();
         return read_bytes == sizeof(record) && record.magic == VOLUME_RECORD_MAGIC &&
                record.version == VOLUME_RECORD_VERSION &&
-               record.firstBlock == SysNandFtl::PHYSICAL_FIRST_BLOCK &&
-               record.blockCount == SysNandFtl::PHYSICAL_BLOCK_COUNT &&
-               record.sectorSize == SysNandFtl::LOGICAL_SECTOR_SIZE &&
-               record.sectorCount == SysNandFtl::LOGICAL_SECTOR_COUNT &&
+               record.firstBlock == HAL::NandFtl::PHYSICAL_FIRST_BLOCK &&
+               record.blockCount == HAL::NandFtl::PHYSICAL_BLOCK_COUNT &&
+               record.sectorSize == HAL::NandFtl::LOGICAL_SECTOR_SIZE &&
+               record.sectorCount == HAL::NandFtl::LOGICAL_SECTOR_COUNT &&
                record.checksum == VolumeRecordChecksum(record);
     }
 
     bool RangeIsValid(uint64_t address, uint32_t length)
     {
         if (s_owner != HAL::FatStorage::Owner::UsbMassStorage ||
-            !SysNandFtl::IsReady() || length > s_geometry.usableBytes)
+            !HAL::NandFtl::IsReady() || length > s_geometry.usableBytes)
             return false;
         return address <= static_cast<uint64_t>(s_geometry.usableBytes - length);
     }
 
     DSTATUS DiskInitialize(BYTE)
     {
-        return SysNandFtl::IsReady() ? 0 : STA_NOINIT;
+        return HAL::NandFtl::IsReady() ? 0 : STA_NOINIT;
     }
 
     DSTATUS DiskStatus(BYTE)
     {
-        return SysNandFtl::IsReady() ? 0 : STA_NOINIT;
+        return HAL::NandFtl::IsReady() ? 0 : STA_NOINIT;
     }
 
     DRESULT DiskRead(BYTE, BYTE *buffer, DWORD sector, UINT count)
     {
-        if (!buffer || count == 0 || !SysNandFtl::IsReady() ||
-            sector >= SysNandFtl::SectorCount() || count > SysNandFtl::SectorCount() - sector)
+        if (!buffer || count == 0 || !HAL::NandFtl::IsReady() ||
+            sector >= HAL::NandFtl::SectorCount() || count > HAL::NandFtl::SectorCount() - sector)
             return RES_PARERR;
         for (UINT index = 0; index < count; ++index)
         {
-            if (!SysNandFtl::Read(sector + index,
-                                  buffer + static_cast<size_t>(index) * SysNandFtl::LOGICAL_SECTOR_SIZE))
+            if (!HAL::NandFtl::Read(sector + index,
+                                  buffer + static_cast<size_t>(index) * HAL::NandFtl::LOGICAL_SECTOR_SIZE))
                 return RES_ERROR;
         }
         return RES_OK;
@@ -116,13 +116,13 @@ namespace
 
     DRESULT DiskWrite(BYTE, const BYTE *buffer, DWORD sector, UINT count)
     {
-        if (!buffer || count == 0 || !SysNandFtl::IsReady() ||
-            sector >= SysNandFtl::SectorCount() || count > SysNandFtl::SectorCount() - sector)
+        if (!buffer || count == 0 || !HAL::NandFtl::IsReady() ||
+            sector >= HAL::NandFtl::SectorCount() || count > HAL::NandFtl::SectorCount() - sector)
             return RES_PARERR;
         for (UINT index = 0; index < count; ++index)
         {
-            if (!SysNandFtl::Write(sector + index,
-                                   buffer + static_cast<size_t>(index) * SysNandFtl::LOGICAL_SECTOR_SIZE))
+            if (!HAL::NandFtl::Write(sector + index,
+                                   buffer + static_cast<size_t>(index) * HAL::NandFtl::LOGICAL_SECTOR_SIZE))
                 return RES_ERROR;
         }
         return RES_OK;
@@ -130,19 +130,19 @@ namespace
 
     DRESULT DiskIoctl(BYTE, BYTE command, void *buffer)
     {
-        if (!SysNandFtl::IsReady())
+        if (!HAL::NandFtl::IsReady())
             return RES_NOTRDY;
         switch (command)
         {
         case CTRL_SYNC:
-            return SysNandFtl::Sync() ? RES_OK : RES_ERROR;
+            return HAL::NandFtl::Sync() ? RES_OK : RES_ERROR;
         case GET_SECTOR_COUNT:
             if (!buffer) return RES_PARERR;
-            *static_cast<DWORD *>(buffer) = SysNandFtl::SectorCount();
+            *static_cast<DWORD *>(buffer) = HAL::NandFtl::SectorCount();
             return RES_OK;
         case GET_SECTOR_SIZE:
             if (!buffer) return RES_PARERR;
-            *static_cast<WORD *>(buffer) = SysNandFtl::LOGICAL_SECTOR_SIZE;
+            *static_cast<WORD *>(buffer) = HAL::NandFtl::LOGICAL_SECTOR_SIZE;
             return RES_OK;
         case GET_BLOCK_SIZE:
             if (!buffer) return RES_PARERR;
@@ -152,7 +152,7 @@ namespace
             if (!buffer) return RES_PARERR;
             {
                 const DWORD *range = static_cast<const DWORD *>(buffer);
-                return SysNandFtl::Trim(range[0], range[1]) ? RES_OK : RES_ERROR;
+                return HAL::NandFtl::Trim(range[0], range[1]) ? RES_OK : RES_ERROR;
             }
         default:
             return RES_PARERR;
@@ -238,15 +238,15 @@ namespace
             Serial.println("[FATFS] 未找到匹配当前正式布局的NAND卷记录；不会尝试挂载或自动格式化。");
             return false;
         }
-        const SysNandFtl::ResumeResult result = SysNandFtl::Begin();
-        if (result == SysNandFtl::ResumeResult::Resumed)
+        const HAL::NandFtl::ResumeResult result = HAL::NandFtl::Begin();
+        if (result == HAL::NandFtl::ResumeResult::Resumed)
             return true;
-        if (result == SysNandFtl::ResumeResult::NoMap)
+        if (result == HAL::NandFtl::ResumeResult::NoMap)
             Serial.println("[FATFS] 外挂NAND尚未建立FTL/FAT卷；不会自动格式化。");
         else
             Serial.printf("[FATFS] 外挂NAND FTL初始化失败：Dhara=%s。\n",
-                          SysNandFtl::LastErrorName());
-        SysNandFtl::End();
+                          HAL::NandFtl::LastErrorName());
+        HAL::NandFtl::End();
         return false;
     }
 }
@@ -264,15 +264,15 @@ namespace HAL::FatStorage
         if (!RegisterDiskAndVfs(mountPoint, maxOpenFiles) || !MountRegisteredVolume())
         {
             UnregisterDiskAndVfs(true);
-            SysNandFtl::End();
+            HAL::NandFtl::End();
             return false;
         }
 
         s_owner = Owner::EspFileSystem;
-        s_geometry.usableBytes = static_cast<size_t>(SysNandFtl::SectorCount()) *
-                                 SysNandFtl::LOGICAL_SECTOR_SIZE;
-        s_geometry.blockCount = SysNandFtl::SectorCount();
-        s_geometry.blockSize = SysNandFtl::LOGICAL_SECTOR_SIZE;
+        s_geometry.usableBytes = static_cast<size_t>(HAL::NandFtl::SectorCount()) *
+                                 HAL::NandFtl::LOGICAL_SECTOR_SIZE;
+        s_geometry.blockCount = HAL::NandFtl::SectorCount();
+        s_geometry.blockSize = HAL::NandFtl::LOGICAL_SECTOR_SIZE;
         Serial.printf("[FATFS] 外挂NAND卷已挂载：路径=%s，容量=%luKiB，扇区=%u字节。\n",
                       mountPoint,
                       static_cast<unsigned long>(s_geometry.usableBytes / 1024U),
@@ -285,7 +285,7 @@ namespace HAL::FatStorage
         if (s_owner != Owner::EspFileSystem)
             return;
         UnregisterDiskAndVfs(true);
-        SysNandFtl::End();
+        HAL::NandFtl::End();
         s_geometry = Geometry{};
         s_owner = Owner::None;
     }
@@ -298,18 +298,18 @@ namespace HAL::FatStorage
             return false;
 
         s_sector_cache = static_cast<uint8_t *>(heap_caps_malloc(
-            SysNandFtl::LOGICAL_SECTOR_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            HAL::NandFtl::LOGICAL_SECTOR_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         if (!s_sector_cache)
         {
             Serial.println("[FATFS][MSC] 无法申请NAND扇区缓存。");
-            SysNandFtl::End();
+            HAL::NandFtl::End();
             return false;
         }
 
-        s_geometry.usableBytes = static_cast<size_t>(SysNandFtl::SectorCount()) *
-                                 SysNandFtl::LOGICAL_SECTOR_SIZE;
-        s_geometry.blockCount = SysNandFtl::SectorCount();
-        s_geometry.blockSize = SysNandFtl::LOGICAL_SECTOR_SIZE;
+        s_geometry.usableBytes = static_cast<size_t>(HAL::NandFtl::SectorCount()) *
+                                 HAL::NandFtl::LOGICAL_SECTOR_SIZE;
+        s_geometry.blockCount = HAL::NandFtl::SectorCount();
+        s_geometry.blockSize = HAL::NandFtl::LOGICAL_SECTOR_SIZE;
         s_owner = Owner::UsbMassStorage;
         return true;
     }
@@ -318,7 +318,7 @@ namespace HAL::FatStorage
     {
         if (s_owner != Owner::UsbMassStorage)
             return;
-        SysNandFtl::End();
+        HAL::NandFtl::End();
         ReleaseSectorCache();
         s_geometry = Geometry{};
         s_owner = Owner::None;
@@ -341,12 +341,12 @@ namespace HAL::FatStorage
             const uint32_t chunk = std::min<uint32_t>(remaining, s_geometry.blockSize - sector_offset);
             if (sector_offset == 0 && chunk == s_geometry.blockSize)
             {
-                if (!SysNandFtl::Read(sector, destination))
+                if (!HAL::NandFtl::Read(sector, destination))
                     return -1;
             }
             else
             {
-                if (!SysNandFtl::Read(sector, s_sector_cache))
+                if (!HAL::NandFtl::Read(sector, s_sector_cache))
                     return -1;
                 memcpy(destination, s_sector_cache + sector_offset, chunk);
             }
@@ -374,15 +374,15 @@ namespace HAL::FatStorage
             const uint32_t chunk = std::min<uint32_t>(remaining, s_geometry.blockSize - sector_offset);
             if (sector_offset == 0 && chunk == s_geometry.blockSize)
             {
-                if (!SysNandFtl::Write(sector, source))
+                if (!HAL::NandFtl::Write(sector, source))
                     return -1;
             }
             else
             {
-                if (!SysNandFtl::Read(sector, s_sector_cache))
+                if (!HAL::NandFtl::Read(sector, s_sector_cache))
                     return -1;
                 memcpy(s_sector_cache + sector_offset, source, chunk);
-                if (!SysNandFtl::Write(sector, s_sector_cache))
+                if (!HAL::NandFtl::Write(sector, s_sector_cache))
                     return -1;
             }
             source += chunk;

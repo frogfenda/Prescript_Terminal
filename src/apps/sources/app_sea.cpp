@@ -14,10 +14,11 @@
 #include "hal/hal.h"
 #include "sys/app_manager.h"
 #include "sys/sys_config.h"
+#include "sys/sys_audio.h"
 #include "sys/sys_feedback.h"
-#include "sys/sys_motion.h"
+#include "sys/motion/sys_motion.h"
 #include "sys/resources/sys_narrative.h"
-#include "sys/sys_pose_solver.h"
+#include "sys/motion/sys_pose_solver.h"
 #include "ui/ui_clock.h"
 #include "ui/ui_fluid_surface.h"
 #include "ui/ui_prescript_decoder.h"
@@ -28,6 +29,36 @@ namespace
     AppSeaAudioBinding g_sea_audio_binding = {};
     bool g_sea_rain_audio_active = false;
     String g_sea_narrative_audio_bind;
+    bool g_binding_installed = false;
+    AudioHandle g_rain_handle = AUDIO_HANDLE_INVALID;
+
+    /**
+     * 根据 Sea 前台雨天状态启动或停止唯一雨声实例。
+     * 重复 active=true 不会叠加第二路雨声；停止后立即清空本地句柄，但音频任务会继续完成淡出。
+     */
+    void OnRainStateChanged(bool active)
+    {
+        if (!active)
+        {
+            if (g_rain_handle != AUDIO_HANDLE_INVALID)
+            {
+                sysAudio.stop(g_rain_handle, 700);
+                g_rain_handle = AUDIO_HANDLE_INVALID;
+            }
+            return;
+        }
+
+        if (g_rain_handle != AUDIO_HANDLE_INVALID)
+            return;
+
+        AudioPlayOptions options;
+        options.bus = AudioBus::Ambient;
+        options.loopMode = AudioLoopMode::Crossfade;
+        options.gain = 0.85f;
+        options.fadeInMs = 700;
+        options.crossfadeMs = 60;
+        g_rain_handle = sysAudio.play(AudioAssetId::SeaRain, options);
+    }
 }
 
 void AppSea_SetAudioBinding(const AppSeaAudioBinding *binding)
@@ -47,6 +78,17 @@ void AppSea_ClearAudioBinding()
     if (g_sea_audio_binding.onNarrativeLineChanged)
         g_sea_audio_binding.onNarrativeLineChanged("");
     g_sea_audio_binding = AppSeaAudioBinding{};
+}
+
+void AppSeaAudio_EnsureInstalled()
+{
+    if (g_binding_installed)
+        return;
+
+    AppSeaAudioBinding binding;
+    binding.onRainStateChanged = OnRainStateChanged;
+    AppSea_SetAudioBinding(&binding);
+    g_binding_installed = true;
 }
 
 namespace

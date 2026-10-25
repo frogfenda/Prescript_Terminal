@@ -3,7 +3,6 @@
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 #include "sys/sys_power.h"
-#include "hal/hal.h" // 需要调用底层的画图函数
 #include "bsp/bsp_power.h"
 
 SysPower sysPower;
@@ -35,7 +34,7 @@ int SysPower::getRawBatteryPercent() {
     return (int)m_smoothed_percent;
 }
 
-int SysPower::getBatteryPercent() {
+int SysPower::getBatteryPercent() const {
     return (m_last_bat_percent == -1) ? 100 : m_last_bat_percent;
 }
 
@@ -70,32 +69,12 @@ bool SysPower::needsRedraw() {
     return needs_update;
 }
 
-void SysPower::drawBatteryIcon(int32_t x, int32_t y) {
-    int percent = getBatteryPercent();
-    bool charging = m_last_bat_charging;
-
-    uint16_t color_frame = TFT_WHITE; 
-    uint16_t color_fill  = (percent > 20 || charging) ? TFT_CYAN : TFT_RED; 
-    
-    HAL_Draw_Rect(x, y, 22, 10, color_frame);       
-    HAL_Fill_Rect(x + 22, y + 3, 2, 4, color_frame); 
-    HAL_Fill_Rect(x + 1, y + 1, 20, 8, TFT_BLACK);
-
-    int blocks = (percent + 10) / 20; 
-    if (percent > 0 && blocks == 0) blocks = 1; 
-
-    for (int i = 0; i < blocks; i++) {
-        HAL_Fill_Rect(x + 2 + (i * 4), y + 2, 3, 6, color_fill);
-    }
-
-    if (charging && m_blink_state) {
-        int lx = x + 26;
-        int ly = y + 1;
-        uint16_t bolt_color = 0xFFE0; 
-        
-        HAL_Draw_Line(lx + 2, ly,     lx,     ly + 4, bolt_color);
-        HAL_Draw_Line(lx,     ly + 4, lx + 3, ly + 4, bolt_color);
-        HAL_Draw_Line(lx + 3, ly + 4, lx + 1, ly + 8, bolt_color);
-    }
+SysPowerDisplayState SysPower::getDisplayState() const
+{
+    SysPowerDisplayState state;
+    state.battery_percent = getBatteryPercent();
+    state.charging = m_last_bat_charging;
+    state.charging_indicator_on = m_blink_state;
+    return state;
 }
 

@@ -8,7 +8,6 @@
 - JSON通过统一资源IO从FATFS流式解析；解析完成后只保留业务答案池，不缓存双语原文。
 */
 #include "sys/resources/sys_oracle.h"
-#include "sys/app_manager.h"
 #include "sys/resources/sys_resource_io.h"
 #include "sys/sys_psram_json.h"
 #include "sys/sys_psram_text.h"
@@ -37,7 +36,6 @@ struct OracleEntry
 };
 
 SysPsramVector<OracleEntry> g_oracle_pool;
-SystemLang_t g_loaded_lang = LANG_ZH;
 bool g_loaded = false;
 SysPsramString g_last_weaver_id;
 SysPsramString g_last_food_id;
@@ -133,18 +131,18 @@ SysPsramString& lastIdForType(const char* type)
 
 } // namespace
 
-void SysOracle::begin()
+void SysOracle::begin(SystemLang_t lang)
 {
-    g_loaded_lang = appManager.getLanguage();
-    loadOracleJson(g_loaded_lang);
+    loaded_lang_ = lang;
+    loadOracleJson(loaded_lang_);
     g_loaded = true;
 }
 
 bool SysOracle::ensureLoaded(SystemLang_t lang)
 {
-    if (!g_loaded || g_loaded_lang != lang)
+    if (!g_loaded || loaded_lang_ != lang)
     {
-        g_loaded_lang = lang;
+        loaded_lang_ = lang;
         loadOracleJson(lang);
         g_loaded = true;
     }

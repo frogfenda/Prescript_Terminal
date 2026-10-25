@@ -19,12 +19,13 @@ class SysOracle
 {
 public:
     /** 按当前系统语言预加载答案池；资源缺失时保留内置兜底答案。 */
-    void begin();
+    void begin(SystemLang_t lang);
 
     /** 按 type 抽取一条答案。type 例如 "weaver" / "food"。 */
     bool drawByType(const char* type, SystemLang_t lang, OracleAnswer& out);
 
 private:
+    SystemLang_t loaded_lang_ = LANG_ZH;
     bool ensureLoaded(SystemLang_t lang);
 };
 

@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】所有 App 的生命周期基类。AppManager 通过这些虚函数统一分发旋钮、主按键、副按键、后台 tick；这里也提供菜单数值跳动动画和通用顶部窗口绘制工具。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
@@ -9,7 +9,7 @@
 #include <Arduino.h>
 #include "hal/hal.h"
 #include "sys/sys_time.h"
-#include "sys/sys_gesture.h"
+#include "sys/motion/sys_gesture.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_value_animator.h"
 

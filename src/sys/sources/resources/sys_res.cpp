@@ -8,7 +8,6 @@
 #include <Arduino.h>
 #include <esp_attr.h>
 
-#include "sys/app_manager.h"
 #include "sys/resources/sys_audio_assets.h"
 #include "sys/resources/sys_caduceus_resources.h"
 #include "sys/resources/sys_coin_resources.h"
@@ -76,13 +75,12 @@ namespace
     }
 }
 
-void SysRes_Init()
+void SysRes_Init(SystemLang_t lang)
 {
     if (g_initialized)
         return;
 
     Serial.println("[资源系统] 开始预加载FATFS应用资源。");
-    const SystemLang_t lang = appManager.getLanguage();
     bool allReady = true;
 
     // 只同步加载原有基础音频/图片；双蛇杖28份大资源延迟到主循环逐份预热。
@@ -92,8 +90,8 @@ void SysRes_Init()
 
     // 文本资源只加载当前语言；语言切换在设置页操作期间同步重载，不把等待留到应用入口。
     allReady = SysIdentityCatalog::Load(lang) && allReady;
-    sysOracle.begin();
-    sysSpecials.begin();
+    sysOracle.begin(lang);
+    sysSpecials.begin(lang);
     allReady = SysSeaResources::Load(lang) && allReady;
 
     const uint32_t interruptedStep = ConsumeInterruptedPreloadStep();
@@ -202,14 +200,14 @@ void SysRes_OnLanguageChanged(SystemLang_t lang)
 {
     if (!g_initialized)
     {
-        SysRes_Init();
+        SysRes_Init(lang);
         return;
     }
 
     Serial.printf("[资源系统] 正在预加载%s语言资源。\n", TerminalLang::DisplayName(lang, LANG_ZH));
     (void)SysIdentityCatalog::Load(lang);
-    sysOracle.begin();
-    sysSpecials.begin();
+    sysOracle.begin(lang);
+    sysSpecials.begin(lang);
     (void)SysSeaResources::Load(lang);
     Serial.printf("[资源系统] %s语言资源切换完成。\n", TerminalLang::DisplayName(lang, LANG_ZH));
 }

@@ -5,6 +5,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include "lang/terminal_lang.h"
 
 // 统一的渲染数据包，UI层只管拿去画
 struct DrawResult
@@ -20,10 +21,11 @@ class SysSpecials
 {
 private:
     DrawResult current_draw;
+    SystemLang_t current_lang_ = LANG_ZH;
 
 public:
     // 【接口说明】加载当前语言特殊指令 JSON 并准备抽取池。
-    void begin();
+    void begin(SystemLang_t lang);
     void rollRandom();                       // 核心：摇骰子抽卡！
     /** 处理外界塞入的指令；未指定颜色时保持既有青色。 */
     void setCustom(const char *custom_text, uint16_t font_color = 0x07FF);

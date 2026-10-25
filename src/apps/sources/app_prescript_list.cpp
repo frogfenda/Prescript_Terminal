@@ -1,4 +1,4 @@
-﻿// 文件：src/apps/app_prescript_list.cpp
+// 文件：src/apps/app_prescript_list.cpp
 /*
 【模块职责】指令档案 App。
 
@@ -15,7 +15,7 @@
 */
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
-#include "sys/sys_fs.h"
+#include "sys/storage/sys_fs.h"
 #include "sys/sys_config.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_command_registry.h"

@@ -13,8 +13,8 @@
 
 #include "lang/ui_strings.h"
 #include "sys/app_manager.h"
-#include "sys/sys_gesture.h"
-#include "sys/sys_human_motion.h"
+#include "sys/motion/sys_gesture.h"
+#include "sys/motion/sys_human_motion.h"
 #include "ui/ui_clock.h"
 #include "ui/ui_pose_model.h"
 

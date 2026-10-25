@@ -9,8 +9,8 @@
 
 #include "lang/ui_strings.h"
 #include "sys/app_manager.h"
-#include "sys/sys_caduceus_recognizer.h"
-#include "sys/sys_gesture.h"
+#include "sys/motion/sys_caduceus_recognizer.h"
+#include "sys/motion/sys_gesture.h"
 #include "ui/ui_frame.h"
 
 namespace

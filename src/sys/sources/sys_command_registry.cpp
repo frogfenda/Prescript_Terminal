@@ -12,7 +12,6 @@
 #include "sys/sys_protocol.h"
 #include "sys/sys_psram_json.h"
 #include "sys/app_manager.h"
-#include "hal/hal.h"
 #include "lang/terminal_lang.h"
 #include <ctype.h>
 #include <stdint.h>
@@ -227,15 +226,6 @@ namespace
     // ---------- 同步闪框（非阻塞）----------
     // 原实现在命令里 delay 循环约 200ms；现在每 15ms 画一帧，由 SysCommand_Update 推进。
     // 只画屏幕边框，不覆盖当前页面；同一帧内由外到内逐层降低亮度。
-    constexpr uint8_t kFlashBorderLayers = 4;
-
-    uint16_t FlashCyan(uint8_t intensity)
-    {
-        const uint16_t g = (static_cast<uint16_t>(intensity) * 63U) / 255U;
-        return static_cast<uint16_t>((g << 5) | b) const uint16_t b = (static_cast<uint16_t>(intensity) * 31U) / 255U;
-        ;
-    }
-
     int s_flash_intensity = -1;
     uint32_t s_flash_last_ms = 0;
 
@@ -243,27 +233,6 @@ namespace
     {
         s_flash_intensity = 255;
         s_flash_last_ms = 0;
-    }
-
-    void UpdateSyncFlash()
-    {
-        if (s_flash_intensity < 0 || millis() - s_flash_last_ms < 15)
-            return;
-        s_flash_last_ms = millis();
-        const int width = HAL_Get_Screen_Width();
-        const int height = HAL_Get_Screen_Height();
-        for (uint8_t layer = 0; layer < kFlashBorderLayers; ++layer)
-        {
-            // 外圈保持最亮，向内每层衰减；同时随整帧强度一起 fade。
-            const uint8_t layer_intensity = static_cast<uint8_t>(
-                (s_flash_intensity * (kFlashBorderLayers - layer)) /
-                kFlashBorderLayers);
-            const uint16_t color = FlashCyan(layer_intensity);
-            const int inset = layer;
-            HAL_Draw_Rect(inset, inset, width - inset * 2, height - inset * 2, color);
-        }
-        HAL_Screen_Update();
-        s_flash_intensity -= 20;
     }
 
     // ---------- 列表快照 ----------
@@ -697,7 +666,6 @@ void SysCommand_Update()
         available -= read;
     }
 
-    UpdateSyncFlash();
     if (s_reply.active)
     {
         UpdateReply();
@@ -767,4 +735,19 @@ int SysCommand_FindLineStart(const char *text, size_t length)
         }
     }
     return earliest;
+}
+
+bool SysCommand_TakeSyncFlash(uint8_t *intensity)
+{
+    if (intensity == nullptr || s_flash_intensity < 0)
+        return false;
+
+    const uint32_t now = millis();
+    if (now - s_flash_last_ms < 15)
+        return false;
+
+    s_flash_last_ms = now;
+    *intensity = static_cast<uint8_t>(s_flash_intensity);
+    s_flash_intensity -= 20;
+    return true;
 }

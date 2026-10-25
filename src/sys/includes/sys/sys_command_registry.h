@@ -147,8 +147,11 @@ bool SysCommand_RegisterGroup(const SysCmdGroup *group);
  */
 void SysCommand_Update();
 
-/** 【接口说明】在当前 App 完成一帧绘制后调用，把同步闪框作为最后一层叠加到屏幕。 */
-void SysCommand_DrawOverlay();
+/**
+ * 【接口说明】取出同步闪框下一帧的强度；命令框架只维护时序，不访问屏幕。
+ * 【返回】当前未到绘制时间或闪框已结束时返回 false；成功时写入 0~255 的整帧强度。
+ */
+bool SysCommand_TakeSyncFlash(uint8_t *intensity);
 
 /** 【接口说明】向已连接的客户端推送一条事件：EVT:<name>:<JSON>。只发蓝牙，不排队重试。 */
 void SysCommand_Event(const char *name, const JsonDocument &payload);

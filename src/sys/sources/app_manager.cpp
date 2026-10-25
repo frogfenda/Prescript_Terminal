@@ -7,15 +7,15 @@
 #include "sys/sys_config.h"
 #include <Arduino.h>
 #include "sys/sys_ble.h"
-#include "sys/sys_fs.h"
+#include "sys/storage/sys_fs.h"
 #include "sys/resources/sys_res.h"
 #include "sys/sys_command_registry.h"
 #include "sys/sys_auto_push.h"
 #include "sys/sys_nfc.h"
-#include "sys/sys_runtime_status.h"
 #include "sys/sys_reminder.h"
-#include "sys/sys_gesture.h"
+#include "sys/motion/sys_gesture.h"
 #include "sys/sys_device_binding.h"
+#include "ui/ui_hud.h"
 
 AppManager appManager;
 
@@ -78,7 +78,7 @@ void AppManager::begin()
     last_tick = millis();
     idle_timer = millis();
 
-    SysRes_Init();
+    SysRes_Init(current_lang);
 
     
     // App 注册集中在 AppRegistry，AppManager 不再维护零散 install 清单。
@@ -275,7 +275,7 @@ void AppManager::run()
     }
     currentApp->onLoop(); // 继续执行 UI 刷新
     // 同步边框必须放在页面绘制之后，否则本轮页面推屏会把闪光覆盖成短促闪烁。
-    SysCommand_DrawOverlay();
+    UIHud_DrawSyncOverlay();
 
     if (!isCurrent(AppId::Standby) && !SysDeviceBinding_IsModeActive())
     {

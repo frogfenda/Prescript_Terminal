@@ -7,7 +7,7 @@
 */
 #pragma once
 
-#include "sys/sys_pose_solver.h"
+#include "sys/motion/sys_pose_solver.h"
 
 namespace UIPoseModel
 {

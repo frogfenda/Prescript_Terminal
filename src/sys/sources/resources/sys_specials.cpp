@@ -4,9 +4,8 @@
 */
 #include "sys/resources/sys_specials.h"
 #include "sys/sys_config.h"
-#include "sys/app_manager.h"
 #include "sys/resources/sys_resource_io.h"
-#include "sys/sys_fs.h"
+#include "sys/storage/sys_fs.h"
 #include "sys/sys_psram_json.h"
 #include "sys/sys_psram_text.h"
 #include <ArduinoJson.h> // 必须引入 JSON 引擎
@@ -40,12 +39,13 @@ SysPsramVector<PureSpecial> pool_pure_specials;
 SysPsramVector<CharChain> pool_char_chains;
 
 // 【函数说明】按当前语言读取 FATFS 中的 specials.json，解析人物链条和纯特殊指令。
-void SysSpecials::begin()
+void SysSpecials::begin(SystemLang_t lang)
 {
     pool_pure_specials.clear();
     pool_char_chains.clear();
 
-    SystemLang_t current_lang = appManager.getLanguage();
+    current_lang_ = lang;
+    const SystemLang_t current_lang = current_lang_;
     const SysResourcePath path = {TerminalLang::SpecialsPath(current_lang)};
     fs::File f;
     String resolvedPath;
@@ -104,7 +104,7 @@ void SysSpecials::begin()
 // 【函数说明】指令抽取核心：先按人物链条概率尝试推进特殊剧情，再抽纯特殊指令，最后回落到普通指令池。
 void SysSpecials::rollRandom()
 {
-    SystemLang_t current_lang = appManager.getLanguage();
+    const SystemLang_t current_lang = current_lang_;
 
     // 默认兜底参数
     current_draw.color = 0x07FF;
@@ -198,7 +198,7 @@ void SysSpecials::rollRandom()
 // 【函数说明】把外部文本直接设为当前抽取结果，用于 TXT、闹钟、日程这类指定内容。
 void SysSpecials::setCustom(const char *custom_text, uint16_t font_color)
 {
-    SystemLang_t current_lang = appManager.getLanguage();
+    const SystemLang_t current_lang = current_lang_;
     current_draw.is_special = false;
     current_draw.color = font_color;
     current_draw.title = (current_lang == LANG_ZH) ? "【 接受都市意志 】" : "[ OVERRIDE PRESCRIPT ]";
@@ -211,7 +211,7 @@ void SysSpecials::setCustom(const char *custom_text, uint16_t font_color)
 // 【函数说明】按 ID 查找特殊指令，锁定为当前抽取结果并更新人物链条进度。
 void SysSpecials::forceDrawByID(const String &id)
 {
-    SystemLang_t current_lang = appManager.getLanguage();
+    const SystemLang_t current_lang = current_lang_;
 
     // 1. 优先检索纯特殊指令 (ABN_01 等)
     for (auto &ps : pool_pure_specials)
@@ -331,7 +331,7 @@ bool SysSpecials::textByID(const String &id, String &out) const
         if (prog < static_cast<int>(pool_char_chains[i].texts.size()))
             out = pool_char_chains[i].texts[prog].c_str();
         else
-            out = (appManager.getLanguage() == LANG_ZH) ? "[ 观测日志已完结，目标数据归档完毕 ]"
+            out = (current_lang_ == LANG_ZH) ? "[ 观测日志已完结，目标数据归档完毕 ]"
                                                         : "[ OBSERVATION LOG COMPLETE. TARGET DATA ARCHIVED. ]";
         return true;
     }
