@@ -36,10 +36,13 @@ namespace
     {
         switch (level)
         {
-        case SysCmdResultLevel::Warn: return "WARN";
-        case SysCmdResultLevel::Error: return "ERR";
+        case SysCmdResultLevel::Warn:
+            return "WARN";
+        case SysCmdResultLevel::Error:
+            return "ERR";
         case SysCmdResultLevel::Ok:
-        default: return "OK";
+        default:
+            return "OK";
         }
     }
 
@@ -222,15 +225,15 @@ namespace
     }
 
     // ---------- 同步闪框（非阻塞）----------
-    // 原实现在命令里 delay 循环约 200ms；现在每 15ms 画一帧，由 SysCommand_DrawOverlay 推进。
+    // 原实现在命令里 delay 循环约 200ms；现在每 15ms 画一帧，由 SysCommand_Update 推进。
     // 只画屏幕边框，不覆盖当前页面；同一帧内由外到内逐层降低亮度。
     constexpr uint8_t kFlashBorderLayers = 4;
 
     uint16_t FlashCyan(uint8_t intensity)
     {
         const uint16_t g = (static_cast<uint16_t>(intensity) * 63U) / 255U;
-        const uint16_t b = (static_cast<uint16_t>(intensity) * 31U) / 255U;
-        return static_cast<uint16_t>((g << 5) | b);
+        return static_cast<uint16_t>((g << 5) | b) const uint16_t b = (static_cast<uint16_t>(intensity) * 31U) / 255U;
+        ;
     }
 
     int s_flash_intensity = -1;
@@ -694,6 +697,7 @@ void SysCommand_Update()
         available -= read;
     }
 
+    UpdateSyncFlash();
     if (s_reply.active)
     {
         UpdateReply();
@@ -725,12 +729,6 @@ void SysCommand_Update()
         SysCommandFramework::Execute(s_line);
         UpdateReply();
     }
-}
-
-void SysCommand_DrawOverlay()
-{
-    // 页面先完成自己的绘制，再叠加同步边框，避免下一次 UI 推屏把闪光覆盖掉。
-    UpdateSyncFlash();
 }
 
 void SysCommand_Event(const char *name, const JsonDocument &payload)
