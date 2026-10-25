@@ -222,7 +222,17 @@ namespace
     }
 
     // ---------- 同步闪框（非阻塞）----------
-    // 原实现在命令里 delay 循环约 200ms；现在每 15ms 画一帧，由 SysCommand_Update 推进。
+    // 原实现在命令里 delay 循环约 200ms；现在每 15ms 画一帧，由 SysCommand_DrawOverlay 推进。
+    // 只画屏幕边框，不覆盖当前页面；同一帧内由外到内逐层降低亮度。
+    constexpr uint8_t kFlashBorderLayers = 4;
+
+    uint16_t FlashCyan(uint8_t intensity)
+    {
+        const uint16_t g = (static_cast<uint16_t>(intensity) * 63U) / 255U;
+        const uint16_t b = (static_cast<uint16_t>(intensity) * 31U) / 255U;
+        return static_cast<uint16_t>((g << 5) | b);
+    }
+
     int s_flash_intensity = -1;
     uint32_t s_flash_last_ms = 0;
 
@@ -237,11 +247,18 @@ namespace
         if (s_flash_intensity < 0 || millis() - s_flash_last_ms < 15)
             return;
         s_flash_last_ms = millis();
-        const uint16_t g = (s_flash_intensity * 63) / 255;
-        const uint16_t b = (s_flash_intensity * 31) / 255;
-        const uint16_t neon_cyan = (g << 5) | b;
-        HAL_Draw_Rect(0, 0, HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), neon_cyan);
-        HAL_Draw_Rect(1, 1, HAL_Get_Screen_Width() - 2, HAL_Get_Screen_Height() - 2, neon_cyan);
+        const int width = HAL_Get_Screen_Width();
+        const int height = HAL_Get_Screen_Height();
+        for (uint8_t layer = 0; layer < kFlashBorderLayers; ++layer)
+        {
+            // 外圈保持最亮，向内每层衰减；同时随整帧强度一起 fade。
+            const uint8_t layer_intensity = static_cast<uint8_t>(
+                (s_flash_intensity * (kFlashBorderLayers - layer)) /
+                kFlashBorderLayers);
+            const uint16_t color = FlashCyan(layer_intensity);
+            const int inset = layer;
+            HAL_Draw_Rect(inset, inset, width - inset * 2, height - inset * 2, color);
+        }
         HAL_Screen_Update();
         s_flash_intensity -= 20;
     }
@@ -677,7 +694,6 @@ void SysCommand_Update()
         available -= read;
     }
 
-    UpdateSyncFlash();
     if (s_reply.active)
     {
         UpdateReply();
@@ -709,6 +725,12 @@ void SysCommand_Update()
         SysCommandFramework::Execute(s_line);
         UpdateReply();
     }
+}
+
+void SysCommand_DrawOverlay()
+{
+    // 页面先完成自己的绘制，再叠加同步边框，避免下一次 UI 推屏把闪光覆盖掉。
+    UpdateSyncFlash();
 }
 
 void SysCommand_Event(const char *name, const JsonDocument &payload)
