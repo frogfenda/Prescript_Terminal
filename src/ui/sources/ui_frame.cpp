@@ -15,6 +15,36 @@
 
 namespace UIFrame {
 
+void DrawTimerProgress(float progress, int y, uint16_t color)
+{
+    progress = constrain(progress, 0.0f, 1.0f);
+    const int left = UITheme::SafeMarginX() + 18;
+    const int right = HAL_Get_Screen_Width() - UITheme::SafeMarginX() - 18;
+    if (right <= left) return;
+
+    // 低亮底轨保留机械导轨感；红色只显示已完成段，末端用青色短标记保持读数焦点。
+    HAL_Draw_Line(left, y, right, y, UITheme::COLOR_DARK);
+    const int tip = left + (int)lroundf((right - left) * progress);
+    if (tip > left)
+        HAL_Draw_Line(left, y, tip, y, color);
+    HAL_Draw_Line(tip, y - 2, tip, y + 2, UITheme::COLOR_CYAN);
+}
+
+void DrawRoundDots(uint32_t current, uint32_t total, int y)
+{
+    const int count = constrain((int)total, 1, 12);
+    const int dot_w = 5;
+    const int gap = 4;
+    const int width = count * dot_w + (count - 1) * gap;
+    const int left = (HAL_Get_Screen_Width() - width) / 2;
+    const int active = constrain((int)(current ? current : 1), 1, count);
+    for (int i = 0; i < count; ++i)
+    {
+        const uint16_t color = i < active ? TFT_CYAN : UITheme::COLOR_DARK;
+        HAL_Fill_Rect(left + i * (dot_w + gap), y, dot_w, 2, color);
+    }
+}
+
 void DrawFloatingSelection(int x, int y, int w, int h, float reflection)
 {
     if (w <= 2 || h <= 2)

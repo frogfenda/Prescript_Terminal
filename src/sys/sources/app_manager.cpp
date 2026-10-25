@@ -274,6 +274,8 @@ void AppManager::run()
         }
     }
     currentApp->onLoop(); // 继续执行 UI 刷新
+    // 同步边框必须放在页面绘制之后，否则本轮页面推屏会把闪光覆盖成短促闪烁。
+    SysCommand_DrawOverlay();
 
     if (!isCurrent(AppId::Standby) && !SysDeviceBinding_IsModeActive())
     {

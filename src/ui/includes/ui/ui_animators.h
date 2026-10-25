@@ -68,4 +68,6 @@ public:
      * 超出屏幕的标签按完整 UTF-8 字形裁剪；不清屏、不推屏。
      */
     void draw(int y, const char **names, int count, int current_phase, int spacing = 120);
+    /** 运行态紧凑导轨：保留红绳和状态标签，只显示一个状态，不展示设置流程。 */
+    void drawCompact(int y, const char *label, int spacing = 85);
 };

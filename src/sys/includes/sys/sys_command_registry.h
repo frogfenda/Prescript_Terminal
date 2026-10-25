@@ -142,10 +142,13 @@ void SysCommand_Init();
 bool SysCommand_RegisterGroup(const SysCmdGroup *group);
 
 /**
- * 【接口说明】主循环每轮调用一次：读取串口输入、推进同步闪框与当前回包；当前 ACK 进入来源后，
+ * 【接口说明】主循环每轮调用一次：读取串口输入与当前回包；当前 ACK 进入来源后，
  * 才消费下一条拒收通知或请求。列表在执行时生成有界快照，发送按帧推进。
  */
 void SysCommand_Update();
+
+/** 【接口说明】在当前 App 完成一帧绘制后调用，把同步闪框作为最后一层叠加到屏幕。 */
+void SysCommand_DrawOverlay();
 
 /** 【接口说明】向已连接的客户端推送一条事件：EVT:<name>:<JSON>。只发蓝牙，不排队重试。 */
 void SysCommand_Event(const char *name, const JsonDocument &payload);

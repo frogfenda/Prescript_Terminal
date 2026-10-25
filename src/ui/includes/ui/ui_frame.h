@@ -26,4 +26,13 @@ void DrawCornerBox(int x1, int x2, int center_y, int half_w, int h = -1, uint16_
  */
 void DrawFloatingSelection(int x, int y, int w, int h, float reflection);
 
+/**
+ * 绘制计时运行页的细进度轨；progress 为已完成比例 0~1。
+ * 轨道只画到当前 Sprite，不清屏、不推屏；用于倒计时和番茄钟共用运行态布局。
+ */
+void DrawTimerProgress(float progress, int y, uint16_t color = TFT_RED);
+
+/** 绘制番茄钟轮次进度点；最多显示 12 个，避免再占用一整行文字。 */
+void DrawRoundDots(uint32_t current, uint32_t total, int y);
+
 }

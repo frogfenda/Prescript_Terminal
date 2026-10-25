@@ -786,6 +786,12 @@ namespace UIStrings
         return completed ? "SET COMPLETE / CLICK TO RESTART" : "REST DONE / CLICK NEXT / LONG END";
     }
 
+    inline const char *PomodoroWaitingLabel(SystemLang_t lang, bool completed)
+    {
+        if (IsZh(lang)) return completed ? "本组完成" : "等待下一轮";
+        return completed ? "SET COMPLETE" : "NEXT ROUND";
+    }
+
     inline const char *PomodoroRoundLabel(SystemLang_t lang)
     { return IsZh(lang) ? "轮次" : "ROUND"; }
 
@@ -940,6 +946,11 @@ namespace UIStrings
         static const char *zh_items[] = {"设定分钟", "设定秒数", "执行中"};
         static const char *en_items[] = {"SET MIN", "SET SEC", "RUNNING"};
         return IsZh(lang) ? zh_items : en_items;
+    }
+
+    inline const char *CountdownRunningLabel(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "执行中" : "RUNNING";
     }
 
     inline const char *CountdownAbortTitle(SystemLang_t lang)

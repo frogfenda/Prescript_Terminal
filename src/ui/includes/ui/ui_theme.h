@@ -113,6 +113,19 @@ inline float TipFade(){ return 0.6f; }
 }
 
 // -----------------------------------------------------------------------------
+// 计时运行态布局
+// -----------------------------------------------------------------------------
+namespace Timer {
+
+// 运行态把设置流程收成一个状态标签，把有限高度留给读数和进度轨。
+inline int NameY()     { return EditFlow::DividerY() + 2; }
+inline int ValueY()    { return EditFlow::DividerY() + Font::BodyLineHeight() + 4; }
+inline int ProgressY() { return ValueY() + Font::BodyLineHeight() + 6; }
+inline int MetaY()     { return ProgressY() + 6; }
+
+}
+
+// -----------------------------------------------------------------------------
 // 弹窗 / 确认页布局
 // -----------------------------------------------------------------------------
 namespace Dialog {

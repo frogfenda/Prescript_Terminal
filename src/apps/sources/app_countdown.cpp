@@ -94,9 +94,11 @@ private:
                                        UIStrings::CountdownAbortHint(lang));
         }
         else {
-            // 【机甲引擎主界面】
-            // 1. 顶部战术链路
-            linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::CountdownStepNames(lang), 3, phase, 85);
+            // 【机甲引擎主界面】运行态只保留“执行中”状态，设置流程不再挤占运行页。
+            if (phase == 2)
+                linkAnim.drawCompact(UITheme::EditFlow::LinkY(), UIStrings::CountdownRunningLabel(lang), 85);
+            else
+                linkAnim.draw(UITheme::EditFlow::LinkY(), UIStrings::CountdownStepNames(lang), 3, phase, 85);
 
             // 中部弧面滚轮；顶部步骤导轨已承担分隔，不重复绘制粗线。
             if (phase == 0) {
@@ -104,24 +106,16 @@ private:
             } else if (phase == 1) {
                 dialAnim.drawNumberDial(UITheme::EditFlow::DialY(), s, 0, 59, "");
             } else if (phase == 2) {
-                int remain = 0;
-                if (Countdown_IsActive()) {
-                    remain = Countdown_GetRemainingSeconds();
-                }
+                const auto snapshot = Countdown_GetSnapshot();
+                const int remain = Countdown_IsActive() ? Countdown_GetRemainingSeconds() : 0;
                 char t_buf[16];
-                sprintf(t_buf, "%02d : %02d", remain / 60, remain % 60);
-
-                // 运行态倒计时放在步骤导轨下方的可用区域中间，
-                // 避免原先固定 y=32 时字形下沿压到横线。
-                int text_w = HAL_Get_Text_Width(t_buf);
-                int line_h = HAL_Get_Font_Line_Height(HAL_FONT_BODY);
-                int area_top = UITheme::EditFlow::DividerY() + UITheme::Frame::DividerBevelH() + 10;
-                int area_bottom = UITheme::EditFlow::TipY() - 8;
-                int time_y = area_top;
-                if (area_bottom > area_top + line_h) {
-                    time_y = area_top + (area_bottom - area_top - line_h) / 2;
-                }
-                HAL_Screen_ShowTextLine((sw - text_w) / 2, time_y, t_buf);
+                snprintf(t_buf, sizeof(t_buf), "%02d:%02d", remain / 60, remain % 60);
+                const int text_w = HAL_Get_Text_Width_Font(t_buf, HAL_FONT_TITLE);
+                HAL_Screen_ShowLine_Font((sw - text_w) / 2, UITheme::Timer::ValueY(), t_buf,
+                                         HAL_FONT_TITLE, TFT_CYAN);
+                const float progress = snapshot.timer.total_ms == 0 ? 0.0f :
+                    1.0f - (float)snapshot.timer.remaining_ms / snapshot.timer.total_ms;
+                UIFrame::DrawTimerProgress(progress, UITheme::Timer::ProgressY(), TFT_RED);
             }
 
             // 4. 底部状态与操作指引 (Y=56)
@@ -163,7 +157,7 @@ public:
 
     void onLoop() override {
         bool d_anim = dialAnim.update();
-        bool l_anim = linkAnim.update(phase);
+        bool l_anim = linkAnim.update(phase == 2 ? 0 : phase);
         bool time_tick = false;
 
         // 【极客联动】：如果在设定时被外部接口强行拉起倒计时，UI 瞬间跃迁到执行模式

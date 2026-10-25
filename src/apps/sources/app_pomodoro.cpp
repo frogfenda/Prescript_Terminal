@@ -175,18 +175,42 @@ bool Pomodoro_GetHudStatus(bool *rest,int *remaining_seconds)
 
 // 【运行页绘制开始】
 // 复用倒计时的两段导轨、红绳和底部提示；读数与预设名称按 428×142 的剩余区域分行排布。
-void Pomodoro_DrawRunning(TacticalLinkEngine &link,SystemLang_t lang,int phase,int seconds,const char *name,int name_width,uint32_t round,uint32_t rounds)
+void Pomodoro_DrawRunning(TacticalLinkEngine &link,SystemLang_t lang,int phase,uint32_t total_ms,uint32_t remaining_ms,const char *name,int name_width,uint32_t round,uint32_t rounds)
 {
     link.draw(UITheme::EditFlow::LinkY(),UIStrings::PomodoroRunSteps(lang),2,phase,110);
     const int screen_w=HAL_Get_Screen_Width();
-    const int time_y=UITheme::EditFlow::DialY();
-    const int name_y=time_y-HAL_Get_Font_Line_Height(HAL_FONT_BODY)-2;
-    // 预设可由手机写入长文本；只绘制完整且落在可用区域内的字形，不覆盖屏幕边缘。
-    UIText::DrawClippedFaded(max(24,(screen_w-name_width)/2),name_y,name,0.55f,24,screen_w-24);
-    char time[20]; snprintf(time,sizeof(time),"%02d : %02d",seconds/60,seconds%60);
-    UIText::DrawCentered(time_y,time);
-    char round_text[32]; snprintf(round_text,sizeof(round_text),"%s %u/%u",UIStrings::PomodoroRoundLabel(lang),(unsigned)(round ? round : 1),(unsigned)rounds);
-    UIText::DrawCentered(time_y+HAL_Get_Font_Line_Height(HAL_FONT_BODY)+4,round_text);
+    const int time_y=UITheme::Timer::ValueY();
+    const int name_y=UITheme::Timer::NameY();
+    // 预设可由手机写入长文本；先按完整 UTF-8 字符压缩成省略号，避免长名称变成一整行密集字形。
+    String display_name = name ? name : "";
+    const int name_limit = screen_w - 64;
+    if (name_width > name_limit)
+    {
+        String shortened;
+        int pos = 0;
+        while (display_name[pos] != '\0')
+        {
+            const unsigned char c = (unsigned char)display_name[pos];
+            int len = (c & 0x80) == 0 ? 1 : ((c & 0xE0) == 0xC0 ? 2 : ((c & 0xF0) == 0xE0 ? 3 : 4));
+            String candidate = shortened;
+            for (int i = 0; i < len && display_name[pos + i] != '\0'; ++i) candidate += display_name[pos + i];
+            candidate += "...";
+            if (HAL_Get_Text_Width(candidate.c_str()) > name_limit) break;
+            for (int i = 0; i < len && display_name[pos + i] != '\0'; ++i) shortened += display_name[pos + i];
+            pos += len;
+        }
+        shortened += "...";
+        display_name = shortened;
+        name_width = HAL_Get_Text_Width(display_name.c_str());
+    }
+    UIText::DrawClippedFaded(max(24,(screen_w-name_width)/2),name_y,display_name.c_str(),0.55f,24,screen_w-24);
+    const int seconds=(int)SysDurationDisplaySeconds(remaining_ms);
+    char time[20]; snprintf(time,sizeof(time),"%02d:%02d",seconds/60,seconds%60);
+    const int time_w=HAL_Get_Text_Width_Font(time,HAL_FONT_TITLE);
+    HAL_Screen_ShowLine_Font((screen_w-time_w)/2,time_y,time,HAL_FONT_TITLE,TFT_CYAN);
+    const float progress=total_ms==0 ? 0.0f : 1.0f-(float)remaining_ms/total_ms;
+    UIFrame::DrawTimerProgress(progress,UITheme::Timer::ProgressY(),phase==0 ? TFT_RED : UITheme::COLOR_WARN);
+    UIFrame::DrawRoundDots(round,rounds,UITheme::Timer::MetaY());
     UIFrame::DrawTip(UIStrings::PomodoroRunningTip(lang,phase));
 }
 // 【运行页绘制结束】
@@ -214,14 +238,12 @@ class AppPomodoroRun : public AppBase {
                 UIStrings::PomodoroFinishTitle(lang,(int)confirm_phase),UIStrings::PomodoroFinishHint(lang));
         } else if (!snapshot.active) {
             link.draw(UITheme::EditFlow::LinkY(),UIStrings::PomodoroRunSteps(lang),2,snapshot.set_completed ? 1 : 0,110);
-            UIText::DrawCentered(UITheme::EditFlow::DialY(),UIStrings::PomodoroWaitingTip(lang,snapshot.set_completed));
-            char round_text[32];
-            snprintf(round_text,sizeof(round_text),"%s %u/%u",UIStrings::PomodoroRoundLabel(lang),(unsigned)snapshot.round,(unsigned)snapshot.rounds);
-            UIText::DrawCentered(UITheme::EditFlow::DialY()+HAL_Get_Font_Line_Height(HAL_FONT_BODY)+4,round_text);
+            UIText::DrawCentered(UITheme::Timer::ValueY(),UIStrings::PomodoroWaitingLabel(lang,snapshot.set_completed));
+            UIFrame::DrawRoundDots(snapshot.round,snapshot.rounds,UITheme::Timer::MetaY());
             UIFrame::DrawTip(UIStrings::PomodoroWaitingTip(lang,snapshot.set_completed));
         } else {
-            const int seconds=(int)SysDurationDisplaySeconds(snapshot.timer.remaining_ms);
-            Pomodoro_DrawRunning(link,lang,(int)snapshot.phase,seconds,snapshot.name,name_width,snapshot.round,snapshot.rounds);
+            Pomodoro_DrawRunning(link,lang,(int)snapshot.phase,snapshot.timer.total_ms,snapshot.timer.remaining_ms,
+                                 snapshot.name,name_width,snapshot.round,snapshot.rounds);
         }
         last_sec=SysDurationDisplaySeconds(snapshot.timer.remaining_ms); last_revision=snapshot.revision;
         HAL_Screen_Update();

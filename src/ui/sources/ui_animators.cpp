@@ -278,3 +278,11 @@ void TacticalLinkEngine::draw(int y, const char **names, int count, int current_
         }
     }
 }
+
+void TacticalLinkEngine::drawCompact(int y, const char *label, int spacing)
+{
+    // 两个虚拟节点保证横向双绳仍有完整采样区；空节点不绘字，只用于让绳子自然出入屏。
+    const char *names[2] = {label ? label : "", ""};
+    jumpTo(0);
+    draw(y, names, 2, 0, spacing);
+}
