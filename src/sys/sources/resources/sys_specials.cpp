@@ -1,11 +1,11 @@
-﻿/*
+/*
 【模块职责】特殊指令实现。通过统一资源IO按当前语言读取FATFS素材，抽取时先推进人物链条概率，再抽纯特殊指令，并把进度写回sysConfig。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
-#include "sys/sys_specials.h"
+#include "sys/resources/sys_specials.h"
 #include "sys/sys_config.h"
 #include "sys/app_manager.h"
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 #include "sys/sys_fs.h"
 #include "sys/sys_psram_json.h"
 #include "sys/sys_psram_text.h"

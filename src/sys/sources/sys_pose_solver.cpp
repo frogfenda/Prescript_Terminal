@@ -1,5 +1,4 @@
 #include "sys/sys_pose_solver.h"
-#include "sys/sys_compass_solver.h"
 #include <math.h>
 
 namespace
@@ -10,6 +9,15 @@ namespace
     float InvSqrt(float value)
     {
         return 1.0f / sqrtf(value);
+    }
+
+    float NormalizeDeg360(float deg)
+    {
+        while (deg < 0.0f)
+            deg += 360.0f;
+        while (deg >= 360.0f)
+            deg -= 360.0f;
+        return deg;
     }
 }
 
@@ -277,7 +285,7 @@ namespace SysPose
         EulerAngles euler;
         euler.rollDeg = rollRad * RAD_TO_DEG_F;
         euler.pitchDeg = pitchRad * RAD_TO_DEG_F;
-        euler.yawDeg = SysCompass::NormalizeDeg360(yawRad * RAD_TO_DEG_F);
+        euler.yawDeg = NormalizeDeg360(yawRad * RAD_TO_DEG_F);
         return euler;
     }
 

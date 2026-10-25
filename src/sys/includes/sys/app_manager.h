@@ -76,13 +76,6 @@ public:
 
 extern AppManager appManager;
 
-// 【接口说明】准备一次随机推送指令并进入 AppPrescript；PushNotify 确认后会调用这条路径。
-void Prescript_Launch_PushNormal();
-void Prescript_Launch_PushDirect();
-// 【接口说明】把外部文本作为指令内容送入 AppPrescript，用于 TXT、日程、闹钟等自定义指令。
-void Prescript_Launch_Custom(const char *custom_text);
-void Prescript_Launch_Custom_Wait(const char *custom_text);
-
 // 【接口说明】拉起随机推送弹窗；keep_stack 为 true 时保留当前页面返回关系。
 void PushNotify_Trigger_Random(bool keep_stack = false);
 void PushNotify_Trigger_Custom(

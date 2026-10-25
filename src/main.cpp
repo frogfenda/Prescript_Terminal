@@ -1,4 +1,4 @@
-﻿#include <Arduino.h>
+#include <Arduino.h>
 #include <WiFi.h>
 #include "sys/sys_config.h"
 #include "sys/sys_device_identity.h"
@@ -27,7 +27,7 @@
 #include "sys/sys_usb_mode.h"
 #include "sys/sys_usb_session.h"
 #include "sys/sys_fat_update.h"
-#include "sys/sys_res.h"
+#include "sys/resources/sys_res.h"
 #include "bsp/bsp_board.h"
 
 void setup()

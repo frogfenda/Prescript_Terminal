@@ -2,9 +2,9 @@
 【模块职责】解析Gacha身份JSON、在PSRAM构造String对象并维护三个星级索引。
 【安全边界】加载使用“先构建新池、成功后替换旧池”，App通过值复制抽取，不跨语言持有内部地址。
 */
-#include "sys/sys_identity_catalog.h"
+#include "sys/resources/sys_identity_catalog.h"
 
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 #include "sys/sys_psram_json.h"
 #include "sys/sys_psram_text.h"
 #include <ArduinoJson.h>

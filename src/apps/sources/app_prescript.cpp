@@ -1,11 +1,11 @@
-﻿// 文件：src/apps/app_prescript.cpp
+// 文件：src/apps/app_prescript.cpp
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
 #include "sys/sys_auto_push.h"
 #include "sys/sys_config.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_haptic.h"
-#include "sys/sys_specials.h"
+#include "sys/resources/sys_specials.h"
 #include "sys/sys_prescript_target.h"
 #include "hal/hal.h"
 #include "ui/ui_prescript_decoder.h"

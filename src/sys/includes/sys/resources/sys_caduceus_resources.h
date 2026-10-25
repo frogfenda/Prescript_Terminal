@@ -8,7 +8,7 @@
 
 #include <Arduino.h>
 
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 
 /** 与/Resources/furioso/images下10个已确认文件一一对应的稳定资源ID。 */
 enum class CaduceusImageId : uint8_t

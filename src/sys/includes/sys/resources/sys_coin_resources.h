@@ -5,7 +5,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 
 namespace SysCoinResources
 {

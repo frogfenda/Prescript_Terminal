@@ -2,10 +2,10 @@
 【模块职责】实现业力图片路径绑定、启动预加载和只读访问。
 【设计说明】三个模式是独立资源槽；即使当前素材内容相同，也分别加载image1~3，方便以后直接替换单个模式。
 */
-#include "sys/sys_karma_resources.h"
+#include "sys/resources/sys_karma_resources.h"
 
 #include "sys/sys_constants.h"
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 
 namespace
 {

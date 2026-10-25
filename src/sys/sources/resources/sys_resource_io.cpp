@@ -2,7 +2,7 @@
 【模块职责】实现 FATFS 通用只读资源加载，统一处理挂载检查、/Resources 路径、PSRAM分配和格式错误。
 【实现边界】这里只理解文件格式，不理解 Prescript、Sea、Coin、Gacha 等业务含义。
 */
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 
 #include "hal/hal_fat_storage.h"
 #include <math.h>

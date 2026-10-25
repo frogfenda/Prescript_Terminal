@@ -1,4 +1,4 @@
-﻿// 文件：src/apps/app_push_notify.cpp
+// 文件：src/apps/app_push_notify.cpp
 /*
 【模块职责】指令到达弹窗。
 
@@ -17,7 +17,7 @@
 #include <string.h>
 #include "sys/sys_haptic.h"
 #include "sys/sys_feedback.h"
-#include "sys/sys_specials.h"
+#include "sys/resources/sys_specials.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_command_registry.h"
 #include "sys/sys_reminder.h"

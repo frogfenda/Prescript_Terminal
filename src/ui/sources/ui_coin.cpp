@@ -1,9 +1,9 @@
-﻿/*
+/*
 【模块职责】硬币应用的绘制与布局实现。
 */
 #include "ui/ui_coin.h"
 #include "hal/hal.h"
-#include "sys/sys_coin_resources.h"
+#include "sys/resources/sys_coin_resources.h"
 #include <math.h>
 #include <string.h>
 

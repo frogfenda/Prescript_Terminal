@@ -14,7 +14,7 @@
 #include "sys/sys_config.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_gesture.h"
-#include "sys/sys_karma_resources.h"
+#include "sys/resources/sys_karma_resources.h"
 #include "ui/ui_floating_value_animator.h"
 #include "ui/ui_frame.h"
 #include "ui/ui_karma.h"

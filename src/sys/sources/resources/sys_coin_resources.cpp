@@ -2,10 +2,10 @@
 【模块职责】实现硬币图片的 /Resources 路径绑定、启动预加载和只读访问。
 【设计说明】彩色图片缺失时只在访问层回退普通图片，不重复加载同一普通文件，避免浪费PSRAM。
 */
-#include "sys/sys_coin_resources.h"
+#include "sys/resources/sys_coin_resources.h"
 
 #include "sys/sys_constants.h"
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 
 namespace
 {

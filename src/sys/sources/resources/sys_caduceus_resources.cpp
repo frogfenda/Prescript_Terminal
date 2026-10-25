@@ -2,7 +2,7 @@
 【模块职责】定义Furioso图片的运行路径、固定尺寸和常驻PSRAM所有权。
 【实现边界】这里只校验并加载文件，不决定哪张图属于普通武器或失败后的特殊武器。
 */
-#include "sys/sys_caduceus_resources.h"
+#include "sys/resources/sys_caduceus_resources.h"
 
 #include "sys/sys_constants.h"
 

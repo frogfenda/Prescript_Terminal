@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】纺织机应用。
 
 交互逻辑：
@@ -12,7 +12,7 @@
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
 #include "sys/sys_config.h"
-#include "sys/sys_oracle.h"
+#include "sys/resources/sys_oracle.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_feedback.h"
 #include "ui/ui_prescript_decoder.h"

@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】纺织机回复池实现。
 
 设计约束：
@@ -7,9 +7,9 @@
 - JSON 字段使用 id/type/weight/text，其中 type 用于区分“纺织机回复”和“吃什么”。
 - JSON通过统一资源IO从FATFS流式解析；解析完成后只保留业务答案池，不缓存双语原文。
 */
-#include "sys/sys_oracle.h"
+#include "sys/resources/sys_oracle.h"
 #include "sys/app_manager.h"
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 #include "sys/sys_psram_json.h"
 #include "sys/sys_psram_text.h"
 #include <ArduinoJson.h>

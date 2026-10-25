@@ -1,10 +1,10 @@
-﻿// 文件：src/apps/app_gacha.cpp
+// 文件：src/apps/app_gacha.cpp
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_haptic.h"
-#include "sys/sys_identity_catalog.h"
+#include "sys/resources/sys_identity_catalog.h"
 #include "sys/sys_config.h" // 【新增】：引入全能系统管家
 #include "lang/ui_strings.h"
 

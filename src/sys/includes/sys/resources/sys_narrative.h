@@ -6,6 +6,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "lang/terminal_lang.h"
 #include "sys/sys_psram_text.h"
 
 struct SysNarrativeLine
@@ -55,3 +56,17 @@ private:
     SysPsramString loaded_path_;
     SysPsramVector<SysNarrativeScene> scenes_;
 };
+
+/*
+【模块职责】持有 Sea 当前语言的叙事目录。
+【设计说明】叙事解析器和 Sea 资源入口共用同一个资源模块；这里的适配只负责选择语言路径与暴露只读目录，
+不再为一个全局目录额外维护独立的资源转接文件。
+*/
+namespace SysSeaResources
+{
+    /** 预加载指定语言的 Sea 叙事；失败时目录为空，Sea 仍可运行纯流体效果。 */
+    bool Load(SystemLang_t lang);
+
+    /** 返回系统持有的只读叙事目录；语言切换后的旧场景指针失效。 */
+    const SysNarrativeCatalog &Narrative();
+}

@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】App 调度核心。每帧先处理后台任务和 BLE 队列，再把旋钮/按键事件分派到当前 App；副按键双击全局进入指令页，主菜单长按开启 NFC 伪装，其余短按/长按作为旋钮主按键的平行输入。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
@@ -8,7 +8,7 @@
 #include <Arduino.h>
 #include "sys/sys_ble.h"
 #include "sys/sys_fs.h"
-#include "sys/sys_res.h"
+#include "sys/resources/sys_res.h"
 #include "sys/sys_command_registry.h"
 #include "sys/sys_auto_push.h"
 #include "sys/sys_nfc.h"

@@ -3,11 +3,11 @@
 【JSON 结构】根节点 scenes[]；每个 scene 含 id/weight/paragraphs[]；段落含 color/lines[]；
 每个 line 含 text 和可选 audio。audio 只是稳定标识，实际播放由使用该目录的 App/音频绑定层决定。
 */
-#include "sys/sys_narrative.h"
+#include "sys/resources/sys_narrative.h"
 
 #include <ArduinoJson.h>
 #include "sys/sys_psram_json.h"
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 #include <string.h>
 #include <utility>
 
@@ -174,4 +174,19 @@ const SysNarrativeScene *SysNarrativeCatalog::scene(int index) const
     if (index < 0 || index >= (int)scenes_.size())
         return nullptr;
     return &scenes_[(size_t)index];
+}
+
+namespace
+{
+    SysNarrativeCatalog g_sea_narrative;
+}
+
+bool SysSeaResources::Load(SystemLang_t lang)
+{
+    return g_sea_narrative.load(TerminalLang::SeaNarrativePath(lang));
+}
+
+const SysNarrativeCatalog &SysSeaResources::Narrative()
+{
+    return g_sea_narrative;
 }

@@ -3,20 +3,20 @@
 【调用关系】AppManager调用SysRes_Init；Arduino loop调用SysRes_Update；语言切换通过SysRes_OnLanguageChanged刷新语言资源。
 【重要约束】本模块不读取文件、不解析业务JSON、不暴露PSRAM裸指针；具体资源所有权由各资源域独立承担。
 */
-#include "sys/sys_res.h"
+#include "sys/resources/sys_res.h"
 
 #include <Arduino.h>
 #include <esp_attr.h>
 
 #include "sys/app_manager.h"
-#include "sys/sys_audio_assets.h"
-#include "sys/sys_caduceus_resources.h"
-#include "sys/sys_coin_resources.h"
-#include "sys/sys_identity_catalog.h"
-#include "sys/sys_karma_resources.h"
-#include "sys/sys_oracle.h"
-#include "sys/sys_sea_resources.h"
-#include "sys/sys_specials.h"
+#include "sys/resources/sys_audio_assets.h"
+#include "sys/resources/sys_caduceus_resources.h"
+#include "sys/resources/sys_coin_resources.h"
+#include "sys/resources/sys_identity_catalog.h"
+#include "sys/resources/sys_karma_resources.h"
+#include "sys/resources/sys_oracle.h"
+#include "sys/resources/sys_narrative.h"
+#include "sys/resources/sys_specials.h"
 
 namespace
 {

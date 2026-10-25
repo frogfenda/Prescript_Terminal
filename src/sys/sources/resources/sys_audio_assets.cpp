@@ -2,11 +2,11 @@
 【模块职责】定义音频稳定ID、binding、/Resources运行路径和PCM常驻所有权。
 【调用关系】SysRes_Init同步加载基础音频，SysRes_Update逐份加载双蛇杖音频；App仍通过AudioAssetId播放。
 */
-#include "sys/sys_audio_assets.h"
+#include "sys/resources/sys_audio_assets.h"
 
 #include "sys/sys_audio.h"
 #include "sys/sys_constants.h"
-#include "sys/sys_resource_io.h"
+#include "sys/resources/sys_resource_io.h"
 
 namespace
 {
