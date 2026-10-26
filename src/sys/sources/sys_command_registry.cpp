@@ -713,6 +713,18 @@ void SysCommand_Event(const char *name, const JsonDocument &payload)
     EmitLine(SysCmdSource::Ble, line.c_str(), line.length(), SysBLE_GetSession());
 }
 
+void SysCommand_NotifyChanged(const char *group)
+{
+    if (group == nullptr || *group == '\0')
+        return;
+
+    char event_name[24] = {};
+    snprintf(event_name, sizeof(event_name), "%s.CHANGED", group);
+    JsonDocument payload;
+    payload["scope"] = group;
+    SysCommand_Event(event_name, payload);
+}
+
 int SysCommand_FindLineStart(const char *text, size_t length)
 {
     if (text == nullptr)

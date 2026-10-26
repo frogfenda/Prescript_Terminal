@@ -155,6 +155,8 @@ namespace
         item.is_hidden = is_hidden;
         Sort_Schedules();
         sysConfig.save();
+        if (!is_hidden)
+            SysCommand_NotifyChanged("SCH");
         return recycled ? SysOpResult::Warn("ADDED_RECYCLED_EXPIRED", title) : SysOpResult::Ok("ADDED", title);
     }
 
@@ -168,6 +170,7 @@ namespace
             sysConfig.schedules[i] = sysConfig.schedules[i + 1];
         sysConfig.schedule_count--;
         sysConfig.save();
+        SysCommand_NotifyChanged("SCH");
         return SysOpResult::Ok("DELETED", title);
     }
 
@@ -193,6 +196,7 @@ namespace
         if (deleted == 0)
             return SysOpResult::Error("NOT_FOUND", title);
         sysConfig.save();
+        SysCommand_NotifyChanged("SCH");
         return SysOpResult::Ok("DELETED", title);
     }
 }
@@ -386,8 +390,10 @@ class AppScheduleEdit : public AppBase
             return;
         }
 
+        bool changed_visible = false;
         {
             ScheduleItem &item = sysConfig.schedules[g_schedule_edit_idx];
+            changed_visible = !item.is_hidden;
             if (mode == ScheduleEditMode::Content || mode == ScheduleEditMode::Restore)
             {
                 // 先算出新值再赋值，避免“保持当前”读到已被覆盖的字段。
@@ -411,6 +417,8 @@ class AppScheduleEdit : public AppBase
             g_schedule_edit_idx = Sort_Schedules(g_schedule_edit_idx);
         }
         sysConfig.save();
+        if (changed_visible)
+            SysCommand_NotifyChanged("SCH");
         appManager.popApp();
     }
 

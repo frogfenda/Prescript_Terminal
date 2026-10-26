@@ -122,6 +122,7 @@ namespace
         alarm.name = name;
         alarm.prescript = text;
         sysConfig.save();
+        SysCommand_NotifyChanged("ALM");
         return updated ? SysOpResult::Warn("UPDATED", name) : SysOpResult::Ok("ADDED", name);
     }
 
@@ -137,6 +138,7 @@ namespace
         sysConfig.alarms[index].hour = hour;
         sysConfig.alarms[index].min = minute;
         sysConfig.save();
+        SysCommand_NotifyChanged("ALM");
         return SysOpResult::Ok("UPDATED", sysConfig.alarms[index].name);
     }
 
@@ -150,6 +152,7 @@ namespace
             return SysOpResult::Error("TIME_OCCUPIED", alarm.name);
         alarm.is_active = active;
         sysConfig.save();
+        SysCommand_NotifyChanged("ALM");
         return SysOpResult::Ok(active ? "ENABLED" : "DISABLED", alarm.name);
     }
 
@@ -163,6 +166,7 @@ namespace
             sysConfig.alarms[i] = sysConfig.alarms[i + 1];
         sysConfig.alarm_count--;
         sysConfig.save();
+        SysCommand_NotifyChanged("ALM");
         return SysOpResult::Ok("DELETED", name);
     }
 

@@ -15,6 +15,7 @@
 #include "sys/sys_reminder.h"
 #include "sys/sys_sleep_scheduler.h"
 #include "sys/sys_time.h"
+#include "sys/sys_command_registry.h"
 
 namespace
 {
@@ -198,8 +199,10 @@ namespace
      */
     bool ProcessDueEvents(const SysTimeSnapshot &snapshot)
     {
-        bool config_changed = DisableDuplicateActiveAlarms();
-        config_changed |= RemoveExpiredSchedules(snapshot.epoch);
+        const bool alarms_changed = DisableDuplicateActiveAlarms();
+        const bool schedules_removed = RemoveExpiredSchedules(snapshot.epoch);
+        bool schedules_changed = schedules_removed;
+        bool config_changed = alarms_changed || schedules_removed;
 
         // 第一阶段：日程。所有到期日程都先于同分钟闹钟进入 SysReminder FIFO。
         for (int i = 0; i < sysConfig.schedule_count; ++i)
@@ -220,6 +223,7 @@ namespace
             item.expire_time = (uint32_t)snapshot.epoch;
             item.is_restored = false;
             config_changed = true;
+            schedules_changed = true;
         }
 
         /* 远程日期消息与本地日程同属日历优先级，但事实数据保存在独立 mailbox 分区。 */
@@ -252,6 +256,10 @@ namespace
             /* 一轮内批量落盘一次；配置层只递增 generation，真正重建仍由本模块稍后统一完成。 */
             sysConfig.save();
             s_rebuild_requested = true;
+            if (alarms_changed)
+                SysCommand_NotifyChanged("ALM");
+            if (schedules_changed)
+                SysCommand_NotifyChanged("SCH");
         }
         if (mailbox_changed)
             s_rebuild_requested = true;

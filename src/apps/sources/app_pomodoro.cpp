@@ -85,7 +85,9 @@ SysOpResult Pomodoro_SetPreset(int index,const char *name,int work,int rest,int 
     const int safe_rounds=rounds<1 ? (int)target.rounds : rounds;
     if (!SysClockRules::PomodoroRounds(safe_rounds)) return SysOpResult::Error("INVALID_ROUNDS");
     target.name=safe; target.work_min=work; target.rest_min=rest; target.rounds=safe_rounds;
-    sysConfig.save(); return SysOpResult::Ok("UPDATED",String(index));
+    sysConfig.save();
+    SysCommand_NotifyChanged("POM");
+    return SysOpResult::Ok("UPDATED",String(index));
 }
 
 bool Pomodoro_SelectPreset(int index)

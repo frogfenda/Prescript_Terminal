@@ -156,6 +156,9 @@ bool SysCommand_TakeSyncFlash(uint8_t *intensity);
 /** 【接口说明】向已连接的客户端推送一条事件：EVT:<name>:<JSON>。只发蓝牙，不排队重试。 */
 void SysCommand_Event(const char *name, const JsonDocument &payload);
 
+/** 【接口说明】通知客户端某个持久数据组已变化；客户端应随后发 SYS.SYNC:<组> 取新快照。 */
+void SysCommand_NotifyChanged(const char *group);
+
 /**
  * 【接口说明】在一段文本里找第一个“已注册组码 + .”出现的位置，NFC 用它跳过卡片里的 NDEF 头部字节。
  * 找不到返回 -1。只读访问组表，可在 NFC 任务中调用。

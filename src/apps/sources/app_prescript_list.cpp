@@ -59,6 +59,7 @@ void DBArchive_AddRecord(SystemLang_t lang, const String &text)
     SysPsramTextList *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
     p->emplace_back(text);
     DBArchive_SaveToFile(lang);
+    SysCommand_NotifyChanged("PRE");
 }
 
 // 【外部接口】按索引删除指令；删除成功后立即写回 LittleFS。
@@ -70,6 +71,7 @@ bool DBArchive_DeleteRecord(SystemLang_t lang, int index)
         String removed = (*p)[index].c_str();
         p->erase(p->begin() + index);
         DBArchive_SaveToFile(lang);
+        SysCommand_NotifyChanged("PRE");
         Serial.printf("[指令档案] 已删除记录：%s\n", removed.c_str());
         return true;
     }

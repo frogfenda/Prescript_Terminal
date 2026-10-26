@@ -112,6 +112,7 @@ namespace
         preset.name = name;
         Coin_WriteValues(preset, base_power, coin_power, coin_count, colors);
         sysConfig.save();
+        SysCommand_NotifyChanged("COIN");
         return updated ? SysOpResult::Warn("UPDATED", name) : SysOpResult::Ok("ADDED", name);
     }
 
@@ -124,6 +125,7 @@ namespace
             return SysOpResult::Error("INVALID_COIN_COUNT");
         Coin_WriteValues(sysConfig.coin_presets[index], base_power, coin_power, coin_count, colors);
         sysConfig.save();
+        SysCommand_NotifyChanged("COIN");
         return SysOpResult::Ok("UPDATED", sysConfig.coin_presets[index].name);
     }
 
@@ -137,6 +139,7 @@ namespace
             sysConfig.coin_presets[i] = sysConfig.coin_presets[i + 1];
         sysConfig.coin_preset_count--;
         sysConfig.save();
+        SysCommand_NotifyChanged("COIN");
         return SysOpResult::Ok("DELETED", name);
     }
 

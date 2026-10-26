@@ -127,6 +127,7 @@ SysOpResult SysPrescriptTarget_Add(const String &raw_id)
     {
         sysConfig.current_prescript_target = id;
         sysConfig.save();
+        SysCommand_NotifyChanged("TGT");
         Serial.printf("[使用者] 使用者已存在，已切换为当前使用者：%s\n", id.c_str());
         return SysOpResult::Warn("EXISTS_SELECTED", id);
     }
@@ -140,6 +141,7 @@ SysOpResult SysPrescriptTarget_Add(const String &raw_id)
     sysConfig.prescript_targets[sysConfig.prescript_target_count++] = id;
     sysConfig.current_prescript_target = id;
     sysConfig.save();
+    SysCommand_NotifyChanged("TGT");
     Serial.printf("[使用者] 已新增并选中使用者：%s\n", id.c_str());
     return SysOpResult::Ok("ADDED", id);
 }
@@ -162,6 +164,7 @@ SysOpResult SysPrescriptTarget_Delete(const String &raw_id)
         sysConfig.current_prescript_target = "";
 
     sysConfig.save();
+    SysCommand_NotifyChanged("TGT");
     Serial.printf("[使用者] 已删除使用者：%s\n", id.c_str());
     return SysOpResult::Ok("DELETED", id);
 }
@@ -173,6 +176,7 @@ SysOpResult SysPrescriptTarget_SetCurrent(const String &raw_id)
     {
         sysConfig.current_prescript_target = "";
         sysConfig.save();
+        SysCommand_NotifyChanged("TGT");
         Serial.println("[使用者] 已清空当前使用者。");
         return SysOpResult::Ok("CLEARED");
     }
@@ -185,6 +189,7 @@ SysOpResult SysPrescriptTarget_SetCurrent(const String &raw_id)
 
     sysConfig.current_prescript_target = id;
     sysConfig.save();
+    SysCommand_NotifyChanged("TGT");
     Serial.printf("[使用者] 已选中使用者：%s\n", id.c_str());
     return SysOpResult::Ok("SELECTED", id);
 }
