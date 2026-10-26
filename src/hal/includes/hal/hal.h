@@ -1,10 +1,9 @@
-﻿// 文件：src/hal/hal.h
+// 文件：src/hal/hal.h
 #ifndef __HAL_H
 #define __HAL_H
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
-#include "sys/sys_audio.h"
 
 /*
  * HAL 对外硬件接口。
@@ -13,14 +12,6 @@
  * - 上层只通过 HAL 函数读取输入、绘制屏幕和进入休眠；
  * - 板级引脚不再从 HAL 公共头暴露，避免 APP/SYS 继续依赖旧 PIN_XXX 宏。
  */
-
-// 旧 UI 常量别名，兼容已有代码。
-#include "sys/sys_constants.h"
-#define UI_HEADER_HEIGHT PrescriptConst::UI_HEADER_HEIGHT
-#define UI_MARGIN_LEFT   PrescriptConst::UI_MARGIN_LEFT
-#define UI_MARGIN_RIGHT  PrescriptConst::UI_MARGIN_RIGHT
-#define UI_TEXT_Y_TOP    PrescriptConst::UI_TEXT_Y_TOP
-#define UI_TIME_SAFE_PAD PrescriptConst::UI_TIME_SAFE_PAD
 
 enum BtnEvent {
     BTN_NONE = 0,
@@ -45,7 +36,7 @@ enum class HALSleepWakeReason : uint8_t {
  * - 正文字体用于菜单、滚轮和普通页面文本；
  * - 标题字体预留给后续大标题/章节标题，目前可和正文使用同一字体。
  *
- * 字体具体选择和 baseline/lineHeight 在 src/ui/ui_font_config.h 中配置。
+ * 字体具体选择和 baseline/lineHeight 在 src/hal/hal_font_config.h 中配置。
  */
 enum HALFontRole {
     HAL_FONT_SMALL = 0,
@@ -62,8 +53,6 @@ bool HAL_Is_Key_Pressed(void);
 int  HAL_Get_Knob_Delta(void);
 
 void HAL_Screen_Clear(void);
-void HAL_Screen_DrawStandbyImage(void);
-
 void HAL_Screen_ShowTextLine(int32_t x, int32_t y, const char* str);
 void HAL_Screen_ShowChineseLine(int32_t x, int32_t y, const char* str);
 void HAL_Screen_ShowChineseLine_Faded(int32_t x, int32_t y, const char* str, float distance);
@@ -72,7 +61,7 @@ void HAL_Screen_ShowChineseLine_Color(int32_t x, int32_t y, const char* str, uin
 void HAL_Screen_ShowTextLine_Color(int32_t x, int32_t y, const char* str, uint16_t color);
 
 /** 按指定字体角色绘制一行 UTF-8 文本。y 表示文本框顶部，HAL 会按角色 baseline 放置字形。 */
-void HAL_Screen_ShowLine_Font(int32_t x, int32_t y, const char* str, HALFontRole role, uint16_t color = TFT_CYAN);
+void HAL_Screen_ShowLine_Font(int32_t x, int32_t y, const char* str, HALFontRole role, uint16_t color = 0x07FF);
 
 /** 绘制小字体文本，供 HUD 和状态提示使用。 */
 void HAL_Screen_ShowSmallLine(int32_t x, int32_t y, const char* str);
@@ -96,6 +85,8 @@ void HAL_Fill_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color);
 void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color);
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* data);
+/** 按文件原始字节序复制一行 RGB565 到 Sprite，供无头 RGB565 资源加载使用。 */
+void HAL_Sprite_CopyRawRow(uint16_t y, const uint8_t *data, size_t byte_count);
 void HAL_Sprite_Clear(void);
 
 void HAL_Sleep_Enter_Prepare();
@@ -106,6 +97,8 @@ void HAL_Sleep_Enter_Prepare();
 HALSleepWakeReason HAL_Sleep_Start(uint64_t timer_wakeup_us = 0);
 /** 恢复休眠外设，并让两个按键事件引擎非阻塞地吞掉本次唤醒按压。 */
 void HAL_Sleep_Wakeup_Post();
+/** 待机页把唤醒首帧推入 Sprite 后，打开显示控制器和背光。 */
+void HAL_Sleep_Wakeup_Complete();
 
 uint16_t HAL_Get_Screen_Width(void);
 uint16_t HAL_Get_Screen_Height(void);

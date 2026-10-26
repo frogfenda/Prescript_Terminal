@@ -10,6 +10,7 @@
 #include "sys/sys_haptic.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_nfc.h"
+#include "ui/ui_standby.h"
 #include "sys/sys_time.h"
 #include "sys/sys_calendar.h"
 #include "sys/sys_sleep_scheduler.h"
@@ -53,7 +54,7 @@ public:
     void onCreate() override
     {
         HAL_Screen_Clear();
-        HAL_Screen_DrawStandbyImage();
+        UI_DrawStandbyImage();
         HAL_Screen_Update();
         enter_time = millis();
         is_sleeping = false;
@@ -132,12 +133,17 @@ public:
 
             // --- 4. 唤醒：恢复屏幕与外设，并把本次唤醒按压交给 ButtonEngine 非阻塞吞掉 ---
             HAL_Sleep_Wakeup_Post();
+            SysHaptic_Wakeup();
+            SysAudio_Wakeup();
+            SysNfc_Wakeup();
             SysMotion_Wakeup();
             SysMag_Wakeup();
 
             // --- 5. 业务逻辑恢复 ---
             // 唤醒后仍停留在待机页面，避免重复调用各模块 wakeup。
+            UI_DrawStandbyImage();
             HAL_Screen_Update();
+            HAL_Sleep_Wakeup_Complete();
 
             enter_time = millis();
             is_sleeping = false;

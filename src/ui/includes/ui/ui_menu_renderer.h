@@ -8,8 +8,59 @@
 #pragma once
 
 #include <Arduino.h>
+#include "sys/sys_hud.h"
+#include "ui/ui_menu_ropes.h"
 
-class AppMenuBase;
+/** 菜单渲染器读取的稳定文本布局；字符串只在当前渲染帧内借用。 */
+struct UIMenuTextLayout
+{
+    String lines[2];
+    int line_widths[2] = {0, 0};
+    uint8_t line_count = 0;
+    int width = 0;
+    int height = 0;
+};
+
+/**
+ * 菜单页面给 UI 渲染器提供的最小视图接口。
+ *
+ * 页面仍拥有输入、选中状态和文本缓存；渲染器只通过本接口读取内容、更新视觉布局，
+ * 不依赖 AppMenuBase 的具体类型或业务继承树。
+ */
+class UIMenuRenderSource
+{
+public:
+    virtual ~UIMenuRenderSource() {}
+    virtual int getMenuRenderCount() = 0;
+    virtual const char *getMenuRenderTitle() = 0;
+    virtual bool getMenuRenderLayout(int index, int max_width, UIMenuTextLayout &out) = 0;
+    virtual bool getMenuRenderItemEditParts(int index, const char **prefix,
+                                            const char **anim_val, const char **suffix) = 0;
+    virtual uint16_t getMenuRenderItemColor(int index) = 0;
+    virtual int getMenuRenderSelection() const = 0;
+    virtual int getMenuRenderTargetPosition() const = 0;
+    virtual float getMenuRenderVelocity() const = 0;
+    virtual float getMenuRenderSlingDisplay() const = 0;
+    virtual float getMenuRenderReflection() const = 0;
+    virtual float getMenuRenderFrameDt() const = 0;
+    virtual float getMenuRenderExpansion() const = 0;
+    virtual float getMenuRenderBoxHeight() const = 0;
+    virtual float getMenuRenderLabelWidth() const = 0;
+    virtual bool getMenuRenderSettled() const = 0;
+    virtual uint32_t getMenuRenderSettledSince() const = 0;
+    virtual void setMenuRenderSettled(bool settled) = 0;
+    virtual void setMenuRenderSettledSince(uint32_t now) = 0;
+    virtual void setMenuRenderLayout(float expansion, float box_height,
+                                     float label_width, bool animating) = 0;
+    virtual void ensureMenuRenderState(int real_count) = 0;
+    virtual void resetMenuRenderFrameDt() = 0;
+    virtual UIMenuRopes &menuRenderRopes() = 0;
+    virtual void drawMenuRenderLabel(int index, int center_x, int center_y,
+                                     int max_width, uint16_t color) = 0;
+    virtual void drawMenuRenderEditText(int x, int y, const char *prefix,
+                                        const char *anim_val, const char *suffix,
+                                        float distance = 0.0f) = 0;
+};
 
 /** 当前可用的菜单视觉样式。后续新增样式时扩展枚举和注册表即可。 */
 enum class UIMenuRenderStyle : uint8_t
@@ -25,7 +76,8 @@ public:
     virtual ~UIMenuRenderer() {}
 
     /** 根据页面当前状态绘制一帧完整菜单。 */
-    virtual void draw(AppMenuBase &menu, float visual_position) = 0;
+    virtual void draw(UIMenuRenderSource &menu, float visual_position,
+                      const SysHudStatus &status) = 0;
 
     // 【生命周期】返回菜单或外部重新定位时清除视觉惯性；全部由主循环调用。
     virtual void reset(float position) { (void)position; }
@@ -38,7 +90,8 @@ public:
 class UIWheelMenuRenderer final : public UIMenuRenderer
 {
 public:
-    void draw(AppMenuBase &menu, float visual_position) override;
+    void draw(UIMenuRenderSource &menu, float visual_position,
+              const SysHudStatus &status) override;
 };
 
 /** 返回指定样式的渲染器；未注册样式统一回退到当前滚轮实现。 */

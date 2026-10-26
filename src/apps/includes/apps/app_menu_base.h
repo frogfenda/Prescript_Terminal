@@ -19,10 +19,8 @@
 #include "ui/ui_frame.h"
 #include "ui/ui_menu_ropes.h"
 
-class AppMenuBase : public AppBase
+class AppMenuBase : public AppBase, public UIMenuRenderSource
 {
-    friend class UIWheelMenuRenderer;
-
 protected:
     // current_selection 始终保存“真实条目索引”。
     // 对 2 项菜单，滚轮内部仍会扩展成 4 个虚拟槽位保证循环感，但业务层只看到 0/1。
@@ -620,11 +618,6 @@ protected:
         return UI_GetMenuRenderStyle();
     }
 
-    // 【兼容实现】当前滚轮渲染器使用的原有整屏绘制逻辑。
-    // 后续样式通过 UIMenuRenderer 接口接管绘制，不应再从页面直接调用此函数。
-    // 【实现位置】滚轮布局实现位于 ui_menu_renderer.cpp，保持页面接口不变。
-    void drawWheelMenuUI(float v_pos);
-
     // 【接口说明】页面只请求“按当前样式重绘”，不依赖具体的菜单布局。
     void drawMenuUI(float v_pos)
     {
@@ -645,24 +638,60 @@ protected:
             if (fabsf(renderer.position() - v_pos) > 0.001f)
                 renderer.reset(v_pos);
         }
-        UI_MenuRendererForStyle(getMenuRenderStyle()).draw(*this, v_pos);
+        UI_MenuRendererForStyle(getMenuRenderStyle()).draw(*this, v_pos, SysHud_GetRuntimeStatus());
     }
 
 public:
     // 【渲染适配接口】给独立菜单渲染器读取当前页面内容；不改变原有子类虚函数和业务行为。
-    int getMenuRenderCount() { return getMenuCount(); }
-    const char *getMenuRenderTitle() { return getTitle(); }
-    const char *getMenuRenderItemText(int index) { return getItemText(index); }
-    bool getMenuRenderItemEditParts(int index, const char **prefix, const char **anim_val, const char **suffix)
+    int getMenuRenderCount() override { return getMenuCount(); }
+    const char *getMenuRenderTitle() override { return getTitle(); }
+    bool getMenuRenderLayout(int index, int max_width, UIMenuTextLayout &out) override
+    {
+        WrappedMenuText fallback;
+        const WrappedMenuText *layout = getCachedWrappedMenuText(index, getItemText(index), max_width, fallback);
+        out = UIMenuTextLayout();
+        out.line_count = layout->line_count;
+        out.width = layout->width;
+        out.height = layout->height;
+        for (uint8_t i = 0; i < layout->line_count && i < 2; ++i)
+        {
+            out.lines[i] = layout->lines[i];
+            out.line_widths[i] = layout->line_widths[i];
+        }
+        return out.line_count > 0;
+    }
+    bool getMenuRenderItemEditParts(int index, const char **prefix, const char **anim_val, const char **suffix) override
     {
         return getItemEditParts(index, prefix, anim_val, suffix);
     }
-    uint16_t getMenuRenderItemColor(int index) { return getItemColor(index); }
-    int getMenuRenderSelection() const { return current_selection; }
-    float getMenuRenderSlingDisplay() const { return menu_sling_display; }
+    uint16_t getMenuRenderItemColor(int index) override { return getItemColor(index); }
+    int getMenuRenderSelection() const override { return current_selection; }
+    int getMenuRenderTargetPosition() const override { return menu_target_position; }
+    float getMenuRenderVelocity() const override { return menu_velocity; }
+    float getMenuRenderSlingDisplay() const override { return menu_sling_display; }
+    float getMenuRenderReflection() const override { return menu_reflection; }
+    float getMenuRenderFrameDt() const override { return menu_frame_dt; }
+    float getMenuRenderExpansion() const override { return menu_expansion; }
+    float getMenuRenderBoxHeight() const override { return menu_box_height; }
+    float getMenuRenderLabelWidth() const override { return menu_label_width; }
+    bool getMenuRenderSettled() const override { return menu_settled; }
+    uint32_t getMenuRenderSettledSince() const override { return menu_settled_since; }
+    void setMenuRenderSettled(bool settled) override { menu_settled = settled; }
+    void setMenuRenderSettledSince(uint32_t now) override { menu_settled_since = now; }
+    void setMenuRenderLayout(float expansion, float box_height,
+                             float label_width, bool animating) override
+    {
+        menu_expansion = expansion;
+        menu_box_height = box_height;
+        menu_label_width = label_width;
+        menu_layout_animating = animating;
+    }
+    void ensureMenuRenderState(int real_count) override { ensureMenuRuntimeState(real_count); }
+    void resetMenuRenderFrameDt() override { menu_frame_dt = 0.0f; }
+    UIMenuRopes &menuRenderRopes() override { return menu_ropes; }
 
     // 【文本契约】复用菜单两行 UTF-8 排版与共享缓存，借用字符串当帧消费，不保留页面静态缓冲指针。
-    void drawMenuRenderLabel(int index, int center_x, int center_y, int max_width, uint16_t color)
+    void drawMenuRenderLabel(int index, int center_x, int center_y, int max_width, uint16_t color) override
     {
         WrappedMenuText fallback;
         const WrappedMenuText *layout = getCachedWrappedMenuText(index, getItemText(index), max_width, fallback);
@@ -674,7 +703,7 @@ public:
                                 const char *prefix,
                                 const char *anim_val,
                                 const char *suffix,
-                                float distance = 0.0f)
+                                 float distance = 0.0f) override
     {
         drawSegmentedAnimatedText(x, y, prefix, anim_val, suffix, distance);
     }
@@ -723,7 +752,8 @@ public:
     void onLoop() override
     {
         // HUD/电量变化先锁存，下一绘制帧统一消费，避免帧门控丢失一次性变化通知。
-        menu_redraw_pending |= UIHud_NeedsRedraw();
+        const SysHudStatus hud_status = SysHud_GetRuntimeStatus();
+        menu_redraw_pending |= UIHud_NeedsRedraw(hud_status);
         menu_redraw_pending |= sysPower.needsRedraw();
         const int real_count = getMenuCount();
         // 闲置节拍在快速门控前锁存，避免 33ms 被每 16ms 才检查一次而固定取整成 48ms。

@@ -275,7 +275,10 @@ void AppManager::run()
     }
     currentApp->onLoop(); // 继续执行 UI 刷新
     // 同步边框必须放在页面绘制之后，否则本轮页面推屏会把闪光覆盖成短促闪烁。
-    UIHud_DrawSyncOverlay();
+    // 闪光状态由 SYS 消费，UI 只负责按给定强度绘制。
+    uint8_t sync_intensity = 0;
+    if (SysCommand_TakeSyncFlash(&sync_intensity))
+        UIHud_DrawSyncOverlay(sync_intensity);
 
     if (!isCurrent(AppId::Standby) && !SysDeviceBinding_IsModeActive())
     {

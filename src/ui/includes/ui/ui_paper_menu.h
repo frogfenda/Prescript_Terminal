@@ -15,5 +15,6 @@ public:
     void reset(float position) override;
     bool update(float target, uint32_t now) override;
     float position() const override { return position_; }
-    void draw(AppMenuBase &menu, float visual_position) override;
+    void draw(UIMenuRenderSource &menu, float visual_position,
+              const SysHudStatus &status) override;
 };

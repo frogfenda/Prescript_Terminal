@@ -5,9 +5,9 @@
 */
 #include "ui/ui_paper_menu.h"
 #include "ui/ui_menu_motion.h"
-#include "apps/app_menu_base.h"
 #include "ui/ui_text.h"
 #include "ui/ui_hud.h"
+#include "ui/ui_theme.h"
 #include <math.h>
 
 namespace {
@@ -24,22 +24,19 @@ uint16_t Dim(uint16_t color, float strength)
 }
 
 // 状态栏长标题用既有裁剪工具，完整菜单文字仍在中央纸条保留两行。
-void DrawStatus(AppMenuBase &menu)
+void DrawStatus(UIMenuRenderSource &menu, const SysHudStatus &status)
 {
     const int sw = HAL_Get_Screen_Width();
     const int sh = HAL_Get_Screen_Height();
-    char clock[10];
-    SysTime_GetTimeString(clock);
-    const int clock_w = HAL_Get_Text_Width(clock);
-    UIHud_DrawBatteryIcon(8, 10);
+    const int clock_w = HAL_Get_Text_Width(status.time_text);
+    UIHud_DrawBatteryIcon(8, 10, status);
     UIText::DrawClippedFaded(46, 5, menu.getMenuRenderTitle(), 0.5f, 46, sw - clock_w - 20);
-    HAL_Screen_ShowSmallLine_Color(sw - clock_w - 8, 5, clock, Text);
+    HAL_Screen_ShowSmallLine_Color(sw - clock_w - 8, 5, status.time_text, Text);
     HAL_Draw_Line(8, 29, sw - 8, 29, Muted);
 
     char page[24];
     snprintf(page, sizeof(page), "%02d / %02d", menu.getMenuRenderSelection() + 1, menu.getMenuRenderCount());
     HAL_Screen_ShowSmallLine_Color(12, sh - 22, page, Text);
-    SysHudStatus status = UIHud_GetRuntimeStatus();
     char running[40] = {};
     if (status.countdown_active && status.nfc_active)
         snprintf(running, sizeof(running), "BUS %02d  TMR %02d:%02d", status.nfc_remaining_sec,
@@ -54,7 +51,7 @@ void DrawStatus(AppMenuBase &menu)
 }
 
 // 一张纸条：远处只降低高度/亮度并抬高阴影，正文始终保持真实字号与朝向。
-void DrawSlip(AppMenuBase &menu, int slot, float position)
+void DrawSlip(UIMenuRenderSource &menu, int slot, float position)
 {
     const int sw = HAL_Get_Screen_Width();
     const float offset = slot - position;
@@ -123,7 +120,7 @@ bool UIPaperMenuRenderer::update(float target, uint32_t now)
     return UI_MenuAdvanceDamped(target, dt, 22.0f, position_, velocity_);
 }
 
-void UIPaperMenuRenderer::draw(AppMenuBase &menu, float visual_position)
+void UIPaperMenuRenderer::draw(UIMenuRenderSource &menu, float visual_position, const SysHudStatus &status)
 {
     HAL_Sprite_Clear();
     const int sw = HAL_Get_Screen_Width();
@@ -157,6 +154,6 @@ void UIPaperMenuRenderer::draw(AppMenuBase &menu, float visual_position)
     // 清除边缘被纸条覆盖的状态带；状态按原有聚合服务显示，不引入额外计时。
     HAL_Fill_Rect(0, 0, sw, 31, TFT_BLACK);
     HAL_Fill_Rect(0, HAL_Get_Screen_Height() - 25, sw, 25, TFT_BLACK);
-    DrawStatus(menu);
+    DrawStatus(menu, status);
     HAL_Screen_Update();
 }

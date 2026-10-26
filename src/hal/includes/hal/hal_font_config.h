@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 /*
 【模块职责】终端字体度量配置。
@@ -15,7 +15,7 @@ U8g2 点阵字体不能在 ESP32 上任意缩放。字号由开发端转换字�
 */
 
 #include <Arduino.h>
-#include "ui/terminal_font.h"
+#include "hal/terminal_font.h"
 
 #ifndef TERMINAL_FONT_BASELINE
 #define TERMINAL_FONT_BASELINE 16

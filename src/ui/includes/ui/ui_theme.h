@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】响应式 UI 主题接口。
 
 本文件集中管理菜单、链路编辑页、弹窗、音量滑条、滚轮动画和字体行高等通用尺寸。
@@ -13,7 +13,7 @@
 #pragma once
 #include <Arduino.h>
 #include "sys/sys_constants.h"
-#include "ui/ui_font_config.h"
+#include "hal/hal_font_config.h"
 
 namespace UITheme {
 
@@ -32,6 +32,14 @@ constexpr uint16_t FRAME_SLOW_MS   = 100;
 
 inline int ScreenW() { return PrescriptConst::UI_SCREEN_WIDTH; }
 inline int ScreenH() { return PrescriptConst::UI_SCREEN_HEIGHT; }
+
+namespace Window {
+inline int HeaderHeight() { return PrescriptConst::UI_HEADER_HEIGHT; }
+inline int MarginLeft() { return PrescriptConst::UI_MARGIN_LEFT; }
+inline int MarginRight() { return PrescriptConst::UI_MARGIN_RIGHT; }
+inline int TextYTop() { return PrescriptConst::UI_TEXT_Y_TOP; }
+inline int TimeSafePad() { return PrescriptConst::UI_TIME_SAFE_PAD; }
+}
 
 // UI 边缘安全区。字体变大后，弧形滚轮文字更容易贴边，所以安全区随屏幕宽度略放大。
 inline int SafeMarginX()

@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include "hal/hal.h"
 #include "sys/sys_time.h"
+#include "sys/sys_audio.h"
 #include "sys/motion/sys_gesture.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_value_animator.h"
@@ -97,15 +98,15 @@ protected:
     // 【函数说明】绘制非菜单页面的通用页眉：页面标题在左，当前时间在右，下方一条横线分隔内容区。
     void drawAppWindow(const char* title) {
         int sw = HAL_Get_Screen_Width();
-        HAL_Screen_ShowChineseLine(UI_MARGIN_LEFT, UI_TEXT_Y_TOP, title);
+        HAL_Screen_ShowChineseLine(UITheme::Window::MarginLeft(), UITheme::Window::TextYTop(), title);
         
         char time_str[10];
         SysTime_GetTimeString(time_str);
         
-        int time_x = sw - UI_TIME_SAFE_PAD - HAL_Get_Text_Width(time_str);
-        HAL_Screen_ShowTextLine(time_x, UI_TEXT_Y_TOP, time_str);
+        int time_x = sw - UITheme::Window::TimeSafePad() - HAL_Get_Text_Width(time_str);
+        HAL_Screen_ShowTextLine(time_x, UITheme::Window::TextYTop(), time_str);
         
-        HAL_Draw_Line(0, UI_HEADER_HEIGHT, sw, UI_HEADER_HEIGHT, 1);
+        HAL_Draw_Line(0, UITheme::Window::HeaderHeight(), sw, UITheme::Window::HeaderHeight(), 1);
     }
 };
 

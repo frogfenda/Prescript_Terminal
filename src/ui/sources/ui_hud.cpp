@@ -9,16 +9,9 @@
 */
 #include "ui/ui_hud.h"
 #include "hal/hal.h"
-#include "sys/sys_power.h"
-#include "sys/sys_time.h"
-#include "sys/sys_nfc.h"
-#include "sys/sys_command_registry.h"
-#include "apps/app_countdown.h"
 #include "ui/ui_theme.h"
-#include "sys/app_manager.h"
-#include "sys/sys_clock_rules.h"
 #include "lang/ui_strings.h"
-#include <time.h>
+#include <string.h>
 
 namespace {
 constexpr int HUD_PADDING_X = 12;
@@ -62,31 +55,8 @@ bool s_has_last_runtime_status = false;
 SysHudStatus s_last_runtime_status = {};
 }
 
-static uint8_t CurrentMinuteBucket()
+bool UIHud_RuntimeStatusChanged(const SysHudStatus &now)
 {
-    const time_t now = SysTime_NowEpoch();
-    return static_cast<uint8_t>((now / 60) % 251);
-}
-
-SysHudStatus UIHud_GetRuntimeStatus()
-{
-    const int nfc_remaining = SysNfc_GetEmulationRemainingSeconds();
-    const int countdown_remaining = Countdown_GetRemainingSeconds();
-
-    SysHudStatus status = {};
-    status.nfc_active = nfc_remaining > 0;
-    status.nfc_remaining_sec = nfc_remaining;
-    status.countdown_active = Countdown_IsActive() && countdown_remaining > 0;
-    status.countdown_remaining_sec = countdown_remaining;
-    status.pomodoro_active = Pomodoro_GetHudStatus(&status.pomodoro_rest,
-                                                   &status.pomodoro_remaining_sec);
-    status.minute_bucket = CurrentMinuteBucket();
-    return status;
-}
-
-bool UIHud_RuntimeStatusChanged()
-{
-    const SysHudStatus now = UIHud_GetRuntimeStatus();
     const bool changed = !s_has_last_runtime_status ||
                          now.nfc_active != s_last_runtime_status.nfc_active ||
                          now.nfc_remaining_sec != s_last_runtime_status.nfc_remaining_sec ||
@@ -95,29 +65,33 @@ bool UIHud_RuntimeStatusChanged()
                          now.pomodoro_active != s_last_runtime_status.pomodoro_active ||
                          now.pomodoro_rest != s_last_runtime_status.pomodoro_rest ||
                          now.pomodoro_remaining_sec != s_last_runtime_status.pomodoro_remaining_sec ||
-                         now.minute_bucket != s_last_runtime_status.minute_bucket;
+                         now.minute_bucket != s_last_runtime_status.minute_bucket ||
+                         now.battery_percent != s_last_runtime_status.battery_percent ||
+                         now.charging != s_last_runtime_status.charging ||
+                         now.charging_indicator_on != s_last_runtime_status.charging_indicator_on ||
+                         now.language != s_last_runtime_status.language ||
+                         strcmp(now.time_text, s_last_runtime_status.time_text) != 0;
     s_last_runtime_status = now;
     s_has_last_runtime_status = true;
     return changed;
 }
 
-void UIHud_DrawBatteryIcon(int32_t x, int32_t y)
+void UIHud_DrawBatteryIcon(int32_t x, int32_t y, const SysHudStatus &status)
 {
-    const SysPowerDisplayState state = sysPower.getDisplayState();
     const uint16_t color_frame = TFT_WHITE;
-    const uint16_t color_fill = (state.battery_percent > 20 || state.charging) ? TFT_CYAN : TFT_RED;
+    const uint16_t color_fill = (status.battery_percent > 20 || status.charging) ? TFT_CYAN : TFT_RED;
 
     HAL_Draw_Rect(x, y, 22, 10, color_frame);
     HAL_Fill_Rect(x + 22, y + 3, 2, 4, color_frame);
     HAL_Fill_Rect(x + 1, y + 1, 20, 8, TFT_BLACK);
 
-    int blocks = (state.battery_percent + 10) / 20;
-    if (state.battery_percent > 0 && blocks == 0)
+    int blocks = (status.battery_percent + 10) / 20;
+    if (status.battery_percent > 0 && blocks == 0)
         blocks = 1;
     for (int i = 0; i < blocks; ++i)
         HAL_Fill_Rect(x + 2 + i * 4, y + 2, 3, 6, color_fill);
 
-    if (state.charging && state.charging_indicator_on)
+    if (status.charging && status.charging_indicator_on)
     {
         const int lx = x + 26;
         const int ly = y + 1;
@@ -128,12 +102,8 @@ void UIHud_DrawBatteryIcon(int32_t x, int32_t y)
     }
 }
 
-void UIHud_DrawSyncOverlay()
+void UIHud_DrawSyncOverlay(uint8_t intensity)
 {
-    uint8_t intensity = 0;
-    if (!SysCommand_TakeSyncFlash(&intensity))
-        return;
-
     const int width = HAL_Get_Screen_Width();
     const int height = HAL_Get_Screen_Height();
     for (uint8_t layer = 0; layer < SYNC_FLASH_BORDER_LAYERS; ++layer)
@@ -149,18 +119,14 @@ void UIHud_DrawSyncOverlay()
 }
 
 // 【函数说明】绘制菜单左栏：顶部电池，中部标题和时间，底部 BUS/TMR 状态，并返回左栏实际宽度。
-int UIHud_DrawLeftPanel(const char* title_text)
+int UIHud_DrawLeftPanel(const char* title_text, const SysHudStatus &status)
 {
-    UIHud_DrawBatteryIcon(4, 4);
+    UIHud_DrawBatteryIcon(4, 4, status);
 
     int sh = HAL_Get_Screen_Height();
     int title_w = s_titleMetric.measure(title_text, HAL_FONT_TITLE);
 
-    char time_str[10];
-    SysTime_GetTimeString(time_str);
-    int time_w = s_timeMetric.measure(time_str, HAL_FONT_SMALL);
-
-    SysHudStatus status = UIHud_GetRuntimeStatus();
+    int time_w = s_timeMetric.measure(status.time_text, HAL_FONT_SMALL);
 
     int status_w = 0;
     char bus_str[16] = {0};
@@ -180,12 +146,12 @@ int UIHud_DrawLeftPanel(const char* title_text)
     }
     if (status.pomodoro_active)
     {
-        const auto lang=appManager.getLanguage();
+        const auto lang=status.language;
         snprintf(pom_str,sizeof(pom_str),"[%s %02d:%02d]",UIStrings::PomodoroPhaseName(lang,status.pomodoro_rest ? 1 : 0),
             status.pomodoro_remaining_sec/60,status.pomodoro_remaining_sec%60);
         s_pomodoroMetric.measure(pom_str,HAL_FONT_SMALL);
         // 同一轮预留最长阶段标签与三位分钟，避免专注转休息或 100→99 分钟时左栏突然收缩。
-        char reserve[32]; snprintf(reserve,sizeof(reserve),"[%s %d:00]",UIStrings::PomodoroPhaseName(lang,0),SysClockRules::WorkMaxMinutes);
+        char reserve[32]; snprintf(reserve,sizeof(reserve),"[%s %d:00]",UIStrings::PomodoroPhaseName(lang,0),status.pomodoro_work_max_minutes);
         status_w=max(status_w,s_pomodoroReserveMetric.measure(reserve,HAL_FONT_SMALL));
         status_w=max(status_w,s_pomodoroMetric.width);
     }
@@ -206,9 +172,9 @@ int UIHud_DrawLeftPanel(const char* title_text)
     int title_y = time_y - HAL_Get_Font_Line_Height(HAL_FONT_TITLE) - 8;
     HAL_Screen_ShowLine_Font(title_x, title_y, title_text, HAL_FONT_TITLE, TFT_CYAN);
 
-    // 时间使用小字体，防止左栏过宽；时间读取走非阻塞 SysTime_GetTimeString。
+    // 时间使用小字体，防止左栏过宽；时间文本由 SYS HUD 快照统一提供。
     int time_x = (left_panel_w - time_w) / 2;
-    HAL_Screen_ShowSmallLine(time_x, time_y, time_str);
+    HAL_Screen_ShowSmallLine(time_x, time_y, status.time_text);
 
     HAL_Draw_Line(left_panel_w, UITheme::Menu::LineMarginY(), left_panel_w, sh - UITheme::Menu::LineMarginY(), 1);
 
@@ -235,8 +201,8 @@ int UIHud_DrawLeftPanel(const char* title_text)
     return left_panel_w;
 }
 
-// 【函数说明】查询 HUD 数据是否变化；AppMenuBase 用它决定菜单是否需要因为时间/NFC/倒计时变化而重绘。
-bool UIHud_NeedsRedraw()
+// 【函数说明】比较 UI 已收到的 HUD 快照；AppMenuBase 用它决定菜单是否需要重绘。
+bool UIHud_NeedsRedraw(const SysHudStatus &status)
 {
-    return UIHud_RuntimeStatusChanged();
+    return UIHud_RuntimeStatusChanged(status);
 }
