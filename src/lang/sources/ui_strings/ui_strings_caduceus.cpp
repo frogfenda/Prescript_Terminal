@@ -23,7 +23,7 @@ namespace UIStrings
 
     const char *CaduceusResourceLoadingDetail(SystemLang_t lang)
     {
-        return IsZh(lang) ? "音频与图片正在预热" : "PREPARING AUDIO AND IMAGES";
+        return IsZh(lang) ? "正在准备音频与图片" : "PREPARING AUDIO AND IMAGES";
     }
 
     const char *CaduceusResourceUnavailable(SystemLang_t lang)

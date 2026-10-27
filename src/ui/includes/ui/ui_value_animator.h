@@ -2,7 +2,7 @@
 【模块职责】菜单数值编辑动画引擎。
 
 这个文件把原来写在 AppBase 里的“三段式数值跳动动画”抽到 UI 层：
-- AppPushSetting 的“指令推送: 开启 / 最短潜伏: 15 分钟”；
+- AppPushSetting 的“自动推送: 开启 / 最短间隔: 15 分钟”；
 - AppCoinSettings 的数值编辑；
 都会使用同一套 UIValueAnimator。
 

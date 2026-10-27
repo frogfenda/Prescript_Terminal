@@ -24,7 +24,7 @@ namespace UIStrings
 
     const char *SystemSettingsTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "系统设置菜单" : "SYSTEM SETTINGS";
+        return IsZh(lang) ? "系统设置" : "SYSTEM SETTINGS";
     }
 
     const char *SystemSettingsItem(SystemLang_t lang, int index)
@@ -36,7 +36,7 @@ namespace UIStrings
             "",
             "设定休眠时间",
             "音量与振动",
-            "解码动画配置",
+            "解码方式",
             "传感器校准测试",
             "进入绑定模式",
             "返回上一级"};
@@ -47,7 +47,7 @@ namespace UIStrings
             "",
             "SLEEP SETTINGS",
             "VOL&HAPTIC",
-            "ANIMATION SETUP",
+            "DECODE STYLE",
             "SENSOR CAL & TEST",
             "ENTER BINDING MODE",
             "BACK TO MAIN"};

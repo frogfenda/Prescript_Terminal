@@ -8,7 +8,7 @@ namespace UIStrings
 {
     const char *CoinSettingsTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "决策参数设置" : "FLIP SETTINGS";
+        return IsZh(lang) ? "硬币设置" : "FLIP SETTINGS";
     }
 
     const char *CoinModeLabel(SystemLang_t lang)
@@ -18,17 +18,17 @@ namespace UIStrings
 
     const char *CoinSanityLabel(SystemLang_t lang)
     {
-        return IsZh(lang) ? "理智波动" : "SANITY:";
+        return IsZh(lang) ? "理智值" : "SANITY:";
     }
 
     const char *CoinCountLabel(SystemLang_t lang)
     {
-        return IsZh(lang) ? "阵列数量" : "COINS:";
+        return IsZh(lang) ? "硬币数量" : "COINS:";
     }
 
     const char *CoinTypeLabel(SystemLang_t lang)
     {
-        return IsZh(lang) ? "硬币型号" : "TYPE:";
+        return IsZh(lang) ? "硬币外观" : "STYLE:";
     }
 
     const char *CoinModeValue(SystemLang_t lang, int mode)
@@ -41,22 +41,22 @@ namespace UIStrings
     const char *CoinMaterial(SystemLang_t lang, int type)
     {
         if (type == 1)
-            return IsZh(lang) ? "狂气红" : "RED";
+            return IsZh(lang) ? "红色" : "RED";
         if (type == 2)
-            return IsZh(lang) ? "沉稳绿" : "GREEN";
-        return IsZh(lang) ? "经典金" : "GOLD";
+            return IsZh(lang) ? "绿色" : "GREEN";
+        return IsZh(lang) ? "金色" : "GOLD";
     }
 
     const char **CoinPresetEditStepNames(SystemLang_t lang)
     {
-        static const char *zh_items[] = {"基础点", "硬币点", "抛掷数", "材质"};
-        static const char *en_items[] = {"BASE", "COIN", "COUNT", "MAT"};
+        static const char *zh_items[] = {"基础威力", "硬币威力", "硬币数量", "硬币外观"};
+        static const char *en_items[] = {"BASE", "COIN", "COUNT", "STYLE"};
         return IsZh(lang) ? zh_items : en_items;
     }
 
     const char *CoinOverrideTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "战术覆写" : "OVERRIDE";
+        return IsZh(lang) ? "保存技能预设" : "SAVE PRESET";
     }
 
     const char *CoinOverrideFormat(SystemLang_t lang)
@@ -72,7 +72,7 @@ namespace UIStrings
     const char *CoinPresetConfirmHint(SystemLang_t lang, bool editingExisting)
     {
         if (editingExisting)
-            return IsZh(lang) ? "长按抹除 / 单击确认" : "LONG: DELETE / CLICK: CONFIRM";
+            return IsZh(lang) ? "长按删除 / 单击确认" : "LONG: DELETE / CLICK: CONFIRM";
         return IsZh(lang) ? "长按取消 / 单击确认" : "LONG: CANCEL / CLICK: CONFIRM";
     }
 
@@ -90,12 +90,12 @@ namespace UIStrings
 
     const char *CoinMenuTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "量子决策模块" : "QUANTUM FLIP";
+        return IsZh(lang) ? "硬币决定器" : "COIN FLIP";
     }
 
     const char *CoinQuickItem(SystemLang_t lang)
     {
-        return IsZh(lang) ? "[ 快速基础推演 ]" : "[ QUICK ROLL ]";
+        return IsZh(lang) ? "[ 快速抛掷 ]" : "[ QUICK ROLL ]";
     }
 
     const char *CoinNewPresetItem(SystemLang_t lang)
@@ -105,7 +105,7 @@ namespace UIStrings
 
     const char *CoinAdvancedItem(SystemLang_t lang)
     {
-        return IsZh(lang) ? "模块高级设定" : "ADVANCED SETTINGS";
+        return IsZh(lang) ? "硬币设置" : "FLIP SETTINGS";
     }
 
     // 【日程】日程编辑器、预设标题、过期列表和主列表。真实日程标题/正文仍属于用户数据。

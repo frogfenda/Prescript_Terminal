@@ -32,8 +32,8 @@ static const int ANIM4_DELAY = 20;
 static const int CACHE_SIZE = 300;
 static char g_glitchPool[CACHE_SIZE][4];
 
-// 大屏下仍然保留原来的“系统异常/指令损坏”风格中文乱码池。
-const char* GLOBAL_CHINESE_DICT = "数据错误系统异常致命警告内存溢出未知指令核心损坏参数丢失连接中断身份拒绝权限不足矩阵终端序列重载覆写剥离重构解析编译代码节点网关漏洞端口渗透代理溯源封锁拦截劫持";
+// 乱码池只提供尚未辨认的文书字符；不以网络入侵或致命故障措辞充当普通接收动画。
+const char* GLOBAL_CHINESE_DICT = "指令接收等待文字残片序列排列校对记录纸张墨迹信封编号日期时刻姓名收件归档封存缺页空白模糊辨认抄录传递回执终端";
 
 // 动态布局仍然需要固定上限，避免栈数组随屏幕尺寸无限增长。
 static const int MAX_RENDER_LINES = TextLayout::MaxLines;
@@ -1334,7 +1334,7 @@ void buildChaosRowByGrid(char* rowBuf, int bufCap, SystemLang_t lang, int maxGri
      */
     while (bufIdx < bufCap - 4)
     {
-        // 乱码态保留少量中文“系统故障”质感，但不要让每行堆满中文大字模。
+        // 乱码态保留少量中文文书残片，但不要让每行堆满中文大字模。
         if (lang == LANG_ZH && random(100) < 18 && gridW <= maxGridW - 2)
         {
             int pick = random(CACHE_SIZE);

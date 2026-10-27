@@ -8,13 +8,13 @@ namespace UIStrings
 {
     const char *MainMenuTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "都市主控菜单" : "MAIN MENU";
+        return IsZh(lang) ? "终端主菜单" : "MAIN MENU";
     }
 
     const char *MainMenuItem(SystemLang_t lang, int index)
     {
         static const char *zh_items[] = {
-            "接受指令",
+            "接收指令",
             "纺织机",
             "定时指令",
             "但丁",
@@ -28,7 +28,7 @@ namespace UIStrings
             "使用者",
             "海",
             "业力",
-            "系统高级设置",
+            "系统设置",
             "进入待机模式"};
         static const char *en_items[] = {
             "RECEIVE PRESCRIPT",
@@ -37,7 +37,7 @@ namespace UIStrings
             "WAKEUP ALARM",
             "TT2 PROTOCOL",
             "POMODORO TIMER",
-            "QUANTUM COIN",
+            "COIN FLIP",
             "CADUCEUS",
             "EXTRACTION SIM",
             "PRESCRIPT DB",

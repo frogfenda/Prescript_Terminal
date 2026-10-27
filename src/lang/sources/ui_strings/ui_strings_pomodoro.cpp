@@ -33,12 +33,12 @@ namespace UIStrings
 
     const char *PomodoroWorkDonePrescript(SystemLang_t lang)
     {
-        return IsZh(lang) ? "专注周期结束。立刻起身活动恢复精力。" : "WORK CYCLE COMPLETED. REST IMMEDIATELY.";
+        return IsZh(lang) ? "专注阶段结束。休息计时已开始。" : "FOCUS COMPLETE. REST TIMER STARTED.";
     }
 
     const char *PomodoroRestDonePrescript(SystemLang_t lang)
     {
-        return IsZh(lang) ? "休眠恢复完毕。系统已重置，准备接受新的专注指令。" : "REST CYCLE COMPLETED. SYSTEM RESET. READY FOR NEXT TASK.";
+        return IsZh(lang) ? "休息阶段结束。本轮已完成。" : "REST COMPLETE. ROUND FINISHED.";
     }
 
     const char **PomodoroEditStepNames(SystemLang_t lang)

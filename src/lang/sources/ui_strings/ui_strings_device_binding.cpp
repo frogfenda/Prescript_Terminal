@@ -13,7 +13,7 @@ namespace UIStrings
 
     const char *DeviceBindingPrompt(SystemLang_t lang)
     {
-        return IsZh(lang) ? "按主键让 App 开始认领" : "CLICK MAIN BUTTON FOR APP";
+        return IsZh(lang) ? "按主键开启绑定模式" : "CLICK TO ENTER BINDING MODE";
     }
 
     const char *DeviceBindingRunning(SystemLang_t lang)
@@ -23,12 +23,12 @@ namespace UIStrings
 
     const char *DeviceBindingReadyHint(SystemLang_t lang)
     {
-        return IsZh(lang) ? "主键开启 / 长按退出" : "MAIN OPEN / HOLD EXIT";
+        return IsZh(lang) ? "短按开启 / 长按退出" : "CLICK ENABLE / HOLD EXIT";
     }
 
     const char *DeviceBindingWaitingHint(SystemLang_t lang)
     {
-        return IsZh(lang) ? "请在 App 中完成认领 / 长按退出" : "CLAIM IN APP / HOLD EXIT";
+        return IsZh(lang) ? "请在 App 中绑定设备 / 长按退出" : "BIND IN APP / HOLD EXIT";
     }
 
     // 【传感器校准测试】集中承载动作、人体坐标与地磁维护入口，避免系统设置一级菜单过长。

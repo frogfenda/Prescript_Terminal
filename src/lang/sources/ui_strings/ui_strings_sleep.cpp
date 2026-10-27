@@ -11,26 +11,26 @@ namespace UIStrings
         if (IsZh(lang))
         {
             if (menuLevel == 0) return "电源与休眠策略";
-            if (menuLevel == 1) return "待机触发 (亮屏展示)";
-            if (menuLevel == 2) return "深度休眠 (物理黑屏)";
+            if (menuLevel == 1) return "亮屏待机时间";
+            if (menuLevel == 2) return "熄屏休眠时间";
         }
         else
         {
             if (menuLevel == 0) return "POWER POLICY";
-            if (menuLevel == 1) return "STANDBY (SCREEN ON)";
-            if (menuLevel == 2) return "DEEP SLEEP (SCREEN OFF)";
+            if (menuLevel == 1) return "STANDBY TIMEOUT";
+            if (menuLevel == 2) return "SCREEN-OFF TIMEOUT";
         }
         return "";
     }
 
     const char *SleepSettingItem(SystemLang_t lang, int menuLevel, int index)
     {
-        static const char *zh_main[] = {"设定待机时间", "设定深度休眠"};
+        static const char *zh_main[] = {"设定待机时间", "设定熄屏时间"};
         static const char *en_main[] = {"STANDBY TIMEOUT", "SLEEP TIMEOUT"};
         static const char *zh_standby[] = {"30 秒", "60 秒", "5 分钟", "永不待机"};
         static const char *en_standby[] = {"30 SEC", "60 SEC", "5 MIN", "NEVER"};
-        static const char *zh_sleep[] = {"3 秒 (立刻)", "30 秒", "60 秒", "永不休眠"};
-        static const char *en_sleep[] = {"3 SEC (INSTANT)", "30 SEC", "60 SEC", "NEVER"};
+        static const char *zh_sleep[] = {"3 秒", "30 秒", "60 秒", "永不休眠"};
+        static const char *en_sleep[] = {"3 SEC", "30 SEC", "60 SEC", "NEVER"};
 
         if (menuLevel == 0 && index >= 0 && index < 2)
             return IsZh(lang) ? zh_main[index] : en_main[index];

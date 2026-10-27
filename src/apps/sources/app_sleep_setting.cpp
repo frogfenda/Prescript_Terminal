@@ -64,7 +64,7 @@ protected:
             
             menu_level = 0; current_selection = 0; visual_selection = 0; // 退回主菜单
         } else if (menu_level == 2) {
-            // 【保存深度休眠时间并返回】
+            // 【保存熄屏休眠时间并返回】
             switch (index) {
                 case 0: sysConfig.true_sleep_time_ms = 3000; break;
                 case 1: sysConfig.true_sleep_time_ms = 30000; break;

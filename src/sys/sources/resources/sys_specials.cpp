@@ -109,7 +109,7 @@ void SysSpecials::rollRandom()
     // 默认兜底参数
     current_draw.color = 0x07FF;
     current_draw.is_special = false;
-    current_draw.title = (current_lang == LANG_ZH) ? "【 接收都市意志 】" : "[ RECEIVE PRESCRIPT ]";
+    current_draw.title = (current_lang == LANG_ZH) ? "【 接收指令 】" : "[ RECEIVE PRESCRIPT ]";
 
     int roll = random(10000); // 生成 0 ~ 9999 的万分位随机数
     int current_weight = 0;
@@ -201,7 +201,7 @@ void SysSpecials::setCustom(const char *custom_text, uint16_t font_color)
     const SystemLang_t current_lang = current_lang_;
     current_draw.is_special = false;
     current_draw.color = font_color;
-    current_draw.title = (current_lang == LANG_ZH) ? "【 接受都市意志 】" : "[ OVERRIDE PRESCRIPT ]";
+    current_draw.title = (current_lang == LANG_ZH) ? "【 接收指令 】" : "[ RECEIVE PRESCRIPT ]";
     current_draw.text = String(custom_text);
 
     // 外部 TXT / 闹钟 / 日程 / NFC 等自定义指令不是特殊指令，
@@ -256,13 +256,13 @@ void SysSpecials::forceDrawByID(const String &id)
 
     if (current_lang == LANG_ZH)
     {
-        current_draw.title = "【 警告：未登记的特异点 】";
-        current_draw.text = "请求被驳回：无法解析目标 ID [" + id + "]";
+        current_draw.title = "【 指令检索失败 】";
+        current_draw.text = "未找到对应条目：ID [" + id + "]";
     }
     else
     {
-        current_draw.title = "[ WARN: UNREGISTERED SPC ]";
-        current_draw.text = "Request Denied: Unresolvable Target ID [" + id + "]";
+        current_draw.title = "[ PRESCRIPT NOT FOUND ]";
+        current_draw.text = "No matching entry: ID [" + id + "]";
     }
 }
 

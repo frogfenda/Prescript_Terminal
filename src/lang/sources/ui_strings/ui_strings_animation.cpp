@@ -8,21 +8,21 @@ namespace UIStrings
 {
     const char *AnimSettingTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "解码动画配置" : "ANIMATION SETUP";
+        return IsZh(lang) ? "解码动画配置" : "DECODE STYLE";
     }
 
     const char *AnimSettingItem(SystemLang_t lang, int index)
     {
         static const char *zh_items[] = {
-            "默认矩阵瀑布",
-            "战术游标推进",
-            "逐字乱码扫描",
-            "全局波浪解码"};
+            "矩阵锁定",
+            "光标逐字",
+            "逐字解码",
+            "整体解码"};
         static const char *en_items[] = {
-            "MATRIX FALL",
-            "CURSOR TYPEWRITER",
-            "SEQUENTIAL GLITCH",
-            "GLOBAL WAVE"};
+            "MATRIX LOCK",
+            "CURSOR REVEAL",
+            "SEQUENTIAL DECODE",
+            "GLOBAL DECODE"};
 
         if (index < 0 || index >= 4)
             return "";

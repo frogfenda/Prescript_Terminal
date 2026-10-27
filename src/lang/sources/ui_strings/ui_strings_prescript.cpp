@@ -39,7 +39,7 @@ namespace UIStrings
 
     const char *ArchiveEmpty(SystemLang_t lang)
     {
-        return IsZh(lang) ? "数据库为空" : "DB ARCHIVE EMPTY";
+        return IsZh(lang) ? "暂无指令档案" : "NO ARCHIVED PRESCRIPTS";
     }
 
     const char *ClickBackHint(SystemLang_t lang)
@@ -64,7 +64,7 @@ namespace UIStrings
 
     const char *PurgingRecord(SystemLang_t lang)
     {
-        return IsZh(lang) ? "正在删除指令..." : "PURGING RECORD...";
+        return IsZh(lang) ? "正在删除指令..." : "DELETING RECORD...";
     }
 
     // 【时间设置】时间/日期链路编辑页与立即网络校时入口。月份/日期后缀也从这里分语言取值。

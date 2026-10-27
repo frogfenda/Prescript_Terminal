@@ -8,7 +8,7 @@ namespace UIStrings
 {
     const char *ScheduleTitlePreset(SystemLang_t lang, int index)
     {
-        static const char *zh_items[] = {"常规待办", "高维会议", "系统维护", "突发任务"};
+        static const char *zh_items[] = {"常规待办", "会议安排", "系统维护", "突发任务"};
         static const char *en_items[] = {"ROUTINE", "MEETING", "MAINTENANCE", "EMERGENCY"};
         if (index < 0 || index >= 4)
             index = 0;
@@ -33,7 +33,7 @@ namespace UIStrings
 
     const char *ScheduleTypeName(SystemLang_t lang, int index, bool compact)
     {
-        static const char *zh_items[] = {"常规待办", "高维会议", "系统维护", "突发任务"};
+        static const char *zh_items[] = {"常规待办", "会议安排", "系统维护", "突发任务"};
         static const char *en_full[] = {"ROUTINE", "MEETING", "MAINTENANCE", "EMERGENCY"};
         static const char *en_compact[] = {"ROUTINE", "MEETING", "MAINTAIN", "EMERGENCY"};
         if (index < 0 || index >= 4)
@@ -72,7 +72,7 @@ namespace UIStrings
     // 【日程二级菜单】时间与内容分开修改；删除确认复用 DeleteRecordPrompt / DeleteUserHint。
     const char *ScheduleItemSetTime(SystemLang_t lang)
     {
-        return IsZh(lang) ? "重新配置时间" : "SET TIME";
+        return IsZh(lang) ? "更改时间" : "SET TIME";
     }
 
     const char *ScheduleItemSetContent(SystemLang_t lang)
@@ -88,7 +88,7 @@ namespace UIStrings
     // 类型/动作滚轮的首项：当前值不是任何预设（例如手机写入的自定义标题）时出现，保存时原样保留。
     const char *ScheduleExpiredTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "已过期日程收容所" : "EXPIRED ARCHIVE";
+        return IsZh(lang) ? "过期日程档案" : "EXPIRED ARCHIVE";
     }
 
     const char *ScheduleBackToList(SystemLang_t lang)
@@ -103,12 +103,12 @@ namespace UIStrings
 
     const char *ScheduleTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "都市日程计划" : "SCHEDULES";
+        return IsZh(lang) ? "日程计划" : "SCHEDULES";
     }
 
     const char *ScheduleOpenExpiredItem(SystemLang_t lang)
     {
-        return IsZh(lang) ? "[ 打开已过期日程库 ]" : "[ EXPIRED ARCHIVE ]";
+        return IsZh(lang) ? "[ 打开过期日程档案 ]" : "[ EXPIRED ARCHIVE ]";
     }
 
     const char *ScheduleAddItem(SystemLang_t lang)

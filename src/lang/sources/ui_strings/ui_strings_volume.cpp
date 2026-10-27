@@ -36,5 +36,5 @@ namespace UIStrings
         return IsZh(lang) ? "高" : "MAX";
     }
 
-    // 【休眠设置】电源策略的多级菜单文本。menuLevel: 0 主菜单，1 待机，2 深度休眠。
+    // 【休眠设置】电源策略的多级菜单文本。menuLevel: 0 主菜单，1 待机，2 熄屏休眠。
 }

@@ -47,10 +47,10 @@ namespace UIStrings
         return IsZh(lang) ? zh_items[index] : en_items[index];
     }
 
-    // 【指令推送配置】自动推送开关、潜伏时间和进入使用者页的菜单文本。
+    // 【指令推送配置】自动推送开关、推送间隔和进入使用者页的菜单文本。
     const char *SaveAndReturnItem(SystemLang_t lang)
     {
-        return IsZh(lang) ? "保存并接入主系统" : "SAVE & RETURN";
+        return IsZh(lang) ? "保存并返回" : "SAVE & RETURN";
     }
 
     // 【使用者】本地 ID 列表页和删除确认弹窗。ID 只用于本地显示，不对应网络账号。

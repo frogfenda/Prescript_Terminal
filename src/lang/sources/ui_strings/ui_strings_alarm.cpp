@@ -45,7 +45,7 @@ namespace UIStrings
 
     const char *AlarmTitle(SystemLang_t lang)
     {
-        return IsZh(lang) ? "都市唤醒闹钟" : "WAKEUP ALARM";
+        return IsZh(lang) ? "唤醒闹钟" : "WAKEUP ALARM";
     }
 
     const char *AlarmAddItem(SystemLang_t lang)

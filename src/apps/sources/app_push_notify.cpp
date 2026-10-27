@@ -105,7 +105,7 @@ void PushNotify_Trigger_Special_Forced(bool keep_stack)
 
 /**
  * 【推送业务入口】强制触发指定 ID 的特殊指令：先装载，再打开警报弹窗。
- * ID 不存在时仍弹出“未登记的特异点”警告（保持原有的设备表现），结果为警告级 NOT_FOUND。
+ * ID 不存在时仍弹出“指令检索失败”提示，结果为警告级 NOT_FOUND。
  * 结果码：TRIGGERED / NOT_FOUND（警告级）/ EMPTY_ID。
  */
 static SysOpResult PushNotify_FireSpecial(const String &raw_id)

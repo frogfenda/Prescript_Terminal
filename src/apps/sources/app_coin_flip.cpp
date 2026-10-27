@@ -793,7 +793,7 @@ AppCoinSettings instanceCoinSettings;
 AppBase *appCoinSettings = &instanceCoinSettings;
 
 // ==========================================
-// 【终端本地操作】：量子技能录入与编辑终端
+// 【终端本地操作】：硬币技能预设录入与编辑
 // ==========================================
 class AppCoinPresetEdit : public AppBase {
 private:

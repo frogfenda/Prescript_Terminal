@@ -13,17 +13,17 @@ namespace UIStrings
 
     const char *PushEnableLabel(SystemLang_t lang)
     {
-        return IsZh(lang) ? "指令推送: " : "AUTO PUSH: ";
+        return IsZh(lang) ? "自动推送: " : "AUTO PUSH: ";
     }
 
     const char *PushMinLabel(SystemLang_t lang)
     {
-        return IsZh(lang) ? "最短潜伏: " : "MIN TIME: ";
+        return IsZh(lang) ? "最短间隔: " : "MIN INTERVAL: ";
     }
 
     const char *PushMaxLabel(SystemLang_t lang)
     {
-        return IsZh(lang) ? "最长潜伏: " : "MAX TIME: ";
+        return IsZh(lang) ? "最长间隔: " : "MAX INTERVAL: ";
     }
 
     const char *PushMinuteSuffix(SystemLang_t lang)

@@ -23,7 +23,7 @@ namespace UIStrings
 
     const char *WifiDisconnected(SystemLang_t lang)
     {
-        return IsZh(lang) ? "已切断神经网" : "WIFI DISCONNECTED";
+        return IsZh(lang) ? "无线连接已断开" : "WIFI DISCONNECTED";
     }
 
     const char *WifiRunning(SystemLang_t lang)
@@ -38,28 +38,28 @@ namespace UIStrings
 
     const char *WifiConnecting(SystemLang_t lang)
     {
-        return IsZh(lang) ? "连接神经网" : "CONNECTING";
+        return IsZh(lang) ? "正在连接无线网络" : "CONNECTING";
     }
 
     const char *WifiConnected(SystemLang_t lang)
     {
-        return IsZh(lang) ? "网络已接入!" : "WIFI CONNECTED!";
+        return IsZh(lang) ? "无线网络已连接" : "WIFI CONNECTED";
     }
 
     const char *WifiError(SystemLang_t lang)
     {
-        return IsZh(lang) ? "网络连接异常!" : "NETWORK ERROR!";
+        return IsZh(lang) ? "网络连接异常" : "NETWORK ERROR";
     }
 
     // 【网络同步】完整同步页的两行状态文本，包含连接、NTP、设备信箱、成功和失败状态。
     const char *NetworkSyncPrimary(SystemLang_t lang, int state)
     {
         if (state == 0)
-            return IsZh(lang) ? "连接神经网" : "CONNECTING";
+            return IsZh(lang) ? "正在连接无线网络" : "CONNECTING";
         if (state == 1)
             return IsZh(lang) ? "获取网络时间" : "SYNCING NTP";
         if (state == 2)
-            return IsZh(lang) ? "同步成功!" : "SYNC SUCCESS!";
+            return IsZh(lang) ? "同步完成" : "SYNC COMPLETE";
         if (state == 3)
             return IsZh(lang) ? "同步失败" : "SYNC FAILED";
         if (state == 4)
@@ -78,7 +78,7 @@ namespace UIStrings
         if (state == 3)
             return IsZh(lang) ? "请检查网络" : "CHECK WIFI";
         if (state == 4)
-            return IsZh(lang) ? "潜入网络中" : "DOWNLOADING";
+            return IsZh(lang) ? "正在接收数据" : "RECEIVING DATA";
         return "";
     }
 
