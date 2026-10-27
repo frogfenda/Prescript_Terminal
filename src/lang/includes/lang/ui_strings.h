@@ -1,7 +1,8 @@
 #pragma once
 #include "lang/terminal_lang.h"
 
-// 【模块职责】集中声明固定双语 UI 文案；具体文本和实现位于 ui_strings.cpp。
+// 【模块职责】UIStrings 统一声明各应用的固定双语 UI 文案；具体实现按应用分布在
+// src/lang/sources/ui_strings/ui_strings_<app>.cpp，调用方继续通过同一个命名空间访问。
 namespace UIStrings
 {
     bool IsZh(SystemLang_t lang);
