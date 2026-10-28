@@ -33,6 +33,33 @@ int Measure(const char* text)
     return HAL_Get_Text_Width(text);
 }
 
+String FitLineWithEllipsis(const String &text, int max_width, HALFontRole role)
+{
+    if (max_width <= 0) return String();
+    if (HAL_Get_Text_Width_Font(text.c_str(), role) <= max_width) return text;
+    const char *ellipsis = "...";
+    if (HAL_Get_Text_Width_Font(ellipsis, role) > max_width) return String();
+
+    // 沿用菜单的二分测宽方式；raw_mid 决定搜索区间，mid 回退到 UTF-8 边界，避免截断汉字和死循环。
+    int lo = 0;
+    int hi = text.length();
+    String best = ellipsis;
+    while (lo <= hi)
+    {
+        const int raw_mid = (lo + hi) / 2;
+        int mid = raw_mid;
+        while (mid > 0 && (static_cast<uint8_t>(text[mid]) & 0xC0) == 0x80) --mid;
+        const String candidate = text.substring(0, mid) + ellipsis;
+        if (HAL_Get_Text_Width_Font(candidate.c_str(), role) <= max_width)
+        {
+            best = candidate;
+            lo = raw_mid + 1;
+        }
+        else hi = raw_mid - 1;
+    }
+    return best;
+}
+
 // 【函数说明】调用 HAL 的 U8g2 文本接口在指定坐标绘制完整字符串。
 void Draw(int x, int y, const char* text)
 {

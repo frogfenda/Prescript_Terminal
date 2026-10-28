@@ -78,10 +78,12 @@ extern AppManager appManager;
 
 // 【接口说明】拉起随机推送弹窗；keep_stack 为 true 时保留当前页面返回关系。
 void PushNotify_Trigger_Random(bool keep_stack = false);
+/** 主循环展示自定义指令；text/title 立即复制，空 title 恢复默认标题，font_color 同时用于弹窗和解码。 */
 void PushNotify_Trigger_Custom(
     const char *custom_text,
     bool keep_stack = false,
-    uint16_t font_color = 0x07FF);
+    uint16_t font_color = 0x07FF,
+    const char *title = nullptr);
 /** 主循环只读查询番茄应用；返回是否正在计时，两个可空输出分别为休息阶段、向上取整的剩余秒数。 */
 bool Pomodoro_GetHudStatus(bool *rest, int *remaining_seconds);
 

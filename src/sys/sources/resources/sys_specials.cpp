@@ -196,12 +196,14 @@ void SysSpecials::rollRandom()
 }
 
 // 【函数说明】把外部文本直接设为当前抽取结果，用于 TXT、闹钟、日程这类指定内容。
-void SysSpecials::setCustom(const char *custom_text, uint16_t font_color)
+void SysSpecials::setCustom(const char *custom_text, uint16_t font_color, const char *title)
 {
     const SystemLang_t current_lang = current_lang_;
     current_draw.is_special = false;
     current_draw.color = font_color;
-    current_draw.title = (current_lang == LANG_ZH) ? "【 接收指令 】" : "[ RECEIVE PRESCRIPT ]";
+    // 每次都重建标题，默认提醒不能继承前一条自定义标题；外部标题按原文显示，不重复包括号。
+    current_draw.title = (title && *title) ? title :
+        ((current_lang == LANG_ZH) ? "【 接收指令 】" : "[ RECEIVE PRESCRIPT ]");
     current_draw.text = String(custom_text);
 
     // 外部 TXT / 闹钟 / 日程 / NFC 等自定义指令不是特殊指令，

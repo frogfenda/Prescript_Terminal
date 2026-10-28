@@ -33,6 +33,26 @@ namespace
     }
 }
 
+bool SysProtocol_ParseColor(const char *value, uint16_t &out)
+{
+    if (!value || strlen(value) != 7 || value[0] != '#')
+        return false;
+    uint32_t rgb = 0;
+    for (size_t i = 1; i < 7; ++i)
+    {
+        const char c = value[i];
+        uint8_t digit;
+        if (c >= '0' && c <= '9') digit = c - '0';
+        else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+        else return false;
+        rgb = (rgb << 4) | digit;
+    }
+    out = static_cast<uint16_t>(((rgb >> 8) & 0xF800) |
+                                ((rgb >> 5) & 0x07E0) | ((rgb >> 3) & 0x001F));
+    return true;
+}
+
 bool SysProtocol_ParseHead(const char *line, size_t length, SysCmdHead &out)
 {
     out.group[0] = out.verb[0] = out.id[0] = '\0';

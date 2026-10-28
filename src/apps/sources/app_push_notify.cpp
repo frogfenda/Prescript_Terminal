@@ -20,11 +20,13 @@
 #include "sys/resources/sys_specials.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_command_registry.h"
+#include "sys/sys_protocol.h"
 #include "sys/sys_reminder.h"
 #include "sys/sys_psram_json.h"
 #include "hal/hal.h"
 #include "sys/sys_audio.h"
 #include "ui/ui_theme.h"
+#include "ui/ui_text.h"
 
 bool g_push_notify_keep_stack = false;
 // 注册 PUSH 和 SPC 命令组；定义在文件末尾的【蓝牙命令区】。
@@ -61,10 +63,10 @@ void PushNotify_Trigger_Random(bool keep_stack)
     }
 }
 
-void PushNotify_Trigger_Custom(const char *text, bool keep_stack, uint16_t font_color)
+void PushNotify_Trigger_Custom(const char *text, bool keep_stack, uint16_t font_color, const char *title)
 {
     // BLE/NFC/日程/闹钟传来的正文先塞入特殊指令缓冲区，再复用同一个弹窗和解码流程。
-    sysSpecials.setCustom(text, font_color);
+    sysSpecials.setCustom(text, font_color, title);
 
     g_push_notify_keep_stack = keep_stack;
     appManager.resetIdleTimer();
@@ -158,9 +160,12 @@ private:
         // 闪烁时只隐藏标题正文，外框保留，形成“信号正在压入”的警报感。
         if (show_text)
         {
-            int title_w = HAL_Get_Text_Width(res.title.c_str());
+            // 标题在边框内按真实标题字体省略；保留完整业务标题，不影响后续正文或队列内容。
+            const int margin = max(12, sw / 34) + UITheme::Frame::CornerSize() + 3;
+            const String title = UIText::FitLineWithEllipsis(res.title, sw - 2 * margin, HAL_FONT_TITLE);
+            int title_w = HAL_Get_Text_Width_Font(title.c_str(), HAL_FONT_TITLE);
             int title_y = (sh - HAL_Get_Font_Line_Height(HAL_FONT_TITLE)) / 2 - 3;
-            HAL_Screen_ShowLine_Font((sw - title_w) / 2, title_y, res.title.c_str(), HAL_FONT_TITLE, res.color);
+            HAL_Screen_ShowLine_Font((sw - title_w) / 2, title_y, title.c_str(), HAL_FONT_TITLE, res.color);
         }
 
         
@@ -248,6 +253,35 @@ static void Cmd_PushText(SysCmdCtx &ctx, const SysCmdArgs &args)
         ctx.error("QUEUE_FULL");
 }
 
+// PUSH.SHOW：固定三个字段；标题、颜色允许留空，正文为 Rest，原有 PUSH.TEXT 的正文语义保持不变。
+static const SysCmdArgSpec kPushShowArgs[] = {
+    SYS_ARG_STR("title", 0, PrescriptConst::PUSH_TITLE_MAX_BYTES, ARG_TRIM),
+    SYS_ARG_STR("color", 0, 7, ARG_TRIM),
+    SYS_ARG_REST("text", 1, 0, ARG_TRIM),
+};
+
+static void Cmd_PushShow(SysCmdCtx &ctx, const SysCmdArgs &args)
+{
+    uint16_t color = 0x07FF;
+    if (args.len(1) && !SysProtocol_ParseColor(args.str(1), color))
+    {
+        ctx.error("ARG_FORMAT", "color");
+        return;
+    }
+    // 标题是单行字段，拒绝转义还原后的控制字符；正文仍可使用换行。
+    for (const char *p = args.str(0); *p; ++p)
+        if (static_cast<uint8_t>(*p) < 0x20 || *p == 0x7F)
+        {
+            ctx.error("ARG_FORMAT", "title");
+            return;
+        }
+    if (SysReminder_Submit(SysReminderKind::Custom, args.str(2), true, color, 0,
+                           SysMailboxKind::Private, args.str(0)))
+        ctx.ok("QUEUED");
+    else
+        ctx.error("QUEUE_FULL");
+}
+
 // PUSH.NOW：立即推送一条随机指令。
 static void Cmd_PushNow(SysCmdCtx &ctx, const SysCmdArgs &)
 {
@@ -259,10 +293,11 @@ static void Cmd_PushNow(SysCmdCtx &ctx, const SysCmdArgs &)
 
 static const SysCmdSpec kPushCmds[] = {
     {"TEXT", kPushTextArgs, SYS_COUNT_OF(kPushTextArgs), 0, Cmd_PushText, nullptr},
+    {"SHOW", kPushShowArgs, SYS_COUNT_OF(kPushShowArgs), 0, Cmd_PushShow, nullptr},
     {"NOW", nullptr, 0, 0, Cmd_PushNow, nullptr},
 };
 
-static const SysCmdGroup kPushGroup = {"PUSH", 1, SRC_ALL, kPushCmds, SYS_COUNT_OF(kPushCmds)};
+static const SysCmdGroup kPushGroup = {"PUSH", 2, SRC_ALL, kPushCmds, SYS_COUNT_OF(kPushCmds)};
 
 static const SysCmdArgSpec kSpcIdArgs[] = {
     SYS_ARG_REST("id", 1, 32, ARG_TRIM),

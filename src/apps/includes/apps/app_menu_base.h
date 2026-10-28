@@ -17,6 +17,7 @@
 #include "ui/ui_menu_motion.h"
 #include "ui/ui_clock.h"
 #include "ui/ui_frame.h"
+#include "ui/ui_text.h"
 #include "ui/ui_menu_ropes.h"
 
 class AppMenuBase : public AppBase, public UIMenuRenderSource
@@ -235,37 +236,7 @@ protected:
 
     String fitLineWithEllipsis(const String &src, int max_width) const
     {
-        const char *ellipsis = "...";
-        if (max_width <= 0)
-            return String(ellipsis);
-
-        if (HAL_Get_Text_Width_Font(src.c_str(), HAL_FONT_BODY) <= max_width)
-            return src;
-
-        if (HAL_Get_Text_Width_Font(ellipsis, HAL_FONT_BODY) >= max_width)
-            return String(ellipsis);
-
-        // 二分裁剪比逐字 remove + 反复测整行更轻，长选项页面快速滚动时不会被文本测宽拖慢。
-        int lo = 0;
-        int hi = src.length();
-        String best = "";
-        while (lo <= hi)
-        {
-            int raw_mid = (lo + hi) / 2;
-            int mid = clampUtf8Cut(src, raw_mid);
-            String candidate = src.substring(0, mid) + ellipsis;
-            int w = HAL_Get_Text_Width_Font(candidate.c_str(), HAL_FONT_BODY);
-            if (w <= max_width)
-            {
-                best = candidate;
-                lo = raw_mid + 1;
-            }
-            else
-            {
-                hi = raw_mid - 1;
-            }
-        }
-        return (best.length() > 0) ? best : String(ellipsis);
+        return UIText::FitLineWithEllipsis(src, max_width, HAL_FONT_BODY);
     }
 
     void clearMenuLayoutCache()

@@ -14,6 +14,7 @@
 #include "net/net_auth_session.h"
 #include "net/net_task_registry.h"
 #include "sys/sys_mailbox.h"
+#include "sys/sys_protocol.h"
 
 namespace
 {
@@ -29,20 +30,6 @@ namespace
         uint64_t server_acknowledged_sequence = 0;
         bool server_cursor_pending = false;
     };
-
-    uint16_t ParseRgb888To565(const char *value, bool &valid)
-    {
-        valid = false;
-        if (!value || strlen(value) != 7 || value[0] != '#')
-            return 0x07FF;
-        for (size_t index = 1; index < 7; ++index)
-            if (!isxdigit(static_cast<unsigned char>(value[index])))
-                return 0x07FF;
-        const unsigned long rgb = strtoul(value + 1, nullptr, 16);
-        valid = true;
-        return static_cast<uint16_t>(((rgb >> 8) & 0xF800) |
-                                     ((rgb >> 5) & 0x07E0) | ((rgb >> 3) & 0x001F));
-    }
 
     /**
      * 同一实现的两个常驻实例。Mutex 只保护短暂内存复制，不能在锁内做 HTTP 或 NVS 写入。
@@ -260,8 +247,8 @@ namespace
             const bool system_sender = object["sender_account_id"].isNull();
             const char *content = object["content"] | "";
             const char *type = object["type"] | "";
-            bool color_valid = false;
-            const uint16_t color = ParseRgb888To565(object["font_color"] | "", color_valid);
+            uint16_t color = 0x07FF;
+            const bool color_valid = SysProtocol_ParseColor(object["font_color"] | "", color);
             if (strcmp(object["mailbox"] | "", ApiKind()) != 0 ||
                 !object["sequence"].is<uint64_t>() || object["sequence"].as<uint64_t>() == 0 ||
                 strlen(message_id) != 36 || (!system_sender && strlen(sender) != 36) ||

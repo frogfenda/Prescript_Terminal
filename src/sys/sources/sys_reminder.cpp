@@ -16,6 +16,7 @@ namespace
     {
         SysReminderKind kind = SysReminderKind::Custom;
         String text;
+        String title;
         bool keep_stack = false;
         uint16_t font_color = 0x07FF;
         uint64_t mailbox_sequence = 0;
@@ -38,7 +39,8 @@ static bool Submit(
     uint64_t mailbox_sequence,
     SysMailboxKind mailbox,
     SysClockReminderSource source,
-    uint64_t event_id)
+    uint64_t event_id,
+    const char *title)
 {
     if (event_id && source!=SysClockReminderSource::None)
         for (size_t i=0;i<s_count;++i) {
@@ -57,6 +59,8 @@ static bool Submit(
     size_t tail = (s_head + s_count) % MAX_PENDING_REMINDERS;
     s_pending[tail].kind = kind;
     s_pending[tail].text = text ? text : "";
+    // 不能保留命令参数缓冲区指针：同一轮后续命令会复用它，每条提醒必须持有自己的标题。
+    s_pending[tail].title = title ? title : "";
     s_pending[tail].keep_stack = keep_stack;
     s_pending[tail].font_color = font_color;
     s_pending[tail].mailbox_sequence = mailbox_sequence;
@@ -68,14 +72,14 @@ static bool Submit(
 }
 
 bool SysReminder_Submit(SysReminderKind kind,const char *text,bool keep_stack,uint16_t font_color,
-                        uint64_t sequence,SysMailboxKind mailbox)
-{ return Submit(kind,text,keep_stack,font_color,sequence,mailbox,SysClockReminderSource::None,0); }
+                        uint64_t sequence,SysMailboxKind mailbox,const char *title)
+{ return Submit(kind,text,keep_stack,font_color,sequence,mailbox,SysClockReminderSource::None,0,title); }
 
 bool SysReminder_SubmitClock(SysClockReminderSource source,uint64_t event_id,
     SysReminderPresentation presentation,SysReminderKind kind,const char *text)
 {
     return Submit(kind,text,presentation==SysReminderPresentation::ReturnToPrevious,0x07FF,0,
-                  SysMailboxKind::Private,source,event_id);
+                  SysMailboxKind::Private,source,event_id,nullptr);
 }
 
 void SysReminder_CancelClock(SysClockReminderSource source)
@@ -99,7 +103,7 @@ void SysReminder_Update()
         return;
 
     PendingReminder item = s_pending[s_head];
-    s_pending[s_head].text = "";
+    s_pending[s_head] = PendingReminder{};
     s_head = (s_head + 1) % MAX_PENDING_REMINDERS;
     --s_count;
     s_queueFullReported = false;
@@ -107,7 +111,7 @@ void SysReminder_Update()
     if (item.kind == SysReminderKind::Random)
         PushNotify_Trigger_Random(item.keep_stack);
     else
-        PushNotify_Trigger_Custom(item.text.c_str(), item.keep_stack, item.font_color);
+        PushNotify_Trigger_Custom(item.text.c_str(), item.keep_stack, item.font_color, item.title.c_str());
 
     /* 只有弹窗已经取得正文以后才删除本地邮件；更早掉电只会在重启后重复，不会漏信。 */
     if (item.mailbox_sequence != 0)

@@ -28,6 +28,9 @@ int CharWidth(const char* text, int len);
  */
 int Measure(const char* text);
 
+/** 按指定字体和像素宽度省略一行文字；只在完整 UTF-8 字符边界裁剪，宽度不足以放 ... 时返回空串。 */
+String FitLineWithEllipsis(const String &text, int max_width, HALFontRole role = HAL_FONT_BODY);
+
 /** 使用当前全局字体绘制一行普通文本。 */
 void Draw(int x, int y, const char* text);
 

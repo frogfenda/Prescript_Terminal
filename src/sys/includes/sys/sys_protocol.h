@@ -25,6 +25,13 @@ struct SysCmdHead
 bool SysProtocol_ParseHead(const char *line, size_t length, SysCmdHead &out);
 
 /**
+ * 【接口说明】把外部 #RRGGBB（大小写均可）转换成屏幕 RGB565。
+ * BLE 自定义推送和网络邮件共用；纯函数、可跨核调用。
+ * 严格拒绝缺少 #、长度不符及非十六进制字符；失败时不修改 out，不在这里决定默认颜色。
+ */
+bool SysProtocol_ParseColor(const char *value, uint16_t &out);
+
+/**
  * 【接口说明】从任意一段请求开头（可能已被截断或不合法）尽量取出“组.动词”和编号，用于拒收时的错误回包。
  * 取不到时 name 写成 "?"、id 写成空串。
  */

@@ -89,6 +89,8 @@ namespace PrescriptConst
     constexpr uint8_t MAX_CHAR_CHAINS = 8;
     // 【蓝牙指令协议 v2】一行请求最长字节数（含结尾换行），命令行队列槽位，以及每条命令最多的参数个数。
     constexpr uint16_t CMD_LINE_MAX = 512;
+    // 自定义推送标题按 UTF-8 字节计限；实际显示按标题字体宽度省略，不能按字节裁断中文。
+    constexpr uint8_t PUSH_TITLE_MAX_BYTES = 64;
     constexpr uint8_t MAX_CMD_QUEUE = 8;
     constexpr uint8_t MAX_CMD_ARGS = 8;
     // 已注册命令组上限；当前 11 组，留出新应用的余量。
