@@ -47,6 +47,7 @@ extern AppBase *appHumanFrameDrift;
 extern AppBase *appMagDiagnostics;
 extern AppBase *appSensorCalibrationTest;
 extern AppBase *appDeviceBinding;
+extern AppBase *appBlePairing;
 extern AppBase *appAlarmItem;
 extern AppBase *appScheduleItem;
 
@@ -102,6 +103,7 @@ AppBase* AppRegistry_Get(AppId id)
         case AppId::MagDiagnostics: return appMagDiagnostics;
         case AppId::SensorCalibrationTest: return appSensorCalibrationTest;
         case AppId::DeviceBinding: return appDeviceBinding;
+        case AppId::BlePairing: return appBlePairing;
         case AppId::AlarmItem: return appAlarmItem;
         case AppId::ScheduleItem: return appScheduleItem;
         default: return nullptr;
@@ -155,6 +157,7 @@ const char* AppRegistry_Name(AppId id)
         case AppId::MagDiagnostics: return "MagDiagnostics";
         case AppId::SensorCalibrationTest: return "SensorCalibrationTest";
         case AppId::DeviceBinding: return "DeviceBinding";
+        case AppId::BlePairing: return "BlePairing";
         case AppId::AlarmItem: return "AlarmItem";
         case AppId::ScheduleItem: return "ScheduleItem";
         default: return "Unknown";

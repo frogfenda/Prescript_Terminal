@@ -39,6 +39,7 @@ namespace UIStrings
             "解码方式",
             "传感器校准测试",
             "进入绑定模式",
+            "进入蓝牙配对",
             "返回上一级"};
         static const char *en_items[] = {
             "",
@@ -50,9 +51,10 @@ namespace UIStrings
             "DECODE STYLE",
             "SENSOR CAL & TEST",
             "ENTER BINDING MODE",
+            "ENTER BLE PAIRING",
             "BACK TO MAIN"};
 
-        if (index < 0 || index >= 10)
+        if (index < 0 || index >= 11)
             return "";
         if (index == 3)
             return LanguageBuildItem(lang, TerminalLang::DEFAULT_LANG);

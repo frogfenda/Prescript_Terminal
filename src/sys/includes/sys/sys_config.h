@@ -68,6 +68,8 @@ class SysConfig
 public:
     String wifi_ssid;
     String wifi_pass;
+    // 设备级 BLE 广播名称；与账号绑定和机器码完全独立。
+    String ble_name;
     uint8_t language;
     uint32_t sleep_time_ms;
     uint32_t true_sleep_time_ms; // 【新增】：在待机画面停留多久后【真正休眠】

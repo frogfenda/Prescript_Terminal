@@ -101,6 +101,7 @@ void setup()
      * 设备绑定模块没有一次性初始化入口，在这里显式注册 BIND 组。
      */
     SysCommand_Init();
+    SysBLE_RegisterCommands();
     SysDeviceBinding_RegisterCommands();
     appManager.begin();
 

@@ -51,6 +51,7 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
     // 默认不带 WiFi 配置，避免未配置时开机自动同步连接占位 AP 耗尽内部堆。
     cfg.wifi_ssid = "";
     cfg.wifi_pass = "";
+    cfg.ble_name = PrescriptConst::BLE_DEVICE_NAME;
     cfg.language = (uint8_t)TerminalLang::DEFAULT_LANG;
     cfg.sleep_time_ms = PrescriptConst::DEFAULT_IDLE_SLEEP_MS;
     cfg.true_sleep_time_ms = 30000;
@@ -162,6 +163,9 @@ void SysConfig::load()
     // ==========================================
     wifi_ssid = doc["wifi_ssid"] | "Your_WiFi_Name";
     wifi_pass = doc["wifi_pass"] | "12345678";
+    ble_name = doc["ble_name"] | PrescriptConst::BLE_DEVICE_NAME;
+    if (ble_name.length() == 0 || ble_name.length() > PrescriptConst::BLE_NAME_MAX_BYTES)
+        ble_name = PrescriptConst::BLE_DEVICE_NAME;
     language = (uint8_t)TerminalLang::Normalize(doc["language"] | (uint8_t)TerminalLang::DEFAULT_LANG);
     if (TerminalLang::LOCKED)
         language = (uint8_t)TerminalLang::DEFAULT_LANG;
@@ -384,6 +388,7 @@ void SysConfig::saveCommon()
     // ==========================================
     doc["wifi_ssid"] = wifi_ssid;
     doc["wifi_pass"] = wifi_pass;
+    doc["ble_name"] = ble_name;
     doc["language"] = language;
     doc["sleep_time_ms"] = sleep_time_ms;
     doc["true_sleep_time_ms"] = true_sleep_time_ms;

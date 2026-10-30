@@ -65,6 +65,11 @@ namespace UIStrings
     const char *DeviceBindingRunning(SystemLang_t lang);
     const char *DeviceBindingReadyHint(SystemLang_t lang);
     const char *DeviceBindingWaitingHint(SystemLang_t lang);
+    const char *BlePairingTitle(SystemLang_t lang);
+    const char *BlePairingPrompt(SystemLang_t lang);
+    const char *BlePairingRunning(SystemLang_t lang);
+    const char *BlePairingReadyHint(SystemLang_t lang);
+    const char *BlePairingWaitingHint(SystemLang_t lang);
     const char *SensorCalibrationTestTitle(SystemLang_t lang);
     const char *SensorCalibrationTestItem(SystemLang_t lang, int index);
     const char *PushSettingTitle(SystemLang_t lang);

@@ -140,4 +140,9 @@ namespace PrescriptConst
     constexpr const char *BLE_SERVICE_UUID = "5C9A0001-7E3B-4F6A-9D2E-1B8C4A6F3D10";
     constexpr const char *BLE_RX_CHAR_UUID = "5C9A0002-7E3B-4F6A-9D2E-1B8C4A6F3D10";
     constexpr const char *BLE_TX_CHAR_UUID = "5C9A0003-7E3B-4F6A-9D2E-1B8C4A6F3D10";
+    // 未配对阶段只允许读取公开身份与配对状态；业务 RX/TX 由 BLE 加密属性保护。
+    constexpr const char *BLE_INFO_CHAR_UUID = "5C9A0004-7E3B-4F6A-9D2E-1B8C4A6F3D10";
+    constexpr const char *BLE_PAIR_CHAR_UUID = "5C9A0005-7E3B-4F6A-9D2E-1B8C4A6F3D10";
+    constexpr uint8_t BLE_NAME_MAX_BYTES = 24;
+    constexpr uint32_t BLE_PAIRING_WINDOW_MS = 120000UL;
 }

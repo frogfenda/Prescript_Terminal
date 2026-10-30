@@ -73,6 +73,9 @@ enum class AppId : uint8_t
     // 系统设置中的设备身份绑定页；追加在枚举末尾，保持既有 AppId 数值稳定。
     DeviceBinding,
 
+    // 系统设置中的 BLE 配对模式页；只有设备实体进入该页并短按确认，才清除旧 bonding 并接受新手机。
+    BlePairing,
+
     // 闹钟/日程列表单击条目后进入的二级菜单；追加在末尾，保持既有 AppId 数值稳定。
     AlarmItem,
     ScheduleItem
