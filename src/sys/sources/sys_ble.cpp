@@ -99,6 +99,7 @@ namespace
                                       : identity.machine_code;
         document["firmware"] = "2026.10";
         document["paired"] = NimBLEDevice::getNumBonds() > 0;
+        document["peer_bonded"] = s_peer_was_bonded;
         document["pairing_mode"] = PairingActive();
         document["secure"] = s_secure;
         document["pairing_method"] = "secure_connections_just_works";
