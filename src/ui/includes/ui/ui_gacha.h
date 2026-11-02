@@ -10,10 +10,11 @@ Draw 不清屏、不推屏、不分配内存。全部调用只发生在 UI 主�
 namespace UIGacha
 {
     constexpr int PULL_COUNT = 10;
-    constexpr uint32_t SWEEP_START_MS = 450;
-    constexpr uint32_t SWEEP_END_MS = 1850;
-    constexpr uint32_t FLIP_START_MS = 2360;
-    constexpr uint32_t DURATION_MS = 2800;
+    // 短按后只留 80ms 起势；后续扫光、保持、翻面仍沿用原来的各段速度。
+    constexpr uint32_t SWEEP_START_MS = 80;
+    constexpr uint32_t SWEEP_END_MS = SWEEP_START_MS + 1400;
+    constexpr uint32_t FLIP_START_MS = SWEEP_END_MS + 510;
+    constexpr uint32_t DURATION_MS = FLIP_START_MS + 440;
 
     // 仅复制表现所需信息；star=0 表示无有效记录，walp 沿用结算页绿色语义。
     struct PullAppearance

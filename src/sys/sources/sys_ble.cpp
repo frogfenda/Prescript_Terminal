@@ -315,9 +315,13 @@ namespace
         s_server->setCallbacks(new TerminalServerCallbacks());
 
         NimBLEService *service = s_server->createService(PrescriptConst::BLE_SERVICE_UUID);
+        // WRITE_ENC 只附加加密权限，不会自动声明可写；必须同时设置 WRITE，
+        // 否则 Android 即使已完成 bonding，也会在 BLE.STATUS 写入时被 GATT 拒绝。
+        // Just Works 不产生 MITM authenticated 状态，不能再要求 WRITE_AUTHEN；
+        // 保留链路加密，并继续由认证回调及 IsLinkReady 校验 bonding 和实体配对窗口。
         NimBLECharacteristic *rx = service->createCharacteristic(
             PrescriptConst::BLE_RX_CHAR_UUID,
-            NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
+            NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC);
         rx->setCallbacks(new RxCallbacks());
         s_tx_char = service->createCharacteristic(
             PrescriptConst::BLE_TX_CHAR_UUID,
