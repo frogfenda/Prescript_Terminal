@@ -105,6 +105,18 @@ inline int Stride() { return CardWidth() + 20; }
 inline int CenterY() { return ScreenH() / 2 + 6; }
 }
 
+// 十连打印清单：当前字号保留四条记录，选中记录多一行详情，不缩放点阵字体。
+namespace GachaReceipt {
+inline int HeaderHeight() { return Font::BodyLineHeight() + 8; }
+inline int ListTop() { return HeaderHeight() + 2; }
+inline int RowHeight() { return Font::BodyLineHeight() + 2; }
+inline int DetailStep() { return Font::BodyBaseline() + 2; }
+inline int ExpansionHeight() { return Font::BodyLineHeight() - 4; }
+inline int VisibleRows(int height) {
+    return constrain((height - ListTop() - 6 - ExpansionHeight()) / RowHeight(), 1, 10);
+}
+}
+
 // -----------------------------------------------------------------------------
 // 链路 + 滚轮编辑页布局
 // -----------------------------------------------------------------------------

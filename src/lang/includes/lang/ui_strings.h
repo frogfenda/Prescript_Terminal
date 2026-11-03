@@ -150,6 +150,7 @@ namespace UIStrings
     const char *GachaClearItem(SystemLang_t lang);
     const char *GachaIdleHint(SystemLang_t lang);
     const char *GachaExtractingLabel(SystemLang_t lang);
+    const char *GachaReceiptTitle(SystemLang_t lang);
     const char *WifiDisconnected(SystemLang_t lang);
     const char *WifiRunning(SystemLang_t lang);
     const char *WifiInit(SystemLang_t lang);

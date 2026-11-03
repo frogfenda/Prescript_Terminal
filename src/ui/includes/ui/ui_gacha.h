@@ -1,8 +1,9 @@
 /*
-【模块职责】十连的散落碎镜/行驶车窗两套演出，共用几何缓存和稀有度配色。
+【模块职责】十连的散落碎镜/行驶车窗演出与打印式结果清单，共用稀有度语义。
 【调用约定】进入待抽页 Start 一次选择样式并生成布局，DrawIdle 保持轻晃/行驶；按键后 SetPulls 绑定结果，
-每帧先清 Sprite，翻面阶段先画原有结果页，再 Draw 覆盖镜面。
-Draw 不清屏、不推屏、不分配内存。全部调用只发生在 UI 主循环，实例与 App 一起保存。
+每帧先清 Sprite，翻面阶段先画正式打印清单，再由演出覆盖镜面。
+演出不分配内存；清单使用 UIText 的临时短字符串，不额外分配整屏缓冲。均不清屏、不推屏。
+全部调用只发生在 UI 主循环，实例与 App 一起保存。
 */
 #pragma once
 #include <Arduino.h>
@@ -27,6 +28,49 @@ namespace UIGacha
     {
         uint8_t star = 0;
         bool walp = false;
+    };
+
+    // 仅在 Draw 调用期间借用 App 的身份字符串；UI 不保留目录指针、不修改抽取结果。
+    struct ReceiptRecord
+    {
+        const char *sinner = "";
+        const char *identity = "";
+        PullAppearance appearance;
+    };
+
+    /**
+     * 打印清单只保存十条记录的运动位置，不持有文本或额外整屏缓冲。
+     * Reset 在新十连完成分配时调用；Select 合并旋钮输入，连续插值到新选中行。
+     * Draw 的 entry_ms 是从翻面开始计的纸面进场时间；跳过演出时传 ENTRY_MS 即直达完整清单。
+     * now_ms 与 Select 使用同一 millis 时钟；所有接口只供 UI 主循环使用，不清屏、不推屏。
+     */
+    class ResultReceipt
+    {
+    public:
+        static constexpr uint32_t ENTRY_MS = 480;
+        static constexpr uint32_t SELECT_MS = 160;
+        void Reset(int selected, uint32_t now_ms);
+        void Select(int selected, uint32_t now_ms);
+        int Selected() const { return selected_; }
+        bool IsMoving(uint32_t now_ms) const;
+        // 保留末帧请求直到 Draw 真正提交稳定位置，避免低帧率时停在插值的倒数一帧。
+        bool NeedsFrame() const { return moving_ || printing_; }
+        // 最后一次 Draw 检测出的长名宽度供主循环决定是否继续刷新；短名静止后停止刷屏。
+        bool HasLongDetail() const { return detail_overflow_ > 0; }
+        void Draw(const ReceiptRecord (&records)[PULL_COUNT], const char *title,
+                  int width, int height, uint32_t entry_ms, uint32_t now_ms);
+
+    private:
+        float RowPosition(int row, uint32_t now_ms) const;
+        float Expansion(int row, uint32_t now_ms) const;
+        float from_position_[PULL_COUNT] = {};
+        float from_expansion_[PULL_COUNT] = {};
+        int selected_ = 0;
+        int detail_overflow_ = 0;
+        uint32_t selection_time_ = 0;
+        uint32_t detail_time_ = 0;
+        bool moving_ = false;
+        bool printing_ = false;
     };
 
     namespace Detail

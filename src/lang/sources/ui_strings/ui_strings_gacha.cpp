@@ -42,5 +42,10 @@ namespace UIStrings
         return IsZh(lang) ? "提取中..." : "EXTRACTION...";
     }
 
+    const char *GachaReceiptTitle(SystemLang_t lang)
+    {
+        return IsZh(lang) ? "提取记录" : "EXTRACTION LOG";
+    }
+
     // 【网络连接】手动 WiFi 连接页的居中状态文本。
 }

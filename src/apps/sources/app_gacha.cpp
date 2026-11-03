@@ -32,28 +32,13 @@ private:
     // 抽取时只更新内存，结果已上屏后再保存公共统计，避免 Flash 写入挡住按下后的首帧。
     bool stats_dirty = false;
 
-    // 动画只负责表现一次完整的“提取过程”，身份结果在动画结束后统一交给原有结算页显示。
+    // 两种演出共用同一批身份值副本，翻面后露出打印清单。
     static constexpr int PULL_COUNT = UIGacha::PULL_COUNT;
     UIGacha::ExtractionAnimation extraction_animation;
 
-    // 结果列表滚动偏移。可见行数不再写死，drawResultPhase/onKnob 会按当前屏幕高度动态计算。
-    int m_scroll_offset = 0;
-
-    /**
-     * 根据当前字体和屏幕高度计算结果列表可见行数。
-     * 每行显示“星级 + 人格名”，行高需要跟随字体放大；右侧滚动条也使用同一行数计算。
-     */
-    int getResultRowHeight() const
-    {
-        return max(22, HAL_Get_Font_Line_Height(HAL_FONT_BODY) + 2);
-    }
-
-    int getResultVisibleRows(int sh) const
-    {
-        int row_h = getResultRowHeight();
-        int visible = (sh - 14) / row_h;
-        return constrain(visible, 3, PULL_COUNT);
-    }
+    UIGacha::ResultReceipt result_receipt;
+    uint32_t result_timer = 0;
+    uint32_t result_entry_elapsed = UIGacha::ResultReceipt::ENTRY_MS;
 
     // ==========================================
     // 底层引擎：抽卡概率与数据分配
@@ -121,6 +106,16 @@ private:
         }
         
         stats_dirty = true;
+        // 先聚焦本次最高稀有度的有效结果；同档保留抽取顺序，空资源仍可安全浏览十个槽位。
+        int selected = 0, best_rank = -1;
+        for (int i = 0; i < PULL_COUNT; ++i)
+        {
+            if (!current_pulls[i].valid) continue;
+            const auto &id = current_pulls[i].identity;
+            const int rank = id.star + (id.walp == 1 ? 3 : 0);
+            if (rank > best_rank) { best_rank = rank; selected = i; }
+        }
+        result_receipt.Reset(selected, millis());
     }
 
     void savePendingStats()
@@ -133,8 +128,14 @@ private:
 
     void skipToResult()
     {
+        const uint32_t now = millis();
+        const uint32_t elapsed = now - anim_timer;
+        // 自然结束接续翻面底下已经打印的纸面；主动跳过立即给出完整结果，不补播进场。
+        result_entry_elapsed = elapsed >= extraction_animation.DurationMs()
+            ? min(UIGacha::ResultReceipt::ENTRY_MS, elapsed - extraction_animation.FlipStartMs())
+            : UIGacha::ResultReceipt::ENTRY_MS;
+        result_timer = now;
         phase = 2;
-        m_scroll_offset = 0;
         // 最终结果汇总音效
         if (has_walp_pulled || max_star_pulled == 3)
         {
@@ -162,7 +163,6 @@ private:
         extraction_animation.Start((uint32_t)random(1, 0x7FFFFFFF), neutral,
                                    HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), style);
         phase = 0;
-        m_scroll_offset = 0;
         idle_timer = millis();
         last_draw_time = idle_timer;
         drawUI();
@@ -180,7 +180,7 @@ private:
     {
         const uint32_t now = millis();
         const uint32_t elapsed = now - anim_timer;
-        // 镜片侧翻时露出的是正式列表，不是另一份占位结果；列表数据/滚动/配色仍由本 App 拥有。
+        // 从翻面开始打印同一张正式清单，演出结束继续纸面时间轴，避免切换时重新打印。
         if (elapsed >= extraction_animation.FlipStartMs())
             drawResultPhase(sw, sh);
         extraction_animation.Draw(elapsed, now - idle_timer);
@@ -191,62 +191,25 @@ private:
     // ==========================================
     void drawResultPhase(int sw, int sh)
     {
-        int row_h = getResultRowHeight();
-        int visible_rows = getResultVisibleRows(sh);
-        int top_y = max(6, (sh - visible_rows * row_h) / 2);
-
-        for (int i = 0; i < visible_rows; i++)
+        UIGacha::ReceiptRecord records[PULL_COUNT];
+        for (int i = 0; i < PULL_COUNT; ++i)
         {
-            int list_idx = m_scroll_offset + i;
-            if (list_idx >= PULL_COUNT)
-                break;
-
-            const IdentityData *p_id = current_pulls[list_idx].valid ? &current_pulls[list_idx].identity : nullptr;
-            if (!p_id)
+            if (!current_pulls[i].valid)
+            {
+                records[i].sinner = "--";
                 continue;
-
-            uint16_t theme_color = TFT_DARKGREY;
-            String star_str = "★";
-            if (p_id->star == 2)
-            {
-                theme_color = TFT_RED;
-                star_str = "★★";
             }
-            if (p_id->star == 3)
-            {
-                theme_color = TFT_GOLD;
-                star_str = "★★★";
-            }
-            if (p_id->walp == 1)
-            {
-                theme_color = TFT_GREEN;
-            }
-
-            String w_str = (p_id->walp == 1) ? "[W] " : "";
-            String line_text = w_str + star_str + " " + p_id->sinner + " : " + p_id->id_name;
-
-            int text_w = HAL_Get_Text_Width(line_text.c_str());
-            int x_pos = (sw - 14 - text_w) / 2;
-            if (x_pos < 8)
-                x_pos = 8;
-
-            int y_pos = top_y + i * row_h;
-            HAL_Screen_ShowChineseLine_Faded_Color(x_pos, y_pos, line_text.c_str(), 0.0f, theme_color);
+            const auto &id = current_pulls[i].identity;
+            records[i].sinner = id.sinner.c_str();
+            records[i].identity = id.id_name.c_str();
+            records[i].appearance.star = (uint8_t)constrain(id.star, 0, 3);
+            records[i].appearance.walp = id.walp == 1;
         }
-
-        // 右侧滚动条按新屏高度计算。旧版本 track_h 固定 64，在 142 高屏幕上会显得短。
-        int max_offset = PULL_COUNT - visible_rows;
-        if (max_offset > 0)
-        {
-            int track_top = 8;
-            int track_h = sh - track_top * 2;
-            int bar_h = track_h * visible_rows / PULL_COUNT;
-            if (bar_h < 6)
-                bar_h = 6;
-            int bar_y = track_top + (track_h - bar_h) * m_scroll_offset / max_offset;
-
-            HAL_Fill_Rect(sw - 8, bar_y, 3, bar_h, TFT_WHITE);
-        }
+        const uint32_t now = millis();
+        const uint32_t entry = phase == 1 ? now - anim_timer - extraction_animation.FlipStartMs()
+                                         : result_entry_elapsed + (now - result_timer);
+        result_receipt.Draw(records, UIStrings::GachaReceiptTitle(appManager.getLanguage()),
+                            sw, sh, entry, now);
     }
 
     void drawUI()
@@ -299,6 +262,13 @@ public:
                 }
             }
         }
+        if (phase == 2)
+        {
+            const bool animating = result_receipt.NeedsFrame();
+            if ((animating || result_receipt.HasLongDetail()) &&
+                UIClock_Due(last_draw_time, animating ? UITheme::FRAME_FAST_MS : UITheme::FRAME_NORMAL_MS))
+                drawUI();
+        }
     }
 
     void onDestroy() override
@@ -309,20 +279,14 @@ public:
 
     void onKnob(int delta) override
     {
-        if (phase == 2)
-        {
-            m_scroll_offset += delta;
-            int max_offset = PULL_COUNT - getResultVisibleRows(HAL_Get_Screen_Height());
-            if (max_offset < 0) max_offset = 0;
-
-            if (m_scroll_offset < 0)
-                m_scroll_offset = 0;
-            if (m_scroll_offset > max_offset)
-                m_scroll_offset = max_offset;
-
-            SYS_SOUND_GLITCH();
-            drawUI();
-        }
+        if (phase != 2 || delta == 0) return;
+        const int selected = result_receipt.Selected();
+        // 输入可能一次累计多格；先按边界限幅再相加，避免长整型极端值溢出。
+        const int next = selected + constrain(delta, -selected, PULL_COUNT - 1 - selected);
+        if (next == selected) return;
+        result_receipt.Select(next, millis());
+        SYS_SOUND_GLITCH();
+        // 只更新目标，帧门控统一绘制；快速旋转不在回调里反复推整屏。
     }
 
     void onKeyShort() override
@@ -340,7 +304,6 @@ public:
                 appearances[i].walp = current_pulls[i].identity.walp == 1;
             }
             extraction_animation.SetPulls(appearances);
-            m_scroll_offset = 0;
             phase = 1;
             anim_timer = millis();
             last_draw_time = anim_timer;
