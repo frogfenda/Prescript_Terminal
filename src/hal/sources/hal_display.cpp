@@ -241,16 +241,26 @@ void HAL_Blend_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color, 
     x = max((int32_t)0, x); y = max((int32_t)0, y);
     if (right <= x || bottom <= y) return;
     if (alpha == 255) { textSprite.fillRect(x, y, right-x, bottom-y, color); return; }
-    // 直接混合现有 Sprite，避免为车窗倒影渐显/车内淡出再申请一个整屏缓冲。
-    // 各通道在 RGB565 原始精度内四舍五入，透明/实色端点交给上面的快速路径。
-    const int inverse = 255-alpha;
-    for (int32_t py=y; py<bottom; ++py) for (int32_t px=x; px<right; ++px)
+    // 本 HAL 创建的是未旋转的 16 位逻辑 Sprite，缓冲步长就是逻辑宽度，存储为换字节 RGB565。
+    // 直接处理连续跨度，省去每个像素两次 Sprite 虚接口/视口检查；端点仍走原生矩形快速路径。
+    auto *buffer = static_cast<uint16_t *>(textSprite.getPointer());
+    if (!buffer) return;
+    const uint32_t stride=HAL_Get_Screen_Width(),inverse=255-alpha;
+    const uint32_t red=((color>>11)&31)*alpha+127;
+    const uint32_t green=((color>>5)&63)*alpha+127;
+    const uint32_t blue=(color&31)*alpha+127;
+    for (int32_t py=y; py<bottom; ++py)
     {
-        const uint16_t background = textSprite.readPixel(px, py);
-        const int r = (((color>>11)&31)*alpha + ((background>>11)&31)*inverse + 127)/255;
-        const int g = (((color>>5)&63)*alpha + ((background>>5)&63)*inverse + 127)/255;
-        const int b = ((color&31)*alpha + (background&31)*inverse + 127)/255;
-        textSprite.drawPixel(px, py, (r<<11)|(g<<5)|b);
+        uint16_t *pixel=buffer+(size_t)py*stride+x;
+        for (int32_t px=x; px<right; ++px,++pixel)
+        {
+            const uint16_t raw=*pixel,background=(raw>>8)|(raw<<8);
+            const uint32_t r=(red+((background>>11)&31)*inverse)/255;
+            const uint32_t g=(green+((background>>5)&63)*inverse)/255;
+            const uint32_t b=(blue+(background&31)*inverse)/255;
+            const uint16_t result=(r<<11)|(g<<5)|b;
+            *pixel=(result>>8)|(result<<8);
+        }
     }
 }
 

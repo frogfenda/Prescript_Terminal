@@ -29,6 +29,8 @@ private:
 
     int max_star_pulled = 1;
     bool has_walp_pulled = false;
+    // 抽取时只更新内存，结果已上屏后再保存公共统计，避免 Flash 写入挡住按下后的首帧。
+    bool stats_dirty = false;
 
     // 动画只负责表现一次完整的“提取过程”，身份结果在动画结束后统一交给原有结算页显示。
     static constexpr int PULL_COUNT = UIGacha::PULL_COUNT;
@@ -118,7 +120,15 @@ private:
             }
         }
         
-        sysConfig.save(); // 【新增】：十连结束瞬间，将公共配置和当前语言配置永久覆写至硬盘！
+        stats_dirty = true;
+    }
+
+    void savePendingStats()
+    {
+        if (!stats_dirty) return;
+        // gacha_stats 属于公共配置；不额外重写与本次十连无关的语言配置。
+        sysConfig.saveCommon();
+        stats_dirty = false;
     }
 
     void skipToResult()
@@ -136,6 +146,7 @@ private:
             sysAudio.playTone(1000, 100);
         }
         drawUI();
+        savePendingStats(); // 正式结果先上屏；跳过与自然结束共用同一保存点。
     }
 
     // ==========================================
@@ -267,7 +278,7 @@ public:
         if (phase == 0)
         {
             // 待抽也按公共帧门控刷新：碎镜轻晃或巴士持续行驶，等待多久都不会自动抽取。
-            if (UIClock_Due(last_draw_time, UITheme::FRAME_NORMAL_MS)) drawUI();
+            if (UIClock_Due(last_draw_time, UITheme::FRAME_FAST_MS)) drawUI();
         }
         if (phase == 1)
         {
@@ -282,7 +293,7 @@ public:
             else
             {
                 // 复用公共帧门控；用绝对经过时间采样，掉帧时不拉长演出，也不阻塞按键/系统服务。
-                if (UIClock_Due(last_draw_time, UITheme::FRAME_NORMAL_MS))
+                if (UIClock_Due(last_draw_time, UITheme::FRAME_FAST_MS))
                 {
                     drawUI();
                 }
@@ -290,7 +301,11 @@ public:
         }
     }
 
-    void onDestroy() override {}
+    void onDestroy() override
+    {
+        // 长按返回或系统切页可能在演出中离开；这条路径也要补存一次，不能丢弃已抽出的统计。
+        savePendingStats();
+    }
 
     void onKnob(int delta) override
     {

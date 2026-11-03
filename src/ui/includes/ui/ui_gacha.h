@@ -10,13 +10,14 @@ Draw 不清屏、不推屏、不分配内存。全部调用只发生在 UI 主�
 namespace UIGacha
 {
     constexpr int PULL_COUNT = 10;
-    // 短按后只留 80ms 起势；后续扫光、保持、翻面仍沿用原来的各段速度。
-    constexpr uint32_t SWEEP_START_MS = 80;
-    constexpr uint32_t SWEEP_END_MS = SWEEP_START_MS + 1400;
-    constexpr uint32_t FLIP_START_MS = SWEEP_END_MS + 510;
-    constexpr uint32_t DURATION_MS = FLIP_START_MS + 440;
-    constexpr uint32_t BUS_FLIP_START_MS = 2300;
-    constexpr uint32_t BUS_DURATION_MS = 2800;
+    // 短按后 60ms 起光，保留完整扫光与翻面，把长保持段压短；总长 1910ms。
+    constexpr uint32_t SWEEP_START_MS = 60;
+    constexpr uint32_t SWEEP_END_MS = SWEEP_START_MS + 1100;
+    constexpr uint32_t FLIP_START_MS = SWEEP_END_MS + 350;
+    constexpr uint32_t DURATION_MS = FLIP_START_MS + 400;
+    // 车窗完整时间轴加快 4/3，保留各段相对节奏；街景运动时钟不受提取加速影响。
+    constexpr uint32_t BUS_FLIP_START_MS = 1725;
+    constexpr uint32_t BUS_DURATION_MS = 2100;
 
     // App 每次进入待抽页选一次；UI 不自行随机切换，也不接触抽卡业务。
     enum class AnimationStyle : uint8_t { MirrorShards, BusWindow };
@@ -31,7 +32,7 @@ namespace UIGacha
     namespace Detail
     {
         // 十点分区最多 13 边，斜切/旋转交集最多 27 边，投影再次求交最多 54 边；
-        // 反光带再增加两条裁面，容量留到 64，避免罕见种子被截断。不使用堆或整屏副本。
+        // 容量留到 64，避免罕见种子被截断；材质按扫描线分色，不再额外构造反光带多边形。
         constexpr int MAX_VERTICES = 64;
         struct Point { float x, y; };
         struct Polygon { Point points[MAX_VERTICES]; int count = 0; };
@@ -68,7 +69,7 @@ namespace UIGacha
         void Draw(uint32_t elapsed_ms, uint32_t motion_ms) const;
 
     private:
-        void DrawFrame(uint32_t elapsed_ms, uint32_t motion_ms, bool idle) const;
+        void DrawMirrorFrame(uint32_t elapsed_ms, uint32_t motion_ms, bool idle) const;
         void DrawBusFrame(uint32_t elapsed_ms, uint32_t motion_ms, bool idle) const;
         Detail::Shard shards_[PULL_COUNT] = {};
         int width_ = 0, height_ = 0;
