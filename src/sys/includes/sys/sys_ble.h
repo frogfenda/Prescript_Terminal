@@ -1,7 +1,7 @@
 /*
 【模块职责】蓝牙传输层（协议 v2）。提供一个自定义服务：RX 特征接收请求字节流，TX 特征 Notify 回包字节流。
 RX 字节由行组装器拼成完整行放入命令行队列；TX 字节先进 PSRAM 发送缓冲，再由蓝牙任务按当前 MTU 切块发送。
-【重要约束】本层只搬运字节，不理解命令内容；行格式和回包格式见 docs/ble-protocol-v2.md。
+【重要约束】本层只搬运字节，不理解命令内容；行格式和回包格式见 docs/protocol/ble-protocol-v2.md。
 */
 #pragma once
 #include <Arduino.h>

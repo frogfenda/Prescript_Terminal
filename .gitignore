@@ -9,8 +9,6 @@ tools/
 docs/
 .claude/
 .dsh/
-network-outbox-architecture.md
-NETWORK_OUTBOX_HANDOFF.md
 scripts/load_binding_secret.py
 scripts/__pycache__/
 sdkconfig.esp32-s3-psram-tls

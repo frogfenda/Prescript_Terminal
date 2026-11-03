@@ -136,7 +136,7 @@ namespace PrescriptConst
 
     constexpr const char *BLE_DEVICE_NAME = "Terminal_01";
     // 协议 v2 的自定义 128 位 UUID：固定基址，服务和特征只改前 4 个十六进制位。
-    // RX 由客户端写入请求行，TX 由设备 Notify 回包行；详见 docs/ble-protocol-v2.md。
+    // RX 由客户端写入请求行，TX 由设备 Notify 回包行；详见 docs/protocol/ble-protocol-v2.md。
     constexpr const char *BLE_SERVICE_UUID = "5C9A0001-7E3B-4F6A-9D2E-1B8C4A6F3D10";
     constexpr const char *BLE_RX_CHAR_UUID = "5C9A0002-7E3B-4F6A-9D2E-1B8C4A6F3D10";
     constexpr const char *BLE_TX_CHAR_UUID = "5C9A0003-7E3B-4F6A-9D2E-1B8C4A6F3D10";

@@ -3,7 +3,7 @@
 并负责 ACK / DAT / EVT 回包编码、有界列表快照和逐条发送。
 【使用方式】每个模块在自己文件末尾的【蓝牙命令区】定义一个 SysCmdGroup，并在已有的初始化入口里调用
 SysCommand_RegisterGroup 注册；处理函数只做“参数 → 业务入口 → 回包”的翻译，不写业务规则。
-【重要约束】处理函数和列表回调都在 Arduino 主循环同步执行；协议细节见 docs/ble-protocol-v2.md。
+【重要约束】处理函数和列表回调都在 Arduino 主循环同步执行；协议细节见 docs/protocol/ble-protocol-v2.md。
 */
 #pragma once
 #include <Arduino.h>
