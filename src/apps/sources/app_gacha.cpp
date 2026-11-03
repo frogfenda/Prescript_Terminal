@@ -32,7 +32,7 @@ private:
 
     // 动画只负责表现一次完整的“提取过程”，身份结果在动画结束后统一交给原有结算页显示。
     static constexpr int PULL_COUNT = UIGacha::PULL_COUNT;
-    UIGacha::MirrorAnimation mirror_animation;
+    UIGacha::ExtractionAnimation extraction_animation;
 
     // 结果列表滚动偏移。可见行数不再写死，drawResultPhase/onKnob 会按当前屏幕高度动态计算。
     int m_scroll_offset = 0;
@@ -143,10 +143,13 @@ private:
     // ==========================================
     void enterIdlePhase()
     {
-        // 进入页面或从结果返回时只准备无色镜面，不抽身份、不写统计；下一次短按才开始十连。
+        // 每次进入待抽页等概率选一种演出并保持到结算；重复抽取时可以再次抽到相同样式。
+        // 此处只准备画面，不抽身份、不写统计；下一次短按才开始十连。
         UIGacha::PullAppearance neutral[PULL_COUNT] = {};
-        mirror_animation.Start((uint32_t)random(1, 0x7FFFFFFF), neutral,
-                               HAL_Get_Screen_Width(), HAL_Get_Screen_Height());
+        const auto style = random(2) == 0 ? UIGacha::AnimationStyle::MirrorShards
+                                          : UIGacha::AnimationStyle::BusWindow;
+        extraction_animation.Start((uint32_t)random(1, 0x7FFFFFFF), neutral,
+                                   HAL_Get_Screen_Width(), HAL_Get_Screen_Height(), style);
         phase = 0;
         m_scroll_offset = 0;
         idle_timer = millis();
@@ -156,7 +159,7 @@ private:
 
     void drawIdlePhase()
     {
-        mirror_animation.DrawIdle(millis() - idle_timer);
+        extraction_animation.DrawIdle(millis() - idle_timer);
     }
 
     // ==========================================
@@ -167,9 +170,9 @@ private:
         const uint32_t now = millis();
         const uint32_t elapsed = now - anim_timer;
         // 镜片侧翻时露出的是正式列表，不是另一份占位结果；列表数据/滚动/配色仍由本 App 拥有。
-        if (elapsed >= UIGacha::FLIP_START_MS)
+        if (elapsed >= extraction_animation.FlipStartMs())
             drawResultPhase(sw, sh);
-        mirror_animation.Draw(elapsed, now - idle_timer);
+        extraction_animation.Draw(elapsed, now - idle_timer);
     }
 
     // ==========================================
@@ -263,7 +266,7 @@ public:
     {
         if (phase == 0)
         {
-            // 待抽也按公共帧门控刷新，只有轻微晃动；等待多久都不会自动抽取或进入结果页。
+            // 待抽也按公共帧门控刷新：碎镜轻晃或巴士持续行驶，等待多久都不会自动抽取。
             if (UIClock_Due(last_draw_time, UITheme::FRAME_NORMAL_MS)) drawUI();
         }
         if (phase == 1)
@@ -272,7 +275,7 @@ public:
             uint32_t elapsed = now - anim_timer;
 
             // 保持 → 翻面已经包含在 UI 时间轴内；结束时直接完成状态与汇总反馈，不再补一段空等。
-            if (elapsed >= UIGacha::DURATION_MS)
+            if (elapsed >= extraction_animation.DurationMs())
             {
                 skipToResult();
             }
@@ -321,7 +324,7 @@ public:
                 appearances[i].star = current_pulls[i].identity.star;
                 appearances[i].walp = current_pulls[i].identity.walp == 1;
             }
-            mirror_animation.SetPulls(appearances);
+            extraction_animation.SetPulls(appearances);
             m_scroll_offset = 0;
             phase = 1;
             anim_timer = millis();

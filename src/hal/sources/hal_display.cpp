@@ -232,6 +232,28 @@ void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1,
     textSprite.fillTriangle(x0, y0, x1, y1, x2, y2, color);
 }
 
+void HAL_Blend_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color, uint8_t alpha)
+{
+    if (!alpha || w <= 0 || h <= 0) return;
+    if (color == 1) color = TFT_CYAN;
+    const int32_t right = min((int32_t)HAL_Get_Screen_Width(), x + w);
+    const int32_t bottom = min((int32_t)HAL_Get_Screen_Height(), y + h);
+    x = max((int32_t)0, x); y = max((int32_t)0, y);
+    if (right <= x || bottom <= y) return;
+    if (alpha == 255) { textSprite.fillRect(x, y, right-x, bottom-y, color); return; }
+    // 直接混合现有 Sprite，避免为车窗倒影渐显/车内淡出再申请一个整屏缓冲。
+    // 各通道在 RGB565 原始精度内四舍五入，透明/实色端点交给上面的快速路径。
+    const int inverse = 255-alpha;
+    for (int32_t py=y; py<bottom; ++py) for (int32_t px=x; px<right; ++px)
+    {
+        const uint16_t background = textSprite.readPixel(px, py);
+        const int r = (((color>>11)&31)*alpha + ((background>>11)&31)*inverse + 127)/255;
+        const int g = (((color>>5)&63)*alpha + ((background>>5)&63)*inverse + 127)/255;
+        const int b = ((color&31)*alpha + (background&31)*inverse + 127)/255;
+        textSprite.drawPixel(px, py, (r<<11)|(g<<5)|b);
+    }
+}
+
 void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color)
 {
     textSprite.drawPixel(x, y, color);

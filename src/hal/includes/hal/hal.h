@@ -82,6 +82,9 @@ int HAL_Get_Text_Width(const char* str);
 void HAL_Draw_Line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color);
 void HAL_Draw_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
 void HAL_Fill_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color);
+/** UI 主循环中在当前 Sprite 上混合 RGB565 矩形；alpha=0 透明、255 实色。
+ * 自动裁切，无额外缓冲、不推屏；color=1 与 Fill_Rect 一样表示青色。 */
+void HAL_Blend_Rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t color, uint8_t alpha);
 void HAL_Fill_Triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color);
 void HAL_Draw_Pixel(int32_t x, int32_t y, uint16_t color);
 void HAL_Sprite_PushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t* data);
