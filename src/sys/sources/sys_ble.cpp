@@ -114,11 +114,17 @@ namespace
         FillPublicInfo(document);
         String json;
         serializeJson(document, json);
-        s_info_char->setValue(json.c_str());
+        // NimBLE 1.4.3 的单参数 setValue<T> 会显式转发模板参数：
+        // const char* 会被当作指针对象复制 sizeof(pointer) 字节，而不是字符串。
+        // 公开特征统一用缓冲区+长度接口，确保手机读到完整 JSON/标记且不含末尾 NUL。
+        s_info_char->setValue(reinterpret_cast<const uint8_t *>(json.c_str()), json.length());
         if (s_info_char->getSubscribedCount() > 0)
             s_info_char->notify();
         if (s_pair_char != nullptr)
-            s_pair_char->setValue(PairingActive() ? "PAIRING" : "IDLE");
+        {
+            const bool pairing = PairingActive();
+            s_pair_char->setValue(reinterpret_cast<const uint8_t *>(pairing ? "PAIRING" : "IDLE"), pairing ? 7 : 4);
+        }
     }
 #endif
 
@@ -331,11 +337,11 @@ namespace
         s_info_char = service->createCharacteristic(
             PrescriptConst::BLE_INFO_CHAR_UUID,
             NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-        s_info_char->setValue("{}");
+        s_info_char->setValue(reinterpret_cast<const uint8_t *>("{}"), 2);
         s_pair_char = service->createCharacteristic(
             PrescriptConst::BLE_PAIR_CHAR_UUID,
             NIMBLE_PROPERTY::READ);
-        s_pair_char->setValue("IDLE");
+        s_pair_char->setValue(reinterpret_cast<const uint8_t *>("IDLE"), 4);
         service->start();
 
         UpdatePublicInfo();

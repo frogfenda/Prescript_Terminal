@@ -38,7 +38,7 @@ namespace UIStrings
 
     const char *BlePairingPrompt(SystemLang_t lang)
     {
-        return IsZh(lang) ? "短按清除旧手机并配对" : "CLICK TO REPLACE OLD PHONE";
+        return IsZh(lang) ? "短按主键清旧配对并开窗" : "PRESS MAIN TO REPLACE PHONE";
     }
 
     const char *BlePairingRunning(SystemLang_t lang)
@@ -48,7 +48,7 @@ namespace UIStrings
 
     const char *BlePairingReadyHint(SystemLang_t lang)
     {
-        return IsZh(lang) ? "短按开启 / 长按退出" : "CLICK ENABLE / HOLD EXIT";
+        return IsZh(lang) ? "主键开启 / 长按退出" : "MAIN ENABLE / HOLD EXIT";
     }
 
     const char *BlePairingWaitingHint(SystemLang_t lang)
