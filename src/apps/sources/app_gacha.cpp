@@ -48,11 +48,13 @@ private:
         if (SysIdentityCatalog::Count() == 0)
             return false;
 
-        int r = random(1000);
+        // 纯人格池（不含 E.G.O/播报员）：普通位三星 3%、二星 13%、一星 84%。
+        // 保底位只把一星提升为二星，因此为三星 3%、二星 97%，不额外提高三星概率。
+        const int r = random(1000);
         int target_star = 1;
-        if (r < 29)
+        if (r < 30)
             target_star = 3;
-        else if (r < 29 + 128)
+        else if (r < 30 + 130)
             target_star = 2;
         else if (is_guaranteed_2star)
             target_star = 2;
@@ -78,9 +80,12 @@ private:
         max_star_pulled = 1;
         has_walp_pulled = false;
 
+        // 本应用只做十连：每批等概率选择一个保底位置，十个槽位都有 1/10 的机会。
+        // 仍然是九个普通位 + 一个二星以上位，总体收益不变；不在抽完后追加抽取或改统计。
+        const int guaranteed_index = (int)random(PULL_COUNT);
         for (int i = 0; i < PULL_COUNT; i++)
         {
-            current_pulls[i].valid = rollSingle(i == 9, current_pulls[i].identity);
+            current_pulls[i].valid = rollSingle(i == guaranteed_index, current_pulls[i].identity);
             current_pulls[i].is_new = false;
             if (current_pulls[i].valid)
             {
