@@ -14,7 +14,5 @@
   "alarm_count": 0,
   "alarms": [],
   "schedule_count": 0,
-  "schedules": [],
-  "spec_tog": 4294967295,
-  "char_prog": [0, 0, 0, 0, 0, 0, 0, 0]
+  "schedules": []
 }

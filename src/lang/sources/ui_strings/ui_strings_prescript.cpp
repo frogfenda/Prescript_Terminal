@@ -6,6 +6,10 @@
 
 namespace UIStrings
 {
+    const char *PrescriptUnavailable(SystemLang_t lang) { return IsZh(lang) ? "指令暂不可用" : "PRESCRIPT UNAVAILABLE"; }
+    const char *PrescriptRetryLater(SystemLang_t lang) { return IsZh(lang) ? "请稍后重试" : "PLEASE TRY AGAIN LATER"; }
+    const char *ArchiveDeleteFailed(SystemLang_t lang) { return IsZh(lang) ? "未能删除，请稍后重试" : "COULD NOT DELETE. TRY LATER"; }
+    const char *ArchiveRecordInUse(SystemLang_t lang) { return IsZh(lang) ? "这条指令仍在使用" : "THIS PRESCRIPT IS STILL IN USE"; }
     const char *UserTitle(SystemLang_t lang)
     {
         return IsZh(lang) ? "使用者" : "USER";

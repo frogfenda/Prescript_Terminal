@@ -1,349 +1,298 @@
 /*
-【模块职责】特殊指令实现。通过统一资源IO按当前语言读取FATFS素材，抽取时先推进人物链条概率，再抽纯特殊指令，并把进度写回sysConfig。
-【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
+【模块职责】只保存特殊触发和链条引用，各步骤都是可独立编辑的内容。
+【状态所有权】进度单独按链条UUID/下一步骤UUID持久化；缺失状态的链条默认启用并从第一步开始。
+【线程约束】启动或主循环串行调用，预览不推进；状态保存失败则拒绝本次接收。
 */
 #include "sys/resources/sys_specials.h"
-#include "sys/sys_config.h"
-#include "sys/resources/sys_resource_io.h"
-#include "sys/storage/sys_fs.h"
+#include "sys/sys_constants.h"
 #include "sys/sys_psram_json.h"
-#include "sys/sys_psram_text.h"
-#include <ArduinoJson.h> // 必须引入 JSON 引擎
-#include "lang/terminal_lang.h"
-
+#include "hal/hal_fat_storage.h"
+#include <algorithm>
 SysSpecials sysSpecials;
-// --- PSRAM 数据结构定义 ---
-struct PureSpecial
-{
-    SysPsramString id;
-    uint16_t color;
-    int prob;
-    SysPsramString popup_title;
-    SysPsramString text;
-    SysPsramString audio_bind;
+namespace {
+struct Pure { PrescriptId id, content; SysPsramString alias; uint16_t probability = 0; };
+struct Step { PrescriptId id, content; };
+struct Chain {
+    PrescriptId id;
+    SysPsramString alias, name;
+    SysPsramVector<Step> steps;
+    uint16_t base = 0, increment = 0, cap = 0;
 };
-
-struct CharChain
-{
-    SysPsramString char_id;
-    SysPsramString name;
-    uint16_t color;
-    int prob;
-    SysPsramString popup_title;
-    SysPsramTextList texts;
-    SysPsramString audio_bind;
-};
-
-// 两层容器和全部字符串都优先位于PSRAM，语言切换时clear()统一释放旧目录。
-SysPsramVector<PureSpecial> pool_pure_specials;
-SysPsramVector<CharChain> pool_char_chains;
-
-// 【函数说明】按当前语言读取 FATFS 中的 specials.json，解析人物链条和纯特殊指令。
-void SysSpecials::begin(SystemLang_t lang)
-{
-    pool_pure_specials.clear();
-    pool_char_chains.clear();
-
-    current_lang_ = lang;
-    const SystemLang_t current_lang = current_lang_;
-    const SysResourcePath path = {TerminalLang::SpecialsPath(current_lang)};
-    fs::File f;
-    String resolvedPath;
-    if (!SysResourceIO::OpenRead(path, f, "特殊指令", &resolvedPath))
-        return;
-
-    // 使用 ArduinoJson 7 的自动内存管理
+struct Rules { SysPsramVector<Pure> pure; SysPsramVector<Chain> chains; uint32_t revision = 0; };
+struct State { PrescriptId chain, next; bool enabled = true, completed = false; };
+Rules s_rules;
+SysPsramVector<State> s_states;
+uint32_t s_revision = 0;
+bool s_ready = false;
+const char *StatePath(SystemLang_t lang) { return lang == LANG_ZH ? "/zh/prescript_state.json" : "/en/prescript_state.json"; }
+bool Matches(const PrescriptId &id, const SysPsramString &alias, const String &query) {
+    PrescriptId parsed;
+    return (!alias.isEmpty() && alias == query) || (parsed.parse(query.c_str()) && parsed == id);
+}
+void Unique(SysPsramVector<PrescriptId> &ids, const PrescriptId &id) {
+    if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+}
+SysPsramVector<PrescriptId> References(const Rules &rules) {
+    SysPsramVector<PrescriptId> ids;
+    for (const auto &p : rules.pure) Unique(ids,p.content);
+    for (const auto &c : rules.chains) for (const auto &s : c.steps) Unique(ids,s.content);
+    return ids;
+}
+bool Parse(const JsonDocument &doc, SystemLang_t lang, Rules &out) {
+    if (doc["schema_version"] != 1 || !doc["revision"].is<uint32_t>() ||
+        strcmp(doc["lang"] | "",TerminalLang::Code(lang)) ||
+        !doc["pure_specials"].is<JsonArrayConst>() || !doc["character_chains"].is<JsonArrayConst>()) return false;
+    Rules rules; rules.revision = doc["revision"];
+    SysPsramVector<PrescriptId> identities; SysPsramTextList aliases;
+    auto identity = [&](JsonVariantConst value, PrescriptId &id) {
+        if (!id.parse(value.as<const char *>()) || std::find(identities.begin(),identities.end(),id) != identities.end()) return false;
+        identities.push_back(id); return true;
+    };
+    auto alias = [&](JsonVariantConst value, SysPsramString &text) {
+        if (value.isNull()) return true;
+        if (!value.is<const char *>() || !text.assign(value.as<const char *>())) return false;
+        if (text.isEmpty()) return true;
+        for (const auto &a : aliases) if (a == text) return false;
+        aliases.push_back(text); return true;
+    };
+    auto content = [&](JsonVariantConst value, PrescriptId &id) {
+        return id.parse(value.as<const char *>()) && SysPrescriptCatalog::Find(lang,id);
+    };
+    uint32_t maximum = 0;
+    for (JsonObjectConst obj : doc["pure_specials"].as<JsonArrayConst>()) {
+        Pure p;
+        if (!identity(obj["id"],p.id) || !content(obj["content_id"],p.content) || !alias(obj["legacy_id"],p.alias) ||
+            !obj["probability_bp"].is<uint16_t>() || obj["probability_bp"].as<unsigned>() > 10000) return false;
+        p.probability = obj["probability_bp"]; maximum += p.probability; rules.pure.push_back(std::move(p));
+    }
+    for (JsonObjectConst obj : doc["character_chains"].as<JsonArrayConst>()) {
+        Chain c;
+        if (rules.chains.size() >= PrescriptConst::MAX_CHAR_CHAINS || !identity(obj["id"],c.id) ||
+            !alias(obj["legacy_id"],c.alias) || !obj["name"].is<const char *>() || !c.name.assign(obj["name"].as<const char *>()) ||
+            !obj["steps"].is<JsonArrayConst>()) return false;
+        for (const char *key : {"base_bp","increment_bp","max_bp"})
+            if (!obj[key].is<uint16_t>() || obj[key].as<unsigned>() > 10000) return false;
+        c.base = obj["base_bp"]; c.increment = obj["increment_bp"]; c.cap = obj["max_bp"];
+        if (c.cap < c.base) return false;
+        for (JsonObjectConst step : obj["steps"].as<JsonArrayConst>()) {
+            Step s;
+            if (c.steps.size() >= 255 || !identity(step["id"],s.id) || !content(step["content_id"],s.content)) return false;
+            c.steps.push_back(s);
+        }
+        if (c.steps.empty()) return false;
+        maximum += std::min<uint32_t>(c.cap,c.base + (c.steps.size()-1)*c.increment);
+        rules.chains.push_back(std::move(c));
+    }
+    // 万分位绝对概率不能按权重归一化；预算溢出会按顺序吞掉后面的触发器，因此整体拒绝。
+    if (maximum > 10000) return false;
+    out = std::move(rules); return true;
+}
+const State *GetState(const PrescriptId &id) {
+    for (const auto &state : s_states) if (state.chain == id) return &state;
+    return nullptr;
+}
+size_t Position(const Chain &chain, const State &state) {
+    if (state.completed) return chain.steps.size();
+    for (size_t i=0;i<chain.steps.size();++i) if (chain.steps[i].id == state.next) return i;
+    return chain.steps.size();
+}
+bool SaveState(SystemLang_t lang) {
+    if (s_revision == UINT32_MAX) return false;
     JsonDocument doc(SysPsramJsonAllocator::Instance());
-    DeserializationError err = deserializeJson(doc, f);
-    f.close();
-
-    if (err)
-    {
-        Serial.printf("[特殊指令] JSON解析失败：%s，错误=%s。\n", resolvedPath.c_str(), err.c_str());
-        return;
+    doc["schema_version"]=1; doc["revision"]=s_revision+1; doc["lang"]=TerminalLang::Code(lang);
+    JsonArray array=doc["chains"].to<JsonArray>();
+    for (const auto &s : s_states) {
+        JsonObject o=array.add<JsonObject>(); o["chain_id"]=s.chain.string();
+        if (!s.completed) o["next_step_id"]=s.next.string();
+        o["completed"]=s.completed; o["enabled"]=s.enabled;
     }
-
-    // 1. 吸入纯特殊指令 (如异想体)
-    JsonArray pure_arr = doc["pure_specials"];
-    for (JsonObject obj : pure_arr)
-    {
-        PureSpecial ps;
-        ps.id = obj["id"] | "";
-        ps.color = (uint16_t)strtol(obj["color"].as<const char *>(), NULL, 16);
-        ps.prob = obj["prob"].as<int>();
-        ps.popup_title = obj["popup_title"] | "";
-        ps.text = obj["text"] | "";
-        ps.audio_bind = obj["audio"] | ""; // 【新增】：如果没有配置，默认为空
-        pool_pure_specials.push_back(ps);
-    }
-
-    // 2. 吸入人物专属链条
-    JsonArray char_arr = doc["character_chains"];
-    for (JsonObject obj : char_arr)
-    {
-        CharChain cc;
-        cc.char_id = obj["char_id"] | "";
-        cc.name = obj["name"] | "";
-        cc.color = (uint16_t)strtol(obj["color"].as<const char *>(), NULL, 16);
-        cc.prob = obj["prob"].as<int>();
-        cc.popup_title = obj["popup_title"] | "";
-        cc.audio_bind = obj["audio"] | ""; // 【新增】
-
-        JsonArray texts_arr = obj["texts"];
-        for (const char *txt : texts_arr)
-        {
-            cc.texts.emplace_back(txt);
-        }
-        pool_char_chains.push_back(cc);
-    }
-
-    Serial.printf("[特殊指令] 已预加载：特殊指令=%d，人物链条=%d，路径=%s。\n",
-                  pool_pure_specials.size(), pool_char_chains.size(), resolvedPath.c_str());
+    if (!SysPrescriptCatalog::WriteJson(LittleFS,StatePath(lang),doc)) return false;
+    ++s_revision; return true;
 }
-
-// 【函数说明】指令抽取核心：先按人物链条概率尝试推进特殊剧情，再抽纯特殊指令，最后回落到普通指令池。
-void SysSpecials::rollRandom()
-{
-    const SystemLang_t current_lang = current_lang_;
-
-    // 默认兜底参数
-    current_draw.color = 0x07FF;
-    current_draw.is_special = false;
-    current_draw.title = (current_lang == LANG_ZH) ? "【 接收指令 】" : "[ RECEIVE PRESCRIPT ]";
-
-    int roll = random(10000); // 生成 0 ~ 9999 的万分位随机数
-    int current_weight = 0;
-
-    // ==========================================
-    // 拦截器 1层：检查人物链条是否触发
-    // ==========================================
-    // ==========================================
-    // 拦截器 1层：检查人物链条是否触发 (加入“意志共鸣”动态概率)
-    // ==========================================
-    for (int i = 0; i < pool_char_chains.size(); i++)
-    {
-        if (i >= 8)
-            break;
-
-        if ((sysConfig.special_toggles & (1 << i)) &&
-            (sysConfig.char_progress[i] < pool_char_chains[i].texts.size()))
-        {
-
-            // 1. 获取基础概率 (例如 150 = 1.5%)
-            int dynamic_prob = pool_char_chains[i].prob;
-
-            // 2. 【核心机制：意志共鸣】
-            // 如果进度大于 0，说明玩家已经卷入了该人物的命运链条。
-            // 进度越深，抽中下一句的概率越高！
-            // 这里设定为：每深入一步，额外增加 500 的权重（即绝对概率增加 5%）
-            if (sysConfig.char_progress[i] > 0)
-            {
-                dynamic_prob += (sysConfig.char_progress[i] * 500);
-
-                // 可选：如果你想让后面的剧情极其容易触发，可以用乘法倍率：
-                // dynamic_prob = dynamic_prob * (sysConfig.char_progress[i] + 2);
-            }
-
-            current_weight += dynamic_prob;
-
-            if (roll < current_weight)
-            {
-                // 【命中！】
-                current_draw.is_special = true;
-                current_draw.color = pool_char_chains[i].color;
-                current_draw.title = pool_char_chains[i].popup_title.c_str();
-                current_draw.text = pool_char_chains[i].texts[sysConfig.char_progress[i]].c_str();
-                current_draw.audio_bind = pool_char_chains[i].audio_bind.c_str();
-                sysConfig.char_progress[i]++;
-                sysConfig.save();
-                return;
+bool LoadState(SystemLang_t lang) {
+    s_states.clear(); s_revision=0;
+    const bool exists=LittleFS.exists(StatePath(lang)) || LittleFS.exists(String(StatePath(lang))+".bak");
+    if (exists) {
+        JsonDocument doc(SysPsramJsonAllocator::Instance());
+        if (!SysPrescriptCatalog::ReadJson(LittleFS,StatePath(lang),doc) || (!doc["schema_version"].is<unsigned>() || doc["schema_version"].as<unsigned>()!=1) ||
+            !doc["revision"].is<uint32_t>() || strcmp(doc["lang"]|"",TerminalLang::Code(lang)) || !doc["chains"].is<JsonArray>()) return false;
+        s_revision=doc["revision"];
+        for (JsonObjectConst obj : doc["chains"].as<JsonArrayConst>()) {
+            State state;
+            if (!state.chain.parse(obj["chain_id"]|"") || GetState(state.chain) ||
+                !obj["completed"].is<bool>() || !obj["enabled"].is<bool>()) return false;
+            state.completed=obj["completed"]; state.enabled=obj["enabled"];
+            if (!state.completed && !state.next.parse(obj["next_step_id"]|"")) return false;
+            s_states.push_back(state);
+        }
+    }
+    bool added=false;
+    for (const auto &chain : s_rules.chains) {
+        const State *state=GetState(chain.id);
+        if (state) {
+            if (!state->completed && Position(chain,*state)==chain.steps.size()) return false;
+            continue;
+        }
+        // 新链条只按自身UUID建立进度，不再读取配置中的旧人物下标或开关。
+        State initial; initial.chain=chain.id; initial.next=chain.steps.front().id;
+        s_states.push_back(initial); added=true;
+    }
+    return (!added && exists) || SaveState(lang);
+}
+bool Snapshot(SystemLang_t lang,const PrescriptId &id,PrescriptContent &out) {
+    const auto *content=SysPrescriptCatalog::Find(lang,id);
+    return content && SysPrescriptCatalog::Snapshot(*content,lang,out);
+}
+}
+void SysSpecials::begin(SystemLang_t lang) {
+    current_lang_=lang; s_ready=false; s_rules=Rules{}; s_states.clear();
+    JsonDocument doc(SysPsramJsonAllocator::Instance()); Rules parsed;
+    if (!HAL::FatStorage::IsMountedForEsp() || !SysPrescriptCatalog::Ready(lang) ||
+        !SysPrescriptCatalog::ReadJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(lang),doc) ||
+        !Parse(doc,lang,parsed) || !SysPrescriptCatalog::SetReferences(lang,"special",References(parsed))) {
+        SysPrescriptCatalog::BlockDeletion(lang);
+        Serial.println("[特殊指令] 规则不可用，保留原文件；本次仅允许抽取普通指令。"); return;
+    }
+    s_rules=std::move(parsed);
+    if (!LoadState(lang)) { Serial.println("[特殊指令] 进度文件不可用，已停用特殊抽取，未重置旧进度。"); return; }
+    s_ready=true;
+}
+bool SysSpecials::selectRandom(PrescriptContent &out,PrescriptSelection &selection) const {
+    PrescriptSelection selected; selected.lang=current_lang_; selected.revision=s_revision; selected.rules_revision=s_rules.revision;
+    uint32_t cumulative=0; const unsigned roll=random(10000);
+    if (s_ready) {
+        for (const auto &chain : s_rules.chains) {
+            const State *state=GetState(chain.id);
+            if (!state || !state->enabled || state->completed) continue;
+            const size_t pos=Position(chain,*state); if (pos>=chain.steps.size()) continue;
+            cumulative+=std::min<uint32_t>(chain.cap,chain.base+pos*chain.increment);
+            if (roll<cumulative) {
+                if (!Snapshot(current_lang_,chain.steps[pos].content,out)) return false;
+                selected.chain=chain.id; selected.expected=state->next; selected.step=chain.steps[pos].id;
+                selection=selected; return true;
             }
         }
-    }
-
-    // ==========================================
-    // 拦截器 2层：检查纯特殊指令是否触发
-    // ==========================================
-    for (int i = 0; i < pool_pure_specials.size(); i++)
-    {
-        current_weight += pool_pure_specials[i].prob;
-        if (roll < current_weight)
-        {
-            // 【命中！】
-            current_draw.is_special = true;
-            current_draw.color = pool_pure_specials[i].color;
-            current_draw.title = pool_pure_specials[i].popup_title.c_str();
-            current_draw.text = pool_pure_specials[i].text.c_str();
-            current_draw.audio_bind = pool_pure_specials[i].audio_bind.c_str();
-            return;
+        for (const auto &pure : s_rules.pure) {
+            cumulative+=pure.probability;
+            if (roll<cumulative) { if (!Snapshot(current_lang_,pure.content,out)) return false; selection=selected; return true; }
         }
     }
-
-    // ==========================================
-    // 兜底方案：啥也没拦截到，老老实实抽普通的
-    // ==========================================
-    current_draw.audio_bind = ""; // <--- 【清理缓存，防止幽灵音效】
-    if (current_lang == LANG_ZH)
-    {
-        int sz = sys_prescripts_zh.size();
-        current_draw.text = (sz > 0) ? sys_prescripts_zh[random(sz)].c_str() : "错误：中文指令库为空";
-    }
-    else
-    {
-        int sz = sys_prescripts_en.size();
-        current_draw.text = (sz > 0) ? sys_prescripts_en[random(sz)].c_str() : "ERR: EN DB EMPTY";
-    }
+    if (!SysPrescriptCatalog::DrawOrdinary(current_lang_,out)) return false;
+    selection=selected; return true;
 }
-
-// 【函数说明】把外部文本直接设为当前抽取结果，用于 TXT、闹钟、日程这类指定内容。
-void SysSpecials::setCustom(const char *custom_text, uint16_t font_color, const char *title)
-{
-    const SystemLang_t current_lang = current_lang_;
-    current_draw.is_special = false;
-    current_draw.color = font_color;
-    // 每次都重建标题，默认提醒不能继承前一条自定义标题；外部标题按原文显示，不重复包括号。
-    current_draw.title = (title && *title) ? title :
-        ((current_lang == LANG_ZH) ? "【 接收指令 】" : "[ RECEIVE PRESCRIPT ]");
-    current_draw.text = String(custom_text);
-
-    // 外部 TXT / 闹钟 / 日程 / NFC 等自定义指令不是特殊指令，
-    // 必须主动清空上一次特殊指令留下的音频绑定，避免出现“幽灵音效”。
-    current_draw.audio_bind = "";
-}
-// 【函数说明】按 ID 查找特殊指令，锁定为当前抽取结果并更新人物链条进度。
-void SysSpecials::forceDrawByID(const String &id)
-{
-    const SystemLang_t current_lang = current_lang_;
-
-    // 1. 优先检索纯特殊指令 (ABN_01 等)
-    for (auto &ps : pool_pure_specials)
-    {
-        if (ps.id == id)
-        {
-            current_draw.is_special = true;
-            current_draw.color = ps.color;
-            current_draw.title = ps.popup_title.c_str();
-            current_draw.text = ps.text.c_str();
-            current_draw.audio_bind = ps.audio_bind.c_str();
-            return;
+bool SysSpecials::selectForced(const String &id,PrescriptContent &out,PrescriptSelection &selection) const {
+    PrescriptSelection selected; selected.lang=current_lang_; selected.revision=s_revision; selected.rules_revision=s_rules.revision;
+    if (s_ready) {
+        for (const auto &pure : s_rules.pure) if (Matches(pure.id,pure.alias,id)) {
+            if (!Snapshot(current_lang_,pure.content,out)) return false;
+            selection=selected; return true;
+        }
+        for (const auto &chain : s_rules.chains) if (Matches(chain.id,chain.alias,id)) {
+            const State *state=GetState(chain.id); if (!state || !Snapshot(current_lang_,chain.steps[0].content,out)) return false;
+            selected.chain=chain.id; selected.expected=state->next; selected.step=chain.steps[0].id;
+            selection=selected; return true;
         }
     }
-
-    // 2. 检索人物链条 (ishmael 等)
-    for (int i = 0; i < pool_char_chains.size(); i++)
-    {
-        if (pool_char_chains[i].char_id == id)
-        {
-            // 【核心逻辑】：既然是强行触发，我们重置该人物进度到第 0 条
-            sysConfig.char_progress[i] = 0;
-
-            current_draw.is_special = true;
-            current_draw.color = pool_char_chains[i].color;
-            current_draw.title = pool_char_chains[i].popup_title.c_str();
-            current_draw.text = pool_char_chains[i].texts[0].c_str(); // 强行触发第一条
-            current_draw.audio_bind = pool_char_chains[i].audio_bind.c_str();
-            // 推进进度到 1，这样后续通过 rollRandom 随机抽取的“意志共鸣”就能接上后面的剧情
-            sysConfig.char_progress[i] = 1;
-            sysConfig.save();
-            Serial.printf("[特异点] 强行锁定人物链条: %s, 进度重置为 1\n", id.c_str());
-            return;
+    const String message=current_lang_==LANG_ZH ? String("未找到对应条目：ID [")+id+"]" : String("No matching entry: ID [")+id+"]";
+    if (!SysPrescriptCatalog::Custom(current_lang_,message.c_str(),0xF800,
+        current_lang_==LANG_ZH ? "【 指令检索失败 】" : "[ PRESCRIPT NOT FOUND ]",out)) return false;
+    out.flags=(out.flags|PRESCRIPT_ALERT)&~PRESCRIPT_APPLY_TARGET;
+    selection=selected; return true;
+}
+bool SysSpecials::commit(const PrescriptSelection &selection) {
+    if (selection.chain.empty()) return true;
+    if (!s_ready || selection.lang!=current_lang_ || selection.revision!=s_revision || selection.rules_revision!=s_rules.revision) return false;
+    for (const auto &chain : s_rules.chains) if (chain.id==selection.chain) {
+        for (auto &state : s_states) if (state.chain==chain.id) {
+            if (state.next!=selection.expected) return false;
+            size_t pos=0; while (pos<chain.steps.size() && chain.steps[pos].id!=selection.step) ++pos;
+            if (pos==chain.steps.size()) return false;
+            const State previous=state;
+            state.completed=++pos>=chain.steps.size(); state.next=state.completed ? PrescriptId{} : chain.steps[pos].id;
+            if (SaveState(current_lang_)) return true;
+            state=previous; return false;
         }
     }
-
-    current_draw.is_special = true; // 依然认定为特殊打断，以便触发弹窗
-    current_draw.color = 0xF800;    // 错误警报：刺眼的纯红色
-
-    // 未找到 ID 的错误警报同样不能继承上一条特殊指令的音频。
-    current_draw.audio_bind = "";
-
-    if (current_lang == LANG_ZH)
-    {
-        current_draw.title = "【 指令检索失败 】";
-        current_draw.text = "未找到对应条目：ID [" + id + "]";
-    }
-    else
-    {
-        current_draw.title = "[ PRESCRIPT NOT FOUND ]";
-        current_draw.text = "No matching entry: ID [" + id + "]";
-    }
-}
-
-// 【函数说明】按 ID 判断特殊指令是否存在（人物链条或纯特殊指令）。
-bool SysSpecials::hasID(const String &id) const
-{
-    for (const auto &ps : pool_pure_specials)
-        if (ps.id == id)
-            return true;
-    for (const auto &cc : pool_char_chains)
-        if (cc.char_id == id)
-            return true;
     return false;
 }
-
-/**
- * 【函数说明】按序号取一条特殊指令的元数据，供 SPC.LIST 逐条输出：先纯特殊指令，后人物链条。
- * 字段：kind（P 纯特殊 / C 人物链条）、id、name、prob、prog、total、color（0xRRRR 十六进制）、title、enabled。
- */
-bool SysSpecials::metaAt(uint16_t index, JsonDocument &out) const
-{
-    char color[8];
-    if (index < pool_pure_specials.size())
-    {
-        const auto &ps = pool_pure_specials[index];
-        snprintf(color, sizeof(color), "0x%04X", ps.color);
-        out["kind"] = "P";
-        out["id"] = ps.id.c_str();
-        out["name"] = ps.id.c_str();
-        out["prob"] = ps.prob;
-        out["prog"] = 1;
-        out["total"] = 1;
-        out["color"] = color;
-        out["title"] = ps.popup_title.c_str();
-        out["enabled"] = true;
-        return true;
-    }
-    const size_t chain = index - pool_pure_specials.size();
-    if (chain >= pool_char_chains.size())
-        return false;
-    const auto &cc = pool_char_chains[chain];
-    snprintf(color, sizeof(color), "0x%04X", cc.color);
-    out["kind"] = "C";
-    out["id"] = cc.char_id.c_str();
-    out["name"] = cc.name.c_str();
-    out["prob"] = cc.prob;
-    out["prog"] = sysConfig.char_progress[chain];
-    out["total"] = static_cast<int>(cc.texts.size());
-    out["color"] = color;
-    out["title"] = cc.popup_title.c_str();
-    out["enabled"] = (sysConfig.special_toggles & (1 << chain)) != 0;
+bool SysSpecials::rollRandom() {
+    PrescriptContent content; PrescriptSelection selection;
+    if (!selectRandom(content,selection) || !commit(selection)) return false;
+    SysPrescriptCatalog::Present(std::move(content)); return true;
+}
+bool SysSpecials::hasID(const String &id) const {
+    if (!s_ready) return false;
+    for (const auto &p : s_rules.pure) if (Matches(p.id,p.alias,id)) return true;
+    for (const auto &c : s_rules.chains) if (Matches(c.id,c.alias,id)) return true;
+    return false;
+}
+bool SysSpecials::references(SystemLang_t lang, SysPsramVector<PrescriptId> &out) {
+    JsonDocument doc(SysPsramJsonAllocator::Instance()); Rules rules;
+    if (!HAL::FatStorage::IsMountedForEsp() || !SysPrescriptCatalog::ReadJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(lang),doc) ||
+        !Parse(doc,lang,rules)) return false;
+    out = References(rules);
+    // USB移除了磁盘引用但当前语言还没重载时，旧抽取规则仍在使用，保护两者并集。
+    if (s_ready && sysSpecials.current_lang_ == lang)
+        for (const auto &id : References(s_rules)) Unique(out,id);
     return true;
 }
-
-/**
- * 【函数说明】按 ID 取特殊指令正文：人物链条返回当前进度对应的下一条，链条已抽完时返回结案提示；
- * 纯特殊指令返回其固定正文。找不到 ID 时返回 false。
- */
-bool SysSpecials::textByID(const String &id, String &out) const
-{
-    for (size_t i = 0; i < pool_char_chains.size(); i++)
-    {
-        if (!(pool_char_chains[i].char_id == id))
-            continue;
-        const int prog = sysConfig.char_progress[i];
-        if (prog < static_cast<int>(pool_char_chains[i].texts.size()))
-            out = pool_char_chains[i].texts[prog].c_str();
-        else
-            out = (current_lang_ == LANG_ZH) ? "[ 观测日志已完结，目标数据归档完毕 ]"
-                                                        : "[ OBSERVATION LOG COMPLETE. TARGET DATA ARCHIVED. ]";
-        return true;
+bool SysSpecials::textByID(const String &id,String &out) const {
+    if (!s_ready) return false;
+    for (const auto &p : s_rules.pure) if (Matches(p.id,p.alias,id)) {
+        const auto *item=SysPrescriptCatalog::Find(current_lang_,p.content); if (!item) return false;
+        out=item->text.c_str(); return true;
     }
-    for (const auto &ps : pool_pure_specials)
-    {
-        if (ps.id == id)
-        {
-            out = ps.text.c_str();
-            return true;
-        }
+    for (const auto &c : s_rules.chains) if (Matches(c.id,c.alias,id)) {
+        const State *state=GetState(c.id); if (!state) return false;
+        const size_t pos=Position(c,*state);
+        if (pos==c.steps.size()) { out=current_lang_==LANG_ZH ? "[ 观测日志已完结，目标数据归档完毕 ]" : "[ OBSERVATION LOG COMPLETE. TARGET DATA ARCHIVED. ]"; return true; }
+        const auto *item=SysPrescriptCatalog::Find(current_lang_,c.steps[pos].content); if (!item) return false;
+        out=item->text.c_str(); return true;
     }
     return false;
+}
+bool SysSpecials::metaAt(uint16_t index,JsonDocument &out) const {
+    if (!s_ready) return false;
+    PrescriptId content;
+    if (index<s_rules.pure.size()) {
+        const auto &p=s_rules.pure[index]; content=p.content;
+        out["kind"]="P"; out["id"]=p.alias.isEmpty() ? p.id.string() : String(p.alias.c_str());
+        out["name"]=out["id"]; out["prob"]=p.probability; out["prog"]=1; out["total"]=1; out["enabled"]=true;
+    } else {
+        const size_t at=index-s_rules.pure.size(); if (at>=s_rules.chains.size()) return false;
+        const auto &c=s_rules.chains[at]; const State *state=GetState(c.id); if (!state) return false;
+        const size_t pos=Position(c,*state); content=c.steps[pos<c.steps.size() ? pos : 0].content;
+        out["kind"]="C"; out["id"]=c.alias.isEmpty() ? c.id.string() : String(c.alias.c_str());
+        out["name"]=c.name.c_str(); out["prob"]=c.base; out["prog"]=pos; out["total"]=c.steps.size(); out["enabled"]=state->enabled;
+    }
+    PrescriptContent snapshot; if (!Snapshot(current_lang_,content,snapshot)) return false;
+    char color[8]; snprintf(color,sizeof(color),"0x%04X",snapshot.color);
+    out["color"]=color; out["title"]=snapshot.title.c_str(); return true;
+}
+SysOpResult SysSpecials::replaceRules(const JsonDocument &doc,uint32_t expected) {
+    if (!s_ready || !HAL::FatStorage::IsMountedForEsp()) return SysOpResult::Error("STORAGE_UNAVAILABLE");
+    if (expected!=s_rules.revision || expected==UINT32_MAX || doc["revision"].as<uint32_t>()!=expected+1) return SysOpResult::Error("REVISION_CONFLICT");
+    Rules next; if (!Parse(doc,current_lang_,next)) return SysOpResult::Error("INVALID_RULES");
+    // 正在等待的步骤不能被隐式删除/重置；编辑器须先显式处理进度。
+    for (const auto &c : next.chains) {
+        const State *state=GetState(c.id);
+        if (state && !state->completed && Position(c,*state)==c.steps.size()) return SysOpResult::Error("STATE_CONFLICT");
+    }
+    // 新链条先建立状态再发布规则；失败最多留下尚未使用的状态，不改变旧链条进度。
+    bool added = false;
+    const size_t previous_states = s_states.size();
+    for (const auto &c : next.chains) if (!GetState(c.id)) {
+        State initial; initial.chain = c.id; initial.next = c.steps.front().id;
+        s_states.push_back(initial); added = true;
+    }
+    if (added && !SaveState(current_lang_)) {
+        s_states.resize(previous_states); return SysOpResult::Error("SAVE_FAILED");
+    }
+    auto refs=References(s_rules); for (const auto &id : References(next)) Unique(refs,id);
+    if (!SysPrescriptCatalog::SetReferences(current_lang_,"special",refs) ||
+        !SysPrescriptCatalog::WriteJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(current_lang_),doc)) return SysOpResult::Error("SAVE_FAILED");
+    s_rules=std::move(next);
+    // 收紧保护失败仍保留旧/新引用并集，最多暂时拒删，不会误删使用中的正文。
+    SysPrescriptCatalog::SetReferences(current_lang_,"special",References(s_rules));
+    return SysOpResult::Ok("UPDATED");
 }

@@ -1,51 +1,70 @@
 {
+  "schema_version": 1,
+  "revision": 1,
+  "lang": "EN",
   "pure_specials": [
     {
-      "id": "ABN_01",
-      "color": "0xF800",
-      "prob": 50,
-      "popup_title": "[ WARNING: ABNORMALITY ]",
-      "text": "Gears grind in flesh. The City's will is absolute."
+      "id": "970b4809-3c17-54c5-bad9-2da68b4e0a6a",
+      "legacy_id": "ABN_01",
+      "content_id": "1be56b2b-2e9c-5d9b-af86-5d1fdb8d3885",
+      "probability_bp": 50
     },
     {
-      "id": "ABN_02",
-      "color": "0x7800",
-      "prob": 30,
-      "popup_title": "[ LOG: SILENT ANOMALY ]",
-      "text": "Do not show that you remember this melody."
+      "id": "7f78570b-62f8-57b9-82ef-6878a94e7497",
+      "legacy_id": "ABN_02",
+      "content_id": "a916eee9-ea31-5fc5-bcd2-c6eb2725aace",
+      "probability_bp": 30
     },
     {
-      "id": "Ahab",
-      "color": "0xFFFF",
-      "prob": 50,
-      "popup_title": "【 STRONG WISH DETECTED 】",
-      "text": "It's all your fault Ishmael!!",
-      "audio": "Ahab"
+      "id": "fe716e8f-7f3e-5637-82ce-77dbd87426f8",
+      "legacy_id": "Ahab",
+      "content_id": "4a2c8b4a-f344-51a0-830d-7f964720f70f",
+      "probability_bp": 50
     }
   ],
   "character_chains": [
     {
-      "char_id": "ishmael",
+      "id": "37d1aa00-228c-5160-827b-06d0b3e42f9a",
+      "legacy_id": "ishmael",
       "name": "Ishmael",
-      "color": "0xFC00",
-      "prob": 150,
-      "popup_title": "[ LOG: ISHMAEL ]",
-      "texts": [
-        "The compass is still spinning, pointing towards that name.",
-        "Is even this better than sailing without direction?",
-        "I'm sick of blind obedience, but... I can't stop yet."
+      "base_bp": 150,
+      "increment_bp": 500,
+      "max_bp": 1150,
+      "steps": [
+        {
+          "id": "85ab73a5-aaca-536e-b3cf-404d084bb16c",
+          "content_id": "3d1a6144-1037-5f2f-b5c3-57019faf56e2"
+        },
+        {
+          "id": "dfa736de-936a-5491-b017-1ffaf748d97a",
+          "content_id": "059808b6-5861-5063-a6ef-a56333aa61a7"
+        },
+        {
+          "id": "3f40de33-1834-53f0-a4f5-110a573d947b",
+          "content_id": "785ae640-1fee-52a9-9c7b-a4544cba78b2"
+        }
       ]
     },
     {
-      "char_id": "faust",
+      "id": "4a43e30e-4fed-5188-867e-5476ce96b804",
+      "legacy_id": "faust",
       "name": "Faust",
-      "color": "0xFBE4",
-      "prob": 100,
-      "popup_title": "[ LOG: FAUST ]",
-      "texts": [
-        "Faust knows all.",
-        "The logic of this prescript falls within Faust's calculations.",
-        "Mephistopheles' engine requires more pride."
+      "base_bp": 100,
+      "increment_bp": 500,
+      "max_bp": 1100,
+      "steps": [
+        {
+          "id": "0c15ba49-26e7-523d-8900-90d9e574e87d",
+          "content_id": "d233e5b9-c6d5-5f02-a726-0e0ac0c633d0"
+        },
+        {
+          "id": "4e7412d7-6bec-5f3e-b266-22960645754c",
+          "content_id": "841e3427-ab7d-5faa-8839-fc86d1b065e0"
+        },
+        {
+          "id": "e1ad100f-589a-5065-9f36-88829b1473bc",
+          "content_id": "d3f4863c-7ab8-500e-9865-db2735ee0ea7"
+        }
       ]
     }
   ]

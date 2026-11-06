@@ -91,6 +91,10 @@ namespace UIStrings
     const char *ClickDeleteHint(SystemLang_t lang);
     const char *HoldExitHint(SystemLang_t lang);
     const char *PurgingRecord(SystemLang_t lang);
+    const char *PrescriptUnavailable(SystemLang_t lang);
+    const char *PrescriptRetryLater(SystemLang_t lang);
+    const char *ArchiveDeleteFailed(SystemLang_t lang);
+    const char *ArchiveRecordInUse(SystemLang_t lang);
     const char **TimeManualStepNames(SystemLang_t lang);
     const char **TimeDateStepNames(SystemLang_t lang);
     const char *TimeEditTip(SystemLang_t lang);

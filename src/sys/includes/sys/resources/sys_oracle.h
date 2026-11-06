@@ -1,32 +1,19 @@
-﻿/*
-【模块职责】纺织机回复池接口。
-
-本模块通过统一资源IO解析当前语言的oracle.json短答案，并按type + weight抽取。
-它不接入 sysSpecials，也不写入当前特殊指令结果，避免和特殊指令音频/剧情状态互相污染。
-*/
+/* 【模块职责】纺织机分类与相对权重规则；正文统一通过内容UUID引用，去重状态只归本模块。 */
 #pragma once
-#include <Arduino.h>
-#include "lang/terminal_lang.h"
-
-struct OracleAnswer
-{
-    String id;
-    String type;
-    String text;
+#include "sys/resources/sys_prescript_catalog.h"
+struct OracleAnswer {
+    PrescriptContent content;
 };
-
-class SysOracle
-{
-public:
-    /** 按当前系统语言预加载答案池；资源缺失时保留内置兜底答案。 */
-    void begin(SystemLang_t lang);
-
-    /** 按 type 抽取一条答案。type 例如 "weaver" / "food"。 */
-    bool drawByType(const char* type, SystemLang_t lang, OracleAnswer& out);
-
-private:
+class SysOracle {
     SystemLang_t loaded_lang_ = LANG_ZH;
     bool ensureLoaded(SystemLang_t lang);
+public:
+    void begin(SystemLang_t lang);
+    /** 返回独立快照，当前内容库编辑/语言切换不影响已抽到的答案。缺失资源使用内置提示。 */
+    bool drawByType(const char *type,SystemLang_t lang,OracleAnswer &out);
+    /** 参数整体编辑基础：版本、分类权重溢出和全部内容引用校验后提交，暂不新增线协议。 */
+    SysOpResult replaceRules(const JsonDocument &document,uint32_t expected_revision);
+    /** 删除前只读校验磁盘引用，覆盖当前未激活的语言；规则格式或引用无效时拒绝删除内容。 */
+    static bool references(SystemLang_t lang, SysPsramVector<PrescriptId> &out);
 };
-
 extern SysOracle sysOracle;

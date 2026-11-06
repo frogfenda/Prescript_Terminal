@@ -33,11 +33,9 @@ bool g_push_notify_keep_stack = false;
 static void PushNotify_RegisterCommands();
 
 
-void PushNotify_Trigger_Random(bool keep_stack)
+// 普通随机、自定义、特殊强制均先准备完整快照，导航只保留这一个入口。
+void PushNotify_Trigger_Prepared(bool keep_stack)
 {
-    // 先抽取结果，再打开弹窗。这样弹窗标题颜色和后续解码内容保持一致。
-    sysSpecials.rollRandom();
-
     g_push_notify_keep_stack = keep_stack;
     appManager.resetIdleTimer();
 
@@ -63,62 +61,17 @@ void PushNotify_Trigger_Random(bool keep_stack)
     }
 }
 
-void PushNotify_Trigger_Custom(const char *text, bool keep_stack, uint16_t font_color, const char *title)
-{
-    // BLE/NFC/日程/闹钟传来的正文先塞入特殊指令缓冲区，再复用同一个弹窗和解码流程。
-    sysSpecials.setCustom(text, font_color, title);
-
-    g_push_notify_keep_stack = keep_stack;
-    appManager.resetIdleTimer();
-
-    if (keep_stack)
-    {
-        if (appManager.isCurrent(AppId::PushNotify) || appManager.isCurrent(AppId::Prescript))
-        {
-            appManager.replace(AppId::PushNotify);
-        }
-        else if (appManager.isCurrent(AppId::Standby))
-        {
-            g_push_notify_keep_stack = false;
-            appManager.launch(AppId::PushNotify);
-        }
-        else
-        {
-            appManager.push(AppId::PushNotify);
-        }
-    }
-    else
-    {
-        appManager.launch(AppId::PushNotify);
-    }
-}
-
-void PushNotify_Trigger_Special_Forced(bool keep_stack)
-{
-    // 特殊指令强制触发时，sysSpecials 内部已经装载好目标结果，这里只负责弹窗。
-    g_push_notify_keep_stack = keep_stack;
-    appManager.resetIdleTimer();
-
-    if (keep_stack)
-        appManager.push(AppId::PushNotify);
-    else
-        appManager.launch(AppId::PushNotify);
-}
-
-/**
- * 【推送业务入口】强制触发指定 ID 的特殊指令：先装载，再打开警报弹窗。
- * ID 不存在时仍弹出“指令检索失败”提示，结果为警告级 NOT_FOUND。
- * 结果码：TRIGGERED / NOT_FOUND（警告级）/ EMPTY_ID。
- */
+/** 保留SPC.FIRE立即打断与从第一步重启的旧行为；失败时不覆盖当前展示或消费进度。 */
 static SysOpResult PushNotify_FireSpecial(const String &raw_id)
 {
-    String id = raw_id;
-    id.trim();
-    if (id.isEmpty())
-        return SysOpResult::Error("EMPTY_ID");
+    String id = raw_id; id.trim();
+    if (id.isEmpty()) return SysOpResult::Error("EMPTY_ID");
     const bool known = sysSpecials.hasID(id);
-    sysSpecials.forceDrawByID(id);
-    PushNotify_Trigger_Special_Forced(false);
+    PrescriptContent snapshot; PrescriptSelection selection;
+    if (!sysSpecials.selectForced(id, snapshot, selection) || !sysSpecials.commit(selection))
+        return SysOpResult::Error("SAVE_FAILED");
+    SysPrescriptCatalog::Present(std::move(snapshot));
+    PushNotify_Trigger_Prepared(false);
     return known ? SysOpResult::Ok("TRIGGERED", id) : SysOpResult::Warn("NOT_FOUND", id);
 }
 
@@ -150,7 +103,7 @@ private:
     {
         HAL_Sprite_Clear();
 
-        DrawResult res = sysSpecials.getResult();
+        const auto &res = SysPrescriptCatalog::Presented();
         uint16_t color = show_text ? res.color : TFT_DARKGREY;
         drawAlarmFrame(color);
 
@@ -162,7 +115,7 @@ private:
         {
             // 标题在边框内按真实标题字体省略；保留完整业务标题，不影响后续正文或队列内容。
             const int margin = max(12, sw / 34) + UITheme::Frame::CornerSize() + 3;
-            const String title = UIText::FitLineWithEllipsis(res.title, sw - 2 * margin, HAL_FONT_TITLE);
+            const String title = UIText::FitLineWithEllipsis(res.title.c_str(), sw - 2 * margin, HAL_FONT_TITLE);
             int title_w = HAL_Get_Text_Width_Font(title.c_str(), HAL_FONT_TITLE);
             int title_y = (sh - HAL_Get_Font_Line_Height(HAL_FONT_TITLE)) / 2 - 3;
             HAL_Screen_ShowLine_Font((sw - title_w) / 2, title_y, title.c_str(), HAL_FONT_TITLE, res.color);
@@ -247,10 +200,7 @@ static const SysCmdArgSpec kPushTextArgs[] = {
 // PUSH.TEXT：把一条自定义指令送入提醒队列，按顺序弹出。
 static void Cmd_PushText(SysCmdCtx &ctx, const SysCmdArgs &args)
 {
-    if (SysReminder_Submit(SysReminderKind::Custom, args.str(0), true))
-        ctx.ok("QUEUED");
-    else
-        ctx.error("QUEUE_FULL");
+    ctx.ack(SysReminder_SubmitResult(SysReminderKind::Custom, args.str(0), true));
 }
 
 // PUSH.SHOW：固定三个字段；标题、颜色允许留空，正文为 Rest，原有 PUSH.TEXT 的正文语义保持不变。
@@ -275,20 +225,14 @@ static void Cmd_PushShow(SysCmdCtx &ctx, const SysCmdArgs &args)
             ctx.error("ARG_FORMAT", "title");
             return;
         }
-    if (SysReminder_Submit(SysReminderKind::Custom, args.str(2), true, color, 0,
-                           SysMailboxKind::Private, args.str(0)))
-        ctx.ok("QUEUED");
-    else
-        ctx.error("QUEUE_FULL");
+    ctx.ack(SysReminder_SubmitResult(SysReminderKind::Custom, args.str(2), true, color, 0,
+                                   SysMailboxKind::Private, args.str(0)));
 }
 
 // PUSH.NOW：立即推送一条随机指令。
 static void Cmd_PushNow(SysCmdCtx &ctx, const SysCmdArgs &)
 {
-    if (SysReminder_Submit(SysReminderKind::Random, nullptr, true))
-        ctx.ok("QUEUED");
-    else
-        ctx.error("QUEUE_FULL");
+    ctx.ack(SysReminder_SubmitResult(SysReminderKind::Random, nullptr, true));
 }
 
 static const SysCmdSpec kPushCmds[] = {
@@ -300,7 +244,7 @@ static const SysCmdSpec kPushCmds[] = {
 static const SysCmdGroup kPushGroup = {"PUSH", 2, SRC_ALL, kPushCmds, SYS_COUNT_OF(kPushCmds)};
 
 static const SysCmdArgSpec kSpcIdArgs[] = {
-    SYS_ARG_REST("id", 1, 32, ARG_TRIM),
+    SYS_ARG_REST("id", 1, 36, ARG_TRIM),
 };
 
 // SPC.FIRE：强制触发指定特殊指令。

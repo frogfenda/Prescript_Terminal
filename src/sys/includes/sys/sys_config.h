@@ -1,5 +1,5 @@
-﻿/*
-【模块职责】运行配置数据结构。集中保存 WiFi、语言、休眠、音量、震动、日程、闹钟、硬币、番茄钟、抽卡统计和特殊指令进度。
+/*
+【模块职责】运行配置数据结构。集中保存 WiFi、语言、休眠、音量、震动、日程、闹钟、硬币、番茄钟和抽卡统计。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
 // 文件：src/sys/sys_config.h (覆盖整个文件)
@@ -97,8 +97,6 @@ public:
     bool haptic_enable;         // 震动总开关
     uint8_t haptic_intensity;   // 震动强度 (1=弱, 2=中, 3=强)
     uint8_t nfc_mode;
-    uint32_t special_toggles; // 开关位掩码 (默认 0xFFFFFFFF 全开)
-    uint8_t char_progress[PrescriptConst::MAX_CHAR_CHAINS]; // 人物链条进度表 (最多支持 8 个特殊人物)
     // 【接口说明】读取公共配置和当前语言配置，并填充 SysConfig 字段。
     void load();
     void save();

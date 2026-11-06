@@ -8,8 +8,9 @@
 
 #include <Arduino.h>
 #include "sys/sys_mailbox.h"
+#include "sys/sys_command_result.h"
 
-/** 提醒内容类型；Custom 使用 text，Random 忽略 text 并抽取随机指令。 */
+/** 提醒内容类型；Custom 使用 text，Random 忽略 text，在提交时抽取并缓存完整快照。 */
 enum class SysReminderKind : uint8_t
 {
     Custom,
@@ -30,7 +31,7 @@ void SysReminder_CancelClock(SysClockReminderSource source);
 
 /**
  * 提交一条待展示提醒。
- * 调用者必须位于主循环；服务会复制 text，不保留调用方指针。
+ * 调用者必须位于主循环；服务在入队时复制全部内容属性，不保留调用方指针；排队后库编辑/切换语言不影响快照。
  * 队列满时返回 false，并保留已经排队的较早提醒。
  * mailbox_sequence 非零时，mailbox 与 sequence 一起标识待删除邮件；普通本地提醒保持默认值。
  * title 仅用于 Custom，立即复制；空值沿用当前语言默认标题。颜色同时作用于弹窗和后续解码。
@@ -43,6 +44,11 @@ bool SysReminder_Submit(
     uint64_t mailbox_sequence = 0,
     SysMailboxKind mailbox = SysMailboxKind::Private,
     const char *title = nullptr);
+
+/** 与兼容bool入口相同，另保留QUEUE_FULL/OUT_OF_MEMORY/SAVE_FAILED，供命令准确返回失败原因。 */
+SysOpResult SysReminder_SubmitResult(SysReminderKind kind, const char *text = nullptr,
+    bool keep_stack = false, uint16_t font_color = 0x07FF, uint64_t mailbox_sequence = 0,
+    SysMailboxKind mailbox = SysMailboxKind::Private, const char *title = nullptr);
 
 /** 主循环消费提醒队列；PushNotify/Prescript 正在展示时会等待，不覆盖当前提醒。 */
 void SysReminder_Update();

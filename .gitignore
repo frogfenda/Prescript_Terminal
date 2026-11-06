@@ -18,4 +18,4 @@ lib/
 converter_config.json
 ids.json
 requirements-tools.txt
-
+tests/

@@ -15,7 +15,9 @@
 #include "sys/resources/sys_oracle.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_feedback.h"
+#include "sys/sys_prescript_target.h"
 #include "ui/ui_prescript_decoder.h"
+#include "ui/ui_frame.h"
 #include "ui/ui_theme.h"
 #include "lang/ui_strings.h"
 #include <math.h>
@@ -69,7 +71,8 @@ private:
     {
         S_ASK_IDLE,
         S_DECODING,
-        S_RESULT
+        S_RESULT,
+        S_ERROR
     };
 
     State m_state = S_ASK_IDLE;
@@ -178,7 +181,9 @@ private:
     void executeDecode()
     {
         SystemLang_t lang = appManager.getLanguage();
-        UIPrescript::PrepareLayoutFromRule(m_answer.text.c_str(), lang, ORACLE_COLOR, m_layout);
+        const auto &content = m_answer.content;
+        const String text = (content.flags & PRESCRIPT_APPLY_TARGET) ? SysPrescriptTarget_Apply(content.text.c_str()) : String(content.text.c_str());
+        UIPrescript::PrepareLayoutFromRule(text.c_str(), lang, content.color, m_layout);
 
         beginProcedureSound();
         UIPrescript::PlayDecodeSequence(m_layout, sysConfig.decode_anim_style, procedureTick);
@@ -186,10 +191,14 @@ private:
 
         stopOwnedAudio(15);
         AudioPlayOptions options;
-        options.bus = AudioBus::Effect;
-        m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
-        if (m_audio_handle == AUDIO_HANDLE_INVALID)
-            Feedback_PlayDecodeComplete();
+        options.bus = content.audio == AudioAssetId::Ahab ? AudioBus::Voice : AudioBus::Effect;
+        if (!(content.flags & PRESCRIPT_SILENT)) {
+            const AudioAssetId audio = content.audio == AudioAssetId::Invalid ? AudioAssetId::Final : content.audio;
+            m_audio_handle = sysAudio.play(audio, options);
+            if (m_audio_handle == AUDIO_HANDLE_INVALID && audio != AudioAssetId::Final)
+                m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
+            if (m_audio_handle == AUDIO_HANDLE_INVALID) Feedback_PlayDecodeComplete();
+        }
 
         m_state = S_RESULT;
     }
@@ -254,13 +263,20 @@ public:
     {
         if (m_state == S_ASK_IDLE)
         {
-            if (!sysOracle.drawByType(selectedType(), appManager.getLanguage(), m_answer))
-                Serial.println("[纺织机] 指定类型没有可用答案，使用兜底文本。 ");
+            if (!sysOracle.drawByType(selectedType(), appManager.getLanguage(), m_answer)) {
+                Serial.println("[纺织机] 答案快照分配失败，本次未抽取。");
+                m_state = S_ERROR;
+                const auto lang = appManager.getLanguage();
+                HAL_Sprite_Clear();
+                UIFrame::DrawDialog(UIStrings::PrescriptUnavailable(lang),UIStrings::PrescriptRetryLater(lang),
+                                    UIStrings::ClickBackHint(lang),TFT_RED);
+                HAL_Screen_Update(); return;
+            }
 
             SYS_SOUND_CONFIRM();
             m_state = S_DECODING;
         }
-        else if (m_state == S_RESULT)
+        else if (m_state == S_RESULT || m_state == S_ERROR)
         {
             // 答案显示完成后，短按返回纺织机自己的入口页，
             // 方便连续问询；长按仍然返回系统主菜单。

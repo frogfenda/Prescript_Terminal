@@ -1,69 +1,116 @@
 {
+  "schema_version": 1,
+  "revision": 1,
+  "lang": "ZH",
   "pure_specials": [
     {
-      "id": "ABN_01",
-      "color": "0xF800",
-      "prob": 50,
-      "popup_title": "【 警告：异想体侵蚀 】",
-      "text": "齿轮在血肉中咬合，都市的意志不容违逆。"
+      "id": "bd87896b-6dbb-5ea1-86ee-3a8056f5e8d5",
+      "legacy_id": "ABN_01",
+      "content_id": "76e186b6-0b39-5b8a-bcbf-a45ccd365c4e",
+      "probability_bp": 50
     },
     {
-      "id": "ABN_02",
-      "color": "0x7800",
-      "prob": 30,
-      "popup_title": "【 观测日志：静默异常 】",
-      "text": "不要表现出你记住了这个旋律。"
+      "id": "ca546767-c784-5c3a-ab87-da9c2c3d1a10",
+      "legacy_id": "ABN_02",
+      "content_id": "20166380-fe36-537e-b0ba-9910545c11ca",
+      "probability_bp": 30
     },
     {
-      "id": "Ahab",
-      "color": "0xFFFF",
-      "prob": 50,
-      "popup_title": "【 侦测到强烈愿望 】",
-      "text": "都是你的错,以实玛丽!!",
-      "audio": "Ahab"
+      "id": "65bef4b8-b021-5c18-8a1c-8d8f0e6687fc",
+      "legacy_id": "Ahab",
+      "content_id": "e523215f-4cdf-56e7-8f8b-e5422050af9a",
+      "probability_bp": 50
     }
   ],
   "character_chains": [
     {
-      "char_id": "ishmael",
+      "id": "3a71f28f-b0be-5d06-9d90-5512942143ee",
+      "legacy_id": "ishmael",
       "name": "以实玛利",
-      "color": "0xFC00",
-      "prob": 150,
-      "popup_title": "【 观测日志：以实玛利 】",
-      "texts": [
-        "罗盘依然在旋转，指向那个名字。",
-        "哪怕是这种东西，也比漫无目的的航行要好吗？",
-        "那个混蛋……肯定还活着。"
+      "base_bp": 150,
+      "increment_bp": 500,
+      "max_bp": 1150,
+      "steps": [
+        {
+          "id": "1e0ae8af-31a2-5042-a444-c83a600ce49d",
+          "content_id": "63f78e8d-60e9-5ec9-a2dd-cccad5ffd77f"
+        },
+        {
+          "id": "00975f85-b080-5cc5-a179-6e46f3643c6f",
+          "content_id": "6430a1a8-6f19-5af2-bbef-af1576046a6b"
+        },
+        {
+          "id": "db076cb7-5aab-5c0b-8ca9-52c5be421513",
+          "content_id": "fc6ccf08-c419-5632-9717-cc8767283e57"
+        }
       ]
     },
     {
-      "char_id": "Rien",
+      "id": "70ee9bd4-86ee-589e-a428-5ce4eb442888",
+      "legacy_id": "Rien",
       "name": "里恩",
-      "color": "0x07FF",
-      "prob": 150,
-      "popup_title": "赫尔墨斯",
-      "texts": [
-        "至...代行者:你的名字将会是里恩",
-        "至...里恩：每周三，去第七街区的旧书店,买下她拿起又放下的那本书。",
-        "至...里恩：和她攀谈,回答她的问题。",
-        "至...里恩：每周日，与她共进晚餐,送她回家。",
-        "至...里恩：向她求婚",
-        "至...里恩：成为她的丈夫,组建家庭",
-        "至...里恩：每周买一束花,记住她喜欢的颜色。",
-        "至...里恩：只要看着,什么都不要做。",
-        "至...里恩：给孩子起名为良秀。"
+      "base_bp": 150,
+      "increment_bp": 500,
+      "max_bp": 4150,
+      "steps": [
+        {
+          "id": "7d24a1a5-2869-54b6-a680-191a13ebd23a",
+          "content_id": "45cc04f2-8b11-59d6-b9b2-4cda56101432"
+        },
+        {
+          "id": "f4b382dc-8e10-5678-a445-7e4de7cae524",
+          "content_id": "5aba03eb-fca7-55a6-8cd8-9987154e0313"
+        },
+        {
+          "id": "699b3757-df09-5775-b537-d5fc3aed559b",
+          "content_id": "c1e593c8-1257-537e-b60b-aecfc50225d4"
+        },
+        {
+          "id": "5c35952b-e409-5559-8d8d-ee68434f80b6",
+          "content_id": "c3a1ef5a-7422-538b-a552-e11986fde235"
+        },
+        {
+          "id": "8977915b-e118-55ab-98c1-aaf4a9833b0e",
+          "content_id": "406700c5-a542-5f54-91ee-dfb28e75d4d3"
+        },
+        {
+          "id": "ddd6f5de-e49c-5c10-a4e9-77bc564c9758",
+          "content_id": "d86bbc3b-6b37-5bd9-bd6f-a2b19b76431d"
+        },
+        {
+          "id": "6162ca54-8ad7-5941-b78a-90dd91f17a04",
+          "content_id": "ddd2f39e-6ade-58a2-ab30-a1779e9e733b"
+        },
+        {
+          "id": "0985794b-3942-564d-b5fc-c20fd2febf3d",
+          "content_id": "cb10c393-765f-5e26-97f6-0b14fab546e3"
+        },
+        {
+          "id": "db9fb14a-edc4-5cea-953b-a392851b926e",
+          "content_id": "608ed6f6-a4db-5ef2-84e2-e7679b37668b"
+        }
       ]
     },
     {
-      "char_id": "faust",
+      "id": "1396986f-8324-5102-96c1-fd2d0eaec30c",
+      "legacy_id": "faust",
       "name": "浮士德",
-      "color": "0xFE19",
-      "prob": 100,
-      "popup_title": "【 观测日志：浮士德 】",
-      "texts": [
-        "浮士德知晓一切。",
-        "这条指令的逻辑，在浮士德的计算之中。",
-        "梅菲斯托费勒斯的引擎需要更多的傲慢。"
+      "base_bp": 100,
+      "increment_bp": 500,
+      "max_bp": 1100,
+      "steps": [
+        {
+          "id": "d620aae9-af54-51da-b341-7af185b5a402",
+          "content_id": "e0f73389-45d1-54b9-bb8c-1022e87e2e62"
+        },
+        {
+          "id": "e31db9c2-87e7-5b06-8bbf-811c514c5f55",
+          "content_id": "fc1b1c89-5b11-5631-9e0e-fd709ea4cd9c"
+        },
+        {
+          "id": "03cc3cf1-821a-55fa-9de9-791edb958372",
+          "content_id": "09651cfe-87c7-56f7-99ac-7bc0150906bd"
+        }
       ]
     }
   ]

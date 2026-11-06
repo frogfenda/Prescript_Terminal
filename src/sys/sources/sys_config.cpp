@@ -65,7 +65,6 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
     cfg.coin_data.coin_type = 0;
     cfg.pomodoro_current_idx = 0;
     cfg.volume = 40;
-    cfg.special_toggles = 0xFFFFFFFF;
     cfg.coin_preset_count = 0;
     cfg.prescript_target_count = 0;
     cfg.current_prescript_target = "";
@@ -97,8 +96,6 @@ void ApplyEmergencyDefaults(SysConfig &cfg)
         cfg.pomodoro_presets[i].completed_rounds = 0;
         cfg.pomodoro_presets[i].focus_seconds = 0;
     }
-    for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++)
-        cfg.char_progress[i] = 0;
 }
 
 } // namespace
@@ -347,23 +344,6 @@ void SysConfig::load()
         for (uint8_t i = 0; i < PrescriptConst::MAX_KARMA_MODES && i < karmaArray.size(); ++i)
             karma_counts[i] = karmaArray[i] | (uint32_t)0;
     }
-    special_toggles = doc["spec_tog"] | 0xFFFFFFFF;
-    
-    for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++) char_progress[i] = 0;
-    if (doc["char_prog"].is<JsonArray>())
-    {
-        JsonArray prog_arr = doc["char_prog"].as<JsonArray>();
-        for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS && i < prog_arr.size(); i++)
-        {
-            char_progress[i] = prog_arr[i] | 0;
-        }
-    }
-    else
-    {
-        // 防呆保护：如果硬盘里没有这个数组，强制清零
-        for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++) char_progress[i] = 0;
-    }
-
     if (need_migrate_save)
     {
         Serial.println("[CONFIG] 检测到旧版配置，正在迁移为 common/profile 双层配置。");
@@ -503,14 +483,6 @@ void SysConfig::saveLanguageProfile(SystemLang_t lang)
         obj["hd"] = schedules[i].is_hidden; // 【新增】：写入隐藏属性
     }
     
-    // 【新增】：保存特异点引擎数据
-    doc["spec_tog"] = special_toggles;
-    JsonArray prog_arr = doc["char_prog"].to<JsonArray>();
-    for (int i = 0; i < PrescriptConst::MAX_CHAR_CHAINS; i++)
-    {
-        prog_arr.add(char_progress[i]);
-    }
-
     // ==========================================
     // 序列化并写入硬盘
     // ==========================================

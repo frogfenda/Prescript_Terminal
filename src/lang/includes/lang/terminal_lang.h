@@ -89,11 +89,6 @@ namespace TerminalLang
         return lang == LANG_ZH ? "/assets/prescripts_zh.txt" : "/assets/prescripts_en.txt";
     }
 
-    inline const char *PrescriptFallback(SystemLang_t lang)
-    {
-        return lang == LANG_ZH ? "系统覆盖。请上传 zh/prescripts_zh.txt" : "SYS OVERRIDE. PLEASE UPLOAD en/prescripts_en.txt.";
-    }
-
     inline const char *SpecialsPath(SystemLang_t lang)
     {
         return lang == LANG_ZH ? "/Resources/prescript/special/text/zh/specials.json" : "/Resources/prescript/special/text/en/specials.json";

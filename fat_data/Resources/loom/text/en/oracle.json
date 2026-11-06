@@ -1,74 +1,67 @@
-[
-  {
-    "id": "W001",
-    "type": "weaver",
-    "weight": 10,
-    "text": "The loom has answered your thought."
-  },
-  {
-    "id": "W002",
-    "type": "weaver",
-    "weight": 10,
-    "text": "The answer you seek has been written into the next prescript."
-  },
-  {
-    "id": "W003",
-    "type": "weaver",
-    "weight": 8,
-    "text": "Do not explain it yet. Let the silence finish weaving."
-  },
-  {
-    "id": "W004",
-    "type": "weaver",
-    "weight": 8,
-    "text": "The third thought is not the answer. It is bait."
-  },
-  {
-    "id": "W005",
-    "type": "weaver",
-    "weight": 7,
-    "text": "You already know what to do. You only deny the cost."
-  },
-  {
-    "id": "W006",
-    "type": "weaver",
-    "weight": 7,
-    "text": "Wait until the noise becomes regular."
-  },
-  {
-    "id": "F001",
-    "type": "food",
-    "weight": 10,
-    "text": "Eat noodles. Do not ask why."
-  },
-  {
-    "id": "F002",
-    "type": "food",
-    "weight": 10,
-    "text": "Eat something warm today."
-  },
-  {
-    "id": "F003",
-    "type": "food",
-    "weight": 8,
-    "text": "Rice, with something salty. Your system needs stability."
-  },
-  {
-    "id": "F004",
-    "type": "food",
-    "weight": 8,
-    "text": "Dumplings. Sealed things are safer."
-  },
-  {
-    "id": "F005",
-    "type": "food",
-    "weight": 7,
-    "text": "Fried food is allowed. Do not mistake it for an answer."
-  },
-  {
-    "id": "F006",
-    "type": "food",
-    "weight": 7,
-    "text": "Soup. This is not a day for dry decisions."
-  }
-]
+{
+  "schema_version": 1,
+  "revision": 1,
+  "lang": "EN",
+  "entries": [
+    {
+      "content_id": "fdceb26d-0d7a-5c9b-8aa3-b7d1c5edb9ca",
+      "type": "weaver",
+      "weight": 10
+    },
+    {
+      "content_id": "1e1e79e0-db43-5b75-94d9-79843fcd1199",
+      "type": "weaver",
+      "weight": 10
+    },
+    {
+      "content_id": "1991a36f-942c-5a73-83ca-9c992303b8c9",
+      "type": "weaver",
+      "weight": 8
+    },
+    {
+      "content_id": "7ae2c9c3-3f80-54b1-8086-f51722c90316",
+      "type": "weaver",
+      "weight": 8
+    },
+    {
+      "content_id": "d9277dd8-2984-538a-b879-8bc25bc14e7f",
+      "type": "weaver",
+      "weight": 7
+    },
+    {
+      "content_id": "bfcc27de-6eb4-5c3f-87f3-ea4bd8043391",
+      "type": "weaver",
+      "weight": 7
+    },
+    {
+      "content_id": "99e6b32a-ab49-558b-b44d-1cc666dacd8c",
+      "type": "food",
+      "weight": 10
+    },
+    {
+      "content_id": "95193889-4a92-5d13-bd42-246eadd8f4f5",
+      "type": "food",
+      "weight": 10
+    },
+    {
+      "content_id": "372760cd-963c-5314-81c1-65365fe7ee2b",
+      "type": "food",
+      "weight": 8
+    },
+    {
+      "content_id": "374df61b-1451-5eb3-b450-4bfa441a619f",
+      "type": "food",
+      "weight": 8
+    },
+    {
+      "content_id": "c7b1e087-869a-515e-95bc-8a4c75167a06",
+      "type": "food",
+      "weight": 7
+    },
+    {
+      "content_id": "9dd68f42-d327-52e7-b7ee-c55a24726147",
+      "type": "food",
+      "weight": 7
+    }
+  ]
+}

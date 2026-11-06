@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】硬币系统。包含快速投掷、技能预设投掷、硬币参数设置和预设编辑；动画用硬币贴图横向压缩模拟翻面。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
@@ -16,6 +16,7 @@
 #include "sys/sys_constants.h"
 #include "sys/sys_command_result.h"
 #include "ui/ui_coin.h"
+#include "ui/ui_clock.h"
 #include "ui/ui_floating_value_animator.h"
 #include "lang/ui_strings.h"
 
@@ -27,23 +28,39 @@ const int SRC_COIN_SIZE = UICoin::COIN_RENDER_BUFFER_SIZE;
 
 namespace CoinAnimParams
 {
-    const float PERSPECTIVE_SCALE = 1.0f;
     const uint32_t FRAME_DELAY_MS = 16;
-    const float RAPID_SPIN_STEP = 0.6f;
+    // 首枚保留起转展示时间；后续按S形曲线从260ms收紧至180ms，起步和接近最快节奏时平缓。
+    const uint32_t AUTO_LAND_INITIAL_MS = 46 * FRAME_DELAY_MS;
+    const uint32_t AUTO_LAND_FIRST_INTERVAL_MS = 260;
+    const uint32_t AUTO_LAND_MIN_INTERVAL_MS = 180;
+    const int AUTO_LAND_EASE_STEPS = 6;
+    const int FLASH_DURATION_MS = 6 * FRAME_DELAY_MS;
 
-    const int AUTO_SPIN_INITIAL = 45;
-    const int AUTO_SPIN_INTERVAL = 20;
-    const int FLASH_DURATION = 6;
+    /** 按落定序号计算相对投掷起点的毫秒数；只在起转时调用，不按帧累计，避免卡帧拖慢节奏。 */
+    uint32_t autoLandAfter(int index)
+    {
+        uint32_t deadline = AUTO_LAND_INITIAL_MS;
+        for (int i = 0; i < index; ++i) {
+            // smoothstep两端斜率为零：中段加速较明显，到180ms时平滑进入稳定节奏。
+            // 按落定序号采样并四舍五入到毫秒；只改变落点间隔，不改变单枚60ms收尾。
+            const float t = (float)min(i, AUTO_LAND_EASE_STEPS) / AUTO_LAND_EASE_STEPS;
+            const float eased = t * t * (3.0f - 2.0f * t);
+            const uint32_t interval = (uint32_t)(AUTO_LAND_FIRST_INTERVAL_MS
+                - (AUTO_LAND_FIRST_INTERVAL_MS - AUTO_LAND_MIN_INTERVAL_MS) * eased + 0.5f);
+            deadline += interval;
+        }
+        return deadline;
+    }
 }
 
 struct CoinEntity
 {
-    float current_angle;
-    bool is_flipping;
-    int auto_stop_timer;
-    int target_face;
-    int flash_frames;
-    bool needs_redraw;
+    UICoin::FlipAnimator motion;
+    int target_face = 0;
+    uint32_t flash_started_ms = 0;
+    int flash_remaining_ms = 0;
+    uint32_t auto_land_after_ms = 0;
+    bool needs_redraw = true;
 };
 
 // 注册 COIN 命令组；定义在文件末尾的【蓝牙命令区】。
@@ -173,6 +190,7 @@ protected:
 
     bool global_is_animating = false;
     uint32_t last_frame_time = 0;
+    uint32_t spin_started_ms = 0;
     AudioHandle coin_audio_handle = AUDIO_HANDLE_INVALID;
 
     /**
@@ -263,9 +281,9 @@ protected:
     void drawScaledCoinToBuffer(int idx, float scaleX, int target_size) {
         int c_type = 0;
         if (g_coin_run_idx >= 0) {
-            String cl_str = sysConfig.coin_presets[g_coin_run_idx].coin_colors;
+            const String &cl_str = sysConfig.coin_presets[g_coin_run_idx].coin_colors;
             if (cl_str.length() > 0) {
-                int char_idx = (idx < cl_str.length()) ? idx : (cl_str.length() - 1);
+                int char_idx = min(idx, (int)cl_str.length() - 1);
                 c_type = cl_str[char_idx] - '0';
             }
         } else {
@@ -275,10 +293,13 @@ protected:
 
         UICoin::CoinFrame frame;
         frame.scaleX = scaleX;
-        frame.isFlipping = coins[idx].is_flipping;
+        frame.isFlipping = coins[idx].motion.isAnimating();
         frame.targetFace = coins[idx].target_face;
-        frame.flashFrames = coins[idx].flash_frames;
-        frame.flashDuration = CoinAnimParams::FLASH_DURATION;
+        frame.flashRemainingMs = coins[idx].flash_remaining_ms;
+        frame.flashDurationMs = CoinAnimParams::FLASH_DURATION_MS;
+        // 负硬币指技能威力为负，与素材颜色、理智正负无关；仅改变正面落定的视觉反馈。
+        if (g_coin_run_idx >= 0 && sysConfig.coin_presets[g_coin_run_idx].coin_power < 0)
+            frame.flashColor = 0xFAAA;
         frame.material = c_type;
         UICoin::DrawCoinToBuffer(coin_buffer, SRC_COIN_SIZE, frame, target_size);
     }
@@ -287,15 +308,15 @@ protected:
      * 只重绘仍在翻转或需要闪烁的硬币。
      *
      * 动画效果：
-     * - 每枚硬币仍然使用 64×64 RGB565 原始素材；
+     * - 每枚硬币读取资源域预加载的 RGB565 素材，当前为 96×96；
      * - 根据当前角度 cos(angle) 计算横向压缩比例；
      * - 压缩到接近 0 时形成硬币侧面翻转效果；
-     * - 停在正面时会有短暂白色闪光。
+     * - 停在正面时会有短暂闪光，负硬币技能使用红色反馈。
      *
      * 大屏适配点：
      * - 不再使用旧屏固定 4px 间距；
      * - 根据当前可绘制区域宽高动态计算硬币尺寸和间距；
-     * - 仍然限制最大尺寸为 SRC_COIN_SIZE，避免读取 64×64 素材时越界。
+     * - 最大输出尺寸限制为 SRC_COIN_SIZE，源贴图按实际尺寸取样。
      */
     bool drawActiveCoinsOnly() {
         int left_w = getLeftPanelWidth();
@@ -315,8 +336,8 @@ protected:
         current_coin_size = layout.coinSize;
 
         for (int i = 0; i < active_coins; i++) {
-            if (coins[i].needs_redraw || coins[i].is_flipping || coins[i].flash_frames > 0) {
-                float scale = cos(coins[i].current_angle);
+            if (coins[i].needs_redraw || coins[i].motion.isAnimating() || coins[i].flash_remaining_ms > 0) {
+                float scale = cosf(coins[i].motion.angle());
                 drawScaledCoinToBuffer(i, scale, current_coin_size);
                 HAL_Sprite_PushImage(layout.x[i], layout.y[i], current_coin_size, current_coin_size, coin_buffer);
                 screen_needs_push = true; 
@@ -326,40 +347,80 @@ protected:
         return screen_needs_push;
     }
 
-    // 【函数说明】让指定硬币停止在目标正反面，设置闪烁帧并触发单枚停止回调。
-    void stopCoin(int idx) {
-        coins[idx].is_flipping = false;
-        int heads_chance = 50 + sysConfig.coin_data.sanity;
-        coins[idx].target_face = (random(100) < heads_chance) ? 0 : 1;
-        coins[idx].current_angle = (coins[idx].target_face == 0) ? 0.0f : PI;
-        coins[idx].needs_redraw = true;
-        onCoinStop(idx);
+    /**
+     * 请求指定硬币收尾：只在自由旋转阶段抽签一次，反馈延后到真正落定。
+     * now可为自动模式的计划收尾时刻；卡帧后直接求当前姿态，不逐帧补跑。
+     */
+    void stopCoin(int idx, uint32_t now) {
+        CoinEntity &coin = coins[idx];
+        if (!coin.motion.isSpinning()) return;
+        const int sanity = constrain(sysConfig.coin_data.sanity, -45, 45);
+        coin.target_face = (random(100) < 50 + sanity) ? 0 : 1;
+        coin.motion.settle(now, coin.target_face == 1);
+        coin.needs_redraw = true;
+    }
+
+    /** 进入页面时重置全部姿态和反馈时间，避免静态App实例沿用上次未完成的收尾。 */
+    void resetCoins() {
+        global_is_animating = false;
+        for (int i = 0; i < active_coins; ++i) coins[i] = CoinEntity();
+        last_frame_time = millis();
+    }
+
+    /** 从各枚硬币当前朝向接续新一轮；自动落点以同一个时间原点错开，手动模式不设置超时。 */
+    void startCoins() {
+        spin_started_ms = millis();
+        last_frame_time = spin_started_ms;
+        global_is_animating = true;
+        for (int i = 0; i < active_coins; ++i) {
+            // 固定序号打散相邻硬币的相位，不消耗抽签随机数；最大差1.35rad，避免整排同步压扁。
+            coins[i].motion.start(spin_started_ms, ((i * 7) % 19) * 0.075f);
+            coins[i].auto_land_after_ms = CoinAnimParams::autoLandAfter(i);
+            coins[i].flash_remaining_ms = 0;
+            coins[i].needs_redraw = true;
+        }
+    }
+
+    /** 一次按键只选择下一枚仍在自由旋转的硬币，连续按键不会重复抽取正在收尾的硬币。 */
+    void stopNextCoin() {
+        const uint32_t now = millis();
+        for (int i = 0; i < active_coins; ++i) {
+            if (coins[i].motion.isSpinning()) {
+                stopCoin(i, now);
+                break;
+            }
+        }
     }
 
 public:
-    // 【函数说明】硬币动画主循环：推进角度、按自动计时停止硬币、绘制动态 UI，并在有变化时推屏。
+    // 按绝对经过时间推进动画；一次落定事件统一驱动计分、闪光、声音和震动，不在收尾开始时提前反馈。
     void onLoop() override {
         uint32_t now = millis();
-        if (now - last_frame_time < CoinAnimParams::FRAME_DELAY_MS) return;
-        last_frame_time = now;
+        if (!UIClock_Due(last_frame_time, CoinAnimParams::FRAME_DELAY_MS)) return;
 
         bool any_active = false;
         if (global_is_animating) {
             for (int i = 0; i < active_coins; i++) {
-                if (coins[i].is_flipping) {
-                    any_active = true;
-                    coins[i].current_angle += CoinAnimParams::RAPID_SPIN_STEP;
-                    if (sysConfig.coin_data.mode == 0) {
-                        if (coins[i].auto_stop_timer > 0) coins[i].auto_stop_timer--;
-                        // 【函数说明】让指定硬币停止在目标正反面，设置闪烁帧并触发单枚停止回调。
-                        else stopCoin(i);
-                    }
+                CoinEntity &coin = coins[i];
+                const uint32_t settle_after = coin.auto_land_after_ms - UICoin::FlipAnimator::SETTLE_MS;
+                if (sysConfig.coin_data.mode == 0 && coin.motion.isSpinning()
+                    && now - spin_started_ms >= settle_after) {
+                    stopCoin(i, spin_started_ms + settle_after);
                 }
-                if (coins[i].flash_frames > 0) {
-                    any_active = true;
-                    coins[i].flash_frames--;
-                    if (coins[i].flash_frames == 0) coins[i].needs_redraw = true;
+                if (coin.motion.update(now)) {
+                    coin.needs_redraw = true;
+                    coin.flash_started_ms = now;
+                    if (coin.target_face == 0) coin.flash_remaining_ms = CoinAnimParams::FLASH_DURATION_MS;
+                    onCoinStop(i);
                 }
+                if (coin.flash_remaining_ms > 0) {
+                    const uint32_t elapsed = now - coin.flash_started_ms;
+                    coin.flash_remaining_ms = elapsed < (uint32_t)CoinAnimParams::FLASH_DURATION_MS
+                        ? CoinAnimParams::FLASH_DURATION_MS - elapsed : 0;
+                    // 最后一帧也要恢复普通贴图，否则会残留半亮的正面。
+                    coin.needs_redraw = true;
+                }
+                any_active |= coin.motion.isAnimating() || coin.flash_remaining_ms > 0;
             }
         }
 
@@ -376,9 +437,11 @@ public:
         }
     }
 
-   // 【函数说明】离开硬币动画页时停止动画标志，静态资源继续保留在全局资源缓存中。
+   // 离开页面取消未完成的旋转/收尾；不发布落定事件，静态图片仍由全局资源缓存持有。
    void onDestroy() override {
         stopCoinAudio();
+        global_is_animating = false;
+        for (int i = 0; i < active_coins; ++i) coins[i].motion.reset();
         // 退出时只释放橡皮擦缓存，不碰全局图片
         if (coin_buffer) { free(coin_buffer); coin_buffer = nullptr; }
     }
@@ -405,7 +468,6 @@ protected:
     // 【函数说明】单枚硬币停止时的回调，子类用它更新计数、点数和结果反馈。
     void onCoinStop(int idx) override {
         if (coins[idx].target_face == 0) {
-            coins[idx].flash_frames = CoinAnimParams::FLASH_DURATION;
             if (!playCoinAudio(AudioAssetId::CoinHeads)) SYS_SOUND_CONFIRM();
             SYS_HAPTIC_COIN_HEADS();
         } else {
@@ -424,10 +486,8 @@ public:
             return;
         }
         
-        active_coins = sysConfig.coin_data.coin_count;
-        if (active_coins < 1) active_coins = 1; if (active_coins > UICoin::MAX_COINS) active_coins = UICoin::MAX_COINS;
-        global_is_animating = false;
-        for(int i=0; i<active_coins; i++) { coins[i].current_angle = 0; coins[i].is_flipping = false; coins[i].flash_frames = 0; coins[i].needs_redraw = true; coins[i].target_face = 0; }
+        active_coins = constrain(sysConfig.coin_data.coin_count, 1, UICoin::MAX_COINS);
+        resetCoins();
         HAL_Sprite_Clear(); drawActiveCoinsOnly(); drawStaticUI(); HAL_Screen_Update();
     }
     // 【函数说明】返回硬币页时重新执行 onCreate，重置一轮投掷动画。
@@ -436,15 +496,10 @@ public:
 
     void onKeyShort() override {
         if (global_is_animating) {
-            if (sysConfig.coin_data.mode == 1) { for (int i=0; i<active_coins; i++) if (coins[i].is_flipping) { stopCoin(i); break; } }
+            if (sysConfig.coin_data.mode == 1) stopNextCoin();
             return;
         }
-        stopCoinAudio(); SYS_SOUND_CONFIRM(); global_is_animating = true;
-        for (int i=0; i<active_coins; i++) {
-            coins[i].is_flipping = true; coins[i].flash_frames = 0; coins[i].target_face = 0;
-            if (sysConfig.coin_data.mode == 0) coins[i].auto_stop_timer = CoinAnimParams::AUTO_SPIN_INITIAL + i * CoinAnimParams::AUTO_SPIN_INTERVAL;
-        }
-        last_frame_time = millis();
+        stopCoinAudio(); SYS_SOUND_CONFIRM(); startCoins();
     }
     // 【函数说明】长按退出硬币投掷页并返回上一层菜单。
     void onKeyLong() override { SYS_SOUND_NAV(); appManager.popApp(); }
@@ -541,9 +596,9 @@ protected:
 
         if (coins[idx].target_face == 0) {
             current_power += p.coin_power;
-            coins[idx].flash_frames = CoinAnimParams::FLASH_DURATION;
             const String pop_text = (p.coin_power >= 0 ? "+" : "") + String(p.coin_power);
-            score_pop_animator.trigger(pop_text.c_str(), TFT_YELLOW);
+            // 正面仍沿用原有音效/震动语义；仅以红色明确提示负威力导致的扣分。
+            score_pop_animator.trigger(pop_text.c_str(), p.coin_power < 0 ? TFT_RED : TFT_YELLOW);
             updateTopPanelScore(TFT_WHITE); 
             if (!playCoinAudio(AudioAssetId::CoinHeads)) SYS_SOUND_CONFIRM();
             SYS_HAPTIC_COIN_HEADS();
@@ -573,11 +628,10 @@ void onCreate() override {
         }
         
         CoinPreset& p = sysConfig.coin_presets[g_coin_run_idx];
-        active_coins = p.coin_count; current_power = p.base_power;
-        if (active_coins < 1) active_coins = 1; if (active_coins > UICoin::MAX_COINS) active_coins = UICoin::MAX_COINS; 
+        active_coins = constrain(p.coin_count, 1, UICoin::MAX_COINS);
+        current_power = p.base_power;
         
-        global_is_animating = false; phase = 0; score_pop_animator.reset();
-        for(int i=0; i<active_coins; i++) { coins[i].current_angle = 0; coins[i].is_flipping = false; coins[i].flash_frames = 0; coins[i].needs_redraw = true; coins[i].target_face = 0; }
+        resetCoins(); phase = 0; score_pop_animator.reset();
         HAL_Sprite_Clear(); drawActiveCoinsOnly(); drawStaticUI(); HAL_Screen_Update();
     }
     // 【函数说明】返回硬币页时重新执行 onCreate，重置一轮投掷动画。
@@ -586,7 +640,7 @@ void onCreate() override {
 
     void onKeyShort() override {
         if (global_is_animating) {
-            if (sysConfig.coin_data.mode == 1) { for (int i=0; i<active_coins; i++) if (coins[i].is_flipping) { stopCoin(i); break; } }
+            if (sysConfig.coin_data.mode == 1) stopNextCoin();
             return;
         }
         if (phase == 2) {
@@ -596,12 +650,8 @@ void onCreate() override {
             return;
         }
         stopCoinAudio(); SYS_SOUND_CONFIRM();
-        global_is_animating = true; phase = 1; current_power = sysConfig.coin_presets[g_coin_run_idx].base_power; score_pop_animator.reset();
-        for (int i=0; i<active_coins; i++) {
-            coins[i].is_flipping = true; coins[i].flash_frames = 0; coins[i].target_face = 0;
-            if (sysConfig.coin_data.mode == 0) coins[i].auto_stop_timer = CoinAnimParams::AUTO_SPIN_INITIAL + i * CoinAnimParams::AUTO_SPIN_INTERVAL;
-        }
-        last_frame_time = millis();
+        phase = 1; current_power = sysConfig.coin_presets[g_coin_run_idx].base_power; score_pop_animator.reset();
+        startCoins();
     }
     // 【函数说明】长按退出硬币投掷页并返回上一层菜单。
     void onKeyLong() override { SYS_SOUND_NAV(); appManager.popApp(); }

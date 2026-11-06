@@ -1,134 +1,117 @@
-[
-  {
-    "id": "W001",
-    "type": "weaver",
-    "weight": 10,
-    "text": "纺织机已经回应了你的想法。"
-  },
-  {
-    "id": "W002",
-    "type": "weaver",
-    "weight": 10,
-    "text": "你正在寻找的答案，已经被写进下一条指令。"
-  },
-  {
-    "id": "W003",
-    "type": "weaver",
-    "weight": 8,
-    "text": "不要急着解释它。先让沉默完成编织。"
-  },
-  {
-    "id": "W004",
-    "type": "weaver",
-    "weight": 8,
-    "text": "第三个念头不是答案，是诱饵。"
-  },
-  {
-    "id": "W005",
-    "type": "weaver",
-    "weight": 7,
-    "text": "你已经知道要做什么，只是不想承认代价。"
-  },
-  {
-    "id": "W006",
-    "type": "weaver",
-    "weight": 7,
-    "text": "等到下一次噪声变得有规律。"
-  },
-  {
-    "id": "W007",
-    "type": "weaver",
-    "weight": 6,
-    "text": "这不是拒绝，是都市要求你换一种问法。"
-  },
-  {
-    "id": "W008",
-    "type": "weaver",
-    "weight": 6,
-    "text": "如果答案太清楚，它很可能已经被篡改。"
-  },
-  {
-    "id": "W009",
-    "type": "weaver",
-    "weight": 5,
-    "text": "把手从门上移开，门才会开始选择你。"
-  },
-  {
-    "id": "W010",
-    "type": "weaver",
-    "weight": 5,
-    "text": "线已经收紧。现在不要回头。"
-  },
-  {
-    "id": "W011",
-    "type": "weaver",
-    "weight": 4,
-    "text": "你问的是结果，纺织机回答的是原因。"
-  },
-  {
-    "id": "W012",
-    "type": "weaver",
-    "weight": 4,
-    "text": "别相信最先抵达的解释。"
-  },
-  {
-    "id": "F001",
-    "type": "food",
-    "weight": 10,
-    "text": "吃面。不要问为什么。"
-  },
-  {
-    "id": "F002",
-    "type": "food",
-    "weight": 10,
-    "text": "今天适合吃热的东西。"
-  },
-  {
-    "id": "F003",
-    "type": "food",
-    "weight": 8,
-    "text": "米饭，配一点咸的。你的系统需要稳定。"
-  },
-  {
-    "id": "F004",
-    "type": "food",
-    "weight": 8,
-    "text": "吃饺子。封口的东西比较安全。"
-  },
-  {
-    "id": "F005",
-    "type": "food",
-    "weight": 7,
-    "text": "炸物可以，但别把它当作答案。"
-  },
-  {
-    "id": "F006",
-    "type": "food",
-    "weight": 7,
-    "text": "喝汤。今天不适合干硬的决定。"
-  },
-  {
-    "id": "F007",
-    "type": "food",
-    "weight": 6,
-    "text": "吃你最先想到的那个。纺织机已经记录了。"
-  },
-  {
-    "id": "F008",
-    "type": "food",
-    "weight": 6,
-    "text": "不要空腹执行指令。"
-  },
-  {
-    "id": "F009",
-    "type": "food",
-    "weight": 5,
-    "text": "吃辣的，但只到你还能保持理智为止。"
-  },
-  {
-    "id": "F010",
-    "type": "food",
-    "weight": 5,
-    "text": "甜的。今天需要一点不合逻辑的安慰。"
-  }
-]
+{
+  "schema_version": 1,
+  "revision": 1,
+  "lang": "ZH",
+  "entries": [
+    {
+      "content_id": "49836bb9-d27f-59ae-8cec-e9ea39cc3796",
+      "type": "weaver",
+      "weight": 10
+    },
+    {
+      "content_id": "99a9392b-7e04-5a8b-a8c1-3303214efd24",
+      "type": "weaver",
+      "weight": 10
+    },
+    {
+      "content_id": "2870b382-4f74-56e3-b443-38b593a082ee",
+      "type": "weaver",
+      "weight": 8
+    },
+    {
+      "content_id": "4cbcfd71-3225-5851-b1f7-e0451924c9ea",
+      "type": "weaver",
+      "weight": 8
+    },
+    {
+      "content_id": "326b6e94-7c1e-5aee-a642-9cf9a7490b3c",
+      "type": "weaver",
+      "weight": 7
+    },
+    {
+      "content_id": "45cc573b-eb9c-56b6-af2a-ac6478a03ab2",
+      "type": "weaver",
+      "weight": 7
+    },
+    {
+      "content_id": "f7912579-4bfe-5f92-bb1f-68f059bc1d6c",
+      "type": "weaver",
+      "weight": 6
+    },
+    {
+      "content_id": "d9d6aa3b-d934-5f75-90c2-46000fb82eef",
+      "type": "weaver",
+      "weight": 6
+    },
+    {
+      "content_id": "f9a6ac22-8e83-52c1-bc14-94d3487e7149",
+      "type": "weaver",
+      "weight": 5
+    },
+    {
+      "content_id": "0eee2147-a86e-5984-a48c-24395c282578",
+      "type": "weaver",
+      "weight": 5
+    },
+    {
+      "content_id": "4d742b29-7f7a-5ca9-a050-a52ea79e885e",
+      "type": "weaver",
+      "weight": 4
+    },
+    {
+      "content_id": "ec5374da-e295-5316-96d1-24ff961b7837",
+      "type": "weaver",
+      "weight": 4
+    },
+    {
+      "content_id": "989bead9-2ec2-5792-9fa1-af833cabd2a7",
+      "type": "food",
+      "weight": 10
+    },
+    {
+      "content_id": "10da226b-d3cc-5754-93e0-6fbf74aca741",
+      "type": "food",
+      "weight": 10
+    },
+    {
+      "content_id": "3838b774-cc7e-5872-af7f-f76565ff8c9e",
+      "type": "food",
+      "weight": 8
+    },
+    {
+      "content_id": "b09c5ee7-f42f-5fec-b2cf-3cf669e04e56",
+      "type": "food",
+      "weight": 8
+    },
+    {
+      "content_id": "c64db427-3974-5938-bb2b-bb9a56659e04",
+      "type": "food",
+      "weight": 7
+    },
+    {
+      "content_id": "dfdf13f0-c62d-5a4c-a3e7-89fdc3ffa811",
+      "type": "food",
+      "weight": 7
+    },
+    {
+      "content_id": "9ff80480-fc6b-5448-836b-9851d51204a0",
+      "type": "food",
+      "weight": 6
+    },
+    {
+      "content_id": "5fe884eb-8f5c-542c-b812-29353195e584",
+      "type": "food",
+      "weight": 6
+    },
+    {
+      "content_id": "6d591449-5f38-597f-a8c8-4ddfa2354aec",
+      "type": "food",
+      "weight": 5
+    },
+    {
+      "content_id": "01606466-54a4-5e96-8429-4cad3cf761e0",
+      "type": "food",
+      "weight": 5
+    }
+  ]
+}

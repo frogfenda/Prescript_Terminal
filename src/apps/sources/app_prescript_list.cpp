@@ -15,7 +15,7 @@
 */
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
-#include "sys/storage/sys_fs.h"
+#include "sys/resources/sys_prescript_catalog.h"
 #include "sys/sys_config.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_command_registry.h"
@@ -26,108 +26,42 @@
 #include "ui/ui_theme.h"
 #include "ui/ui_frame.h"
 
-// ========================================================
-// 指令库文件写入接口：BLE/NFC/Web 与 App 页面共用
-// ========================================================
-void DBArchive_SaveToFile(SystemLang_t lang)
-{
-    SysPsramTextList *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    const char *path = TerminalLang::PrescriptPath(lang);
-
-    File f = LittleFS.open(path, "w");
-    if (!f)
-    {
-        Serial.printf("[指令档案] 保存失败，无法打开文件：%s\n", path);
-        return;
-    }
-
-    for (size_t i = 0; i < p->size(); i++)
-    {
-        f.println((*p)[i].c_str());
-    }
-    f.close();
-
-    Serial.printf("[指令档案] 已写入 %s，共 %u 条。\n", path, (unsigned)p->size());
-}
-
-// 注册 PRE 命令组；定义在文件末尾的【蓝牙命令区】。
+// 旧协议保留按正文操作，内部改用稳定ID提交；保存失败必须回报，不能先修改UI再假报成功。
 static void Prescript_RegisterCommands();
-
-// 【外部接口】添加一条指令并立即写回 LittleFS。
-void DBArchive_AddRecord(SystemLang_t lang, const String &text)
-{
-    SysPsramTextList *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    p->emplace_back(text);
-    DBArchive_SaveToFile(lang);
-    SysCommand_NotifyChanged("PRE");
-}
-
-// 【外部接口】按索引删除指令；删除成功后立即写回 LittleFS。
-bool DBArchive_DeleteRecord(SystemLang_t lang, int index)
-{
-    SysPsramTextList *p = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    if (index >= 0 && index < (int)p->size())
-    {
-        String removed = (*p)[index].c_str();
-        p->erase(p->begin() + index);
-        DBArchive_SaveToFile(lang);
-        SysCommand_NotifyChanged("PRE");
-        Serial.printf("[指令档案] 已删除记录：%s\n", removed.c_str());
-        return true;
-    }
-
-    Serial.printf("[指令档案] 删除失败，索引越界：%d\n", index);
-    return false;
-}
-
-/**
- * 【指令档案业务入口】按文本新增一条指令并写回 LittleFS。
- * 指令库文件按行存储，文本里的换行替换成空格。结果码：ADDED / EMPTY_TEXT。
- */
 static SysOpResult DBArchive_AddText(SystemLang_t lang, const String &text)
 {
-    String new_text = text;
-    new_text.replace('\n', ' ');
-    new_text.trim();
-    if (new_text.length() == 0)
-        return SysOpResult::Error("EMPTY_TEXT");
-    DBArchive_AddRecord(lang, new_text);
-    Serial.printf("[指令档案] 已添加到%s库：%s\n", lang == LANG_ZH ? "中文" : "英文", new_text.c_str());
-    return SysOpResult::Ok("ADDED");
+    String normalized = text; normalized.replace('\n', ' '); normalized.trim();
+    auto result = SysPrescriptCatalog::AddOrdinary(lang, normalized);
+    if (result.ok()) SysCommand_NotifyChanged("PRE");
+    return result;
 }
-
-/** 【指令档案业务入口】按文本删除第一条完全相同的指令。结果码：DELETED / NOT_FOUND / EMPTY_TEXT。 */
-static SysOpResult DBArchive_DeleteText(SystemLang_t lang, const String &raw_text)
+static SysOpResult DBArchive_DeleteText(SystemLang_t lang, const String &text)
 {
-    String target = raw_text;
-    target.replace('\n', ' ');
-    target.trim();
-    if (target.length() == 0)
-        return SysOpResult::Error("EMPTY_TEXT");
-
-    SysPsramTextList *pool = (lang == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    for (int i = 0; i < (int)pool->size(); i++)
-    {
-        if ((*pool)[i] == target)
-        {
-            DBArchive_DeleteRecord(lang, i);
-            Serial.printf("[指令档案] 已按文本删除：%s\n", target.c_str());
-            return SysOpResult::Ok("DELETED");
+    String normalized = text; normalized.replace('\n', ' '); normalized.trim();
+    if (normalized.isEmpty()) return SysOpResult::Error("EMPTY_TEXT");
+    for (size_t i = 0; i < SysPrescriptCatalog::OrdinaryCount(lang); ++i) {
+        const auto *item = SysPrescriptCatalog::OrdinaryAt(lang, i);
+        if (item && item->text == normalized) {
+            auto result = SysPrescriptCatalog::Delete(lang, item->id);
+            if (result.ok()) SysCommand_NotifyChanged("PRE");
+            return result;
         }
     }
-    Serial.printf("[指令档案] 未找到待删除文本：%s\n", target.c_str());
     return SysOpResult::Error("NOT_FOUND");
 }
 
 class AppPrescriptList : public AppBase
 {
 private:
-    SysPsramTextList *pool = nullptr;
-    const char *file_path = nullptr;
+    size_t count() const { return SysPrescriptCatalog::OrdinaryCount(appManager.getLanguage()); }
+    const PrescriptContent *current() const { return SysPrescriptCatalog::OrdinaryAt(appManager.getLanguage(), current_idx); }
 
     int current_idx = 0;
     int m_scroll_offset = 0;
     bool m_is_deleting = false;
+    bool m_delete_failed = false;
+    bool m_delete_in_use = false;
+    PrescriptId m_displayed_id, m_delete_id;
 
     // 大屏下每行可容纳更多字符，因此单行缓存从 128 增加到 192。
     // MAX_LINES 用于限制极长指令的换行缓存，避免单条指令占用过多 RAM。
@@ -197,11 +131,17 @@ private:
     void FormatCurrent()
     {
         m_actual_lines = 0;
+        m_displayed_id = PrescriptId{};
 
-        if (!pool || pool->empty())
+        if (count() == 0)
             return;
 
-        const String text = (*pool)[current_idx].c_str();
+        // 远端删除会改变数量/下标；只同步借用当前记录，确认删除始终使用进入确认时的UUID。
+        if (current_idx < 0) current_idx = 0;
+        if (current_idx >= (int)count()) current_idx = (int)count() - 1;
+        const auto *item = current(); if (!item) return;
+        m_displayed_id = item->id;
+        const String text = item->text.c_str();
         const int max_px = contentMaxWidth();
         String line = "";
 
@@ -287,7 +227,7 @@ private:
         int sh = HAL_Get_Screen_Height();
         SystemLang_t lang = appManager.getLanguage();
 
-        if (!pool || pool->empty())
+        if (count() == 0)
         {
             drawArchiveEmpty();
             drawBottomHints(UIStrings::ClickBackHint(lang), UIStrings::HoldBackHint(lang));
@@ -297,7 +237,7 @@ private:
 
         // 顶部显示当前页码。它使用小字体，不抢正文空间。
         char page_buf[40];
-        snprintf(page_buf, sizeof(page_buf), "%d / %d", current_idx + 1, (int)pool->size());
+        snprintf(page_buf, sizeof(page_buf), "%d / %d", current_idx + 1, (int)count());
         drawCenteredSmall(5, page_buf, TFT_DARKGREY);
 
         int max_vis = visibleLineCount();
@@ -335,7 +275,13 @@ private:
             HAL_Fill_Rect(sw - 10, bar_y, 4, bar_h, TFT_CYAN);
         }
 
-        if (m_is_deleting)
+        if (m_delete_failed)
+        {
+            UIFrame::DrawDialog(UIStrings::ArchiveDeleteFailed(lang),
+                m_delete_in_use ? UIStrings::ArchiveRecordInUse(lang) : UIStrings::PrescriptRetryLater(lang),
+                UIStrings::ClickBackHint(lang), TFT_RED);
+        }
+        else if (m_is_deleting)
         {
             drawDeleteConfirm();
         }
@@ -350,7 +296,7 @@ private:
 
     void deleteCurrentRecord()
     {
-        if (!pool || pool->empty())
+        if (count() == 0)
             return;
 
         HAL_Sprite_Clear();
@@ -363,9 +309,13 @@ private:
         SYS_SOUND_GLITCH();
         delay(220);
 
-        DBArchive_DeleteRecord(appManager.getLanguage(), current_idx);
+        const auto result = SysPrescriptCatalog::Delete(appManager.getLanguage(), m_delete_id);
+        if (result.ok()) SysCommand_NotifyChanged("PRE");
+        else Serial.printf("[指令档案] 删除未提交：%s。\n", result.code);
+        m_delete_failed = !result.ok();
+        m_delete_in_use = !strcmp(result.code, "IN_USE");
 
-        if (!pool || pool->empty())
+        if (count() == 0)
         {
             current_idx = 0;
             m_scroll_offset = 0;
@@ -375,8 +325,8 @@ private:
             return;
         }
 
-        if (current_idx >= (int)pool->size())
-            current_idx = (int)pool->size() - 1;
+        if (current_idx >= (int)count())
+            current_idx = (int)count() - 1;
         if (current_idx < 0)
             current_idx = 0;
 
@@ -389,30 +339,20 @@ private:
 public:
     void onCreate() override
     {
-        if (appManager.getLanguage() == LANG_ZH)
-        {
-            pool = &sys_prescripts_zh;
-            file_path = TerminalLang::PrescriptPath(LANG_ZH);
-        }
-        else
-        {
-            pool = &sys_prescripts_en;
-            file_path = TerminalLang::PrescriptPath(LANG_EN);
-        }
-
         current_idx = 0;
         m_scroll_offset = 0;
         m_is_deleting = false;
+        m_delete_failed = false;
         FormatCurrent();
         drawUI();
     }
 
-    void onResume() override { drawUI(); }
+    void onResume() override { m_is_deleting = false; m_delete_failed = false; FormatCurrent(); drawUI(); }
     void onLoop() override {}
 
     void onKnob(int delta) override
     {
-        if (!pool || pool->empty())
+        if (count() == 0)
             return;
 
         // 删除确认状态下不响应旋钮，避免用户误转导致删除对象变化。
@@ -425,14 +365,14 @@ public:
 
         if (m_scroll_offset < 0)
         {
-            current_idx = (current_idx > 0) ? current_idx - 1 : (int)pool->size() - 1;
+            current_idx = (current_idx > 0) ? current_idx - 1 : (int)count() - 1;
             FormatCurrent();
             max_offset = (m_actual_lines > max_vis) ? (m_actual_lines - max_vis) : 0;
             m_scroll_offset = max_offset;
         }
         else if (m_scroll_offset > max_offset)
         {
-            current_idx = (current_idx < (int)pool->size() - 1) ? current_idx + 1 : 0;
+            current_idx = (current_idx < (int)count() - 1) ? current_idx + 1 : 0;
             FormatCurrent();
             m_scroll_offset = 0;
         }
@@ -443,7 +383,11 @@ public:
 
     void onKeyShort() override
     {
-        if (!pool || pool->empty())
+        if (m_delete_failed) {
+            m_delete_failed = false; m_is_deleting = false;
+            FormatCurrent(); drawUI(); return;
+        }
+        if (count() == 0)
         {
             appManager.popApp();
             return;
@@ -457,6 +401,7 @@ public:
         }
 
         SYS_SOUND_NAV();
+        m_delete_id = m_displayed_id;
         m_is_deleting = true;
         drawUI();
     }
@@ -516,10 +461,9 @@ static void Cmd_PreDel(SysCmdCtx &ctx, const SysCmdArgs &args)
 // PRE.LIST：当前界面语言指令库的第 index 条 → {"t"}。
 static bool Stream_PreList(uint16_t index, JsonDocument &out)
 {
-    const SysPsramTextList *pool = (appManager.getLanguage() == LANG_ZH) ? &sys_prescripts_zh : &sys_prescripts_en;
-    if (index >= pool->size())
-        return false;
-    out["t"] = (*pool)[index].c_str();
+    const auto *item = SysPrescriptCatalog::OrdinaryAt(appManager.getLanguage(), index);
+    if (!item) return false;
+    out["t"] = item->text.c_str();
     return true;
 }
 

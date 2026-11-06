@@ -1,0 +1,965 @@
+{
+  "schema_version": 1,
+  "revision": 1,
+  "lang": "ZH",
+  "items": [
+    {
+      "id": "646a65ff-8ac1-55d5-be69-952c2ca90316",
+      "text": "致… 用左手书写今日所有的文字，包括数字。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "abca26b8-d7d1-577d-b0f1-20e2e6e4681e",
+      "text": "致… 找到一张去年的日历，在今天对应的日期上画一个叉。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "dcdb11a8-abd4-546e-b9a9-d69465a07385",
+      "text": "致… 将你正在听的音乐音量调至刚好能听见的下限，并保持一小时。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "5a0e4a52-4a89-58bc-a22a-7a6b75752810",
+      "text": "致… 不撑伞走入雨中，但只允许身体一半被淋湿。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "f511cf59-5c92-5914-919c-5fd14c4e7a85",
+      "text": "致… 记住今天第三个与你交谈者的眼睛颜色，并在日落后画出来。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "796e9676-984a-5507-9fd5-42ad00b2bdd6",
+      "text": "致… 从词典中随机选择一个词，在对话中使用它三次。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "25ce4aa9-78a7-52cf-b876-215e9cac85d0",
+      "text": "致… 将手机语言设置为一个你不认识的语言，持续到午夜。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "1647ea11-d1f8-5032-a2d5-741d03d21464",
+      "text": "致… 用非惯用手吃完一餐。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "1db596d7-924a-502b-9f4c-c799ac13d09e",
+      "text": "致… 将你最喜欢的一本书倒置放在书架上显眼处，持续一周。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "03380326-100d-52d9-a227-ed44025ce3cf",
+      "text": "致… 在口袋中放入一颗光滑的石头，每当感到不安时便摩擦它。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "029ef446-2c60-574d-b3d4-3d0932a758e5",
+      "text": "致… 撕碎一张你的照片，将碎片撒入不同的垃圾桶。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "0ae097a9-0c41-5c85-89c7-eb3fd8e33afc",
+      "text": "致… 找到一个空房间，大声说出你童年的绰号。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "723c0c6f-668c-5a9c-82cd-107e5d8541da",
+      "text": "致… 用冷水洗手后，不擦干，等待自然风干。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "332c71cd-5f4d-5420-a13c-7972c5dac2af",
+      "text": "致… 今日拒绝使用“我”这个词。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "25937a79-20fb-59d1-90a8-5987a57a4224",
+      "text": "致… 记录下午2:34时你视野中所有的蓝色物体。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "a58bc640-7224-53ce-b260-021c94a17b71",
+      "text": "致… 在纸上连续画一条不间断的线，直到墨水用尽。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "a8d9554b-1d31-55e7-845d-a29220b51302",
+      "text": "致… 对你今天见到的第一个人微笑，不解释原因。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "4f060f2b-2be6-5302-97be-dd2b97c9caf0",
+      "text": "致… 从一数到一百，但每当遇到7的倍数时就拍一下手。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "99d87b52-8cfb-5ddd-bbbb-eb046e8b4802",
+      "text": "致… 记住一天中云朵的形状，并在黄昏时用影子模仿其中一个。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "515e4236-7233-5c6e-b504-0759d5a383d7",
+      "text": "致… 用胶带封住一个抽屉，承诺三天内不打开。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "e964ad1a-d3cb-5e93-adb2-960d88fa4b97",
+      "text": "致… 背诵一首你记得的诗歌，但用相反的语序。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "cbbdfa9c-6f6c-5f95-9033-3d76e4c53005",
+      "text": "致… 用口哨吹出一段你记忆中最早的旋律。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "a2655903-736b-54bc-abd8-7292d8fd49b2",
+      "text": "致… 在社交媒体上发布一条无意义的音节，不回复任何评论。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "4107fbfd-ff1e-5daa-958a-750d10ad911f",
+      "text": "致… 将鞋带系成一个复杂的、无法一眼看懂的结。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "9e3282da-cf42-5a52-ba82-99ca1d1ff518",
+      "text": "致… 今日只用单音节词回答问题。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "0c107bb4-deef-56e8-a62f-8e9e0f09e13b",
+      "text": "致… 找到一个圆形物体，让它滚动，并跟随它直到停止。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "caeff5ee-6048-5346-9c33-340530123603",
+      "text": "致… 在镜子上用肥皂写下一个秘密，然后立即擦去。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "3507e1b2-c0c9-59c2-b696-fde25979d0de",
+      "text": "致… 将一杯水放在阳光下，观察水蒸发的痕迹。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "c5529b99-e5c5-5c57-bf60-67f4fc2532d1",
+      "text": "致… 记录你今日的第一次呼吸，并尝试在睡前重复它的节奏。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "4f6c9bee-11e5-578f-9812-c6e012e0333f",
+      "text": "致… 用树叶排列出你名字的首字母，然后吹散。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "4908fd30-ec0d-5702-80a0-bfaf953dd3ca",
+      "text": "致… 闭着眼睛触摸十种不同材质的表面。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "38dcd488-d5f8-5d65-9b86-91ee7392e5b0",
+      "text": "致… 在对话中插入三秒的刻意停顿，无论话题如何。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "4eea3c00-c1f1-560a-b2f6-4233d244937b",
+      "text": "致… 将一张纸对折七次，无论它变得多厚。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "ddd32ae8-c4b4-57fa-95dd-246994f81d17",
+      "text": "致… 今日不坐下，除非绝对必要。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "1a51375e-3570-58e1-94a5-d7be8a11228a",
+      "text": "致… 在心中将一个随机数字重复默念一整天。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "8db3469b-dc63-53c1-881a-de3dc9378cb9",
+      "text": "致… 找到一个回声明显的地方，说出一句你从未说过的话。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "6e36a5eb-acc1-521a-a2ac-82d595f3bde2",
+      "text": "致… 用冷水冲泡热饮，并喝完它。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "8ac05a46-e86c-5f98-ae83-b3b162c27f03",
+      "text": "致… 在黑暗中静坐五分钟，试图听清最微弱的声音。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "f49b3b7a-d56a-51c5-bcda-3959779964e6",
+      "text": "致… 从一段记忆中删除一个细节，并永远不再回忆它。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "2c8052b5-44cb-52d4-bf69-d9a8fed067db",
+      "text": "致… 用相反的描述重述你今天的经历。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "f57f2fc6-88d4-5dac-8808-d6ed57e98f7f",
+      "text": "致… 在公共场合低声哼唱一首歌，但不在任何地方记录下曲调。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "ad6c9d1d-6a47-57e3-bb23-c7a799cbd299",
+      "text": "致… 将你的手表调快（或调慢）五分钟，并依照它生活一整天。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "470122c4-fb03-5555-820d-f39fb4c36949",
+      "text": "致… 找到一串钥匙，摇动它们，记住其声响。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "d63f35a9-612c-576f-bf73-d35ad1a31d58",
+      "text": "致… 在干净的桌面上留下一枚清晰的指纹，不去擦拭。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "3b363949-4e6d-59ca-b754-cf94e6114300",
+      "text": "致… 用不属于你的笔写下一句话，然后将笔归还。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "c74cce08-e966-50b6-966d-248847ec5ff9",
+      "text": "致… 数清你所在房间的角落数量，并在每个角落放一件小物品。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "f4a0babd-6956-52de-9692-f8912ca3ad83",
+      "text": "致… 今日不直接拒绝任何请求，而是用沉默或转移话题回应。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "8f0fb8cf-d207-5e7d-830b-7ea77f2dc583",
+      "text": "致… 找到一根弯曲的钉子，试图将它想象成另一种工具。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "cb8d6268-b7e7-5742-8f01-4683bee6fd93",
+      "text": "致… 重复你听到的第一句话，直到它失去意义。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "4ace2a85-db84-5398-ac64-202f84d659b1",
+      "text": "致… 在水面上放一片小纸，看它如何漂动，不去引导。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "5cc7c8c3-d842-541a-8a23-b932bbbb8899",
+      "text": "致… 记住一种不常闻到的气味，并尝试在脑海中重现它。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "83485f03-d7fb-5bf4-9ce3-f732b38fd80e",
+      "text": "致… 用你所能做到的最轻的声音读书中的一段。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "a2f33ab7-d6b2-5566-b920-4d0a4cbde7ae",
+      "text": "致… 在口袋中放一张写有“是”和一张写有“否”的纸条，在需要决定时随机抽取。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "c33b2814-2e86-56b2-bfe3-9688be6f7900",
+      "text": "致… 模仿一幅画中人物的表情，持续一分钟。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "14fc9b14-3814-5880-9a90-364f77f59723",
+      "text": "致… 记录日落的确切时间，并在同一时间明天做一件不同的事。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "d8a98eee-0567-5210-b8cf-069b2e73ceef",
+      "text": "致… 用你的非惯用手签名，并比较与平时的差异。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "ff9679ea-ea45-5add-a23b-81379c0b7727",
+      "text": "致… 在心中从1000开始倒数，每当被打断就从头开始。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "b32712b0-73dc-539e-954d-c3f24f9fbc40",
+      "text": "致… 找到一个你能看到的最远的点，并盯着它看三十秒。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "97f9431d-df9b-5166-bca0-49c29e4c0635",
+      "text": "致… 用食物拼出一个简单的图案，然后吃掉它。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "42e91c8d-00ea-5fee-8d42-479f4ce00379",
+      "text": "致… 在楼梯中间停下，不上也不下，停留一分钟。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "af412457-52ff-5ac6-8c8b-a4e44e0ca8c0",
+      "text": "致… 记住一种触感，并在一天结束时尝试用文字描述它。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "d3ef5ebb-062a-55bd-9e48-9d979354dbb9",
+      "text": "致… 在玻璃上哈气，并在雾气消失前画一个符号。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "64f6c677-5dc9-5338-9ac2-e8ba403c2c30",
+      "text": "致… 将你的头发向后梳，与平日相反。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "d09cb011-a818-51d8-9b89-cb63dcaab103",
+      "text": "致… 在安静的地方鼓掌一次，等待回声消失。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "f5761339-12c2-5047-93ce-ec88d7106af1",
+      "text": "致… 用一张纸折出你能想到的最复杂的形状，然后拆开。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "6ec297e2-7882-5247-9286-2fe88fac0b42",
+      "text": "致… 在心中给今天遇到的人分配一个颜色，不告诉他们。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "15ce1926-24f8-5b38-91ba-5bea8b0535ce",
+      "text": "致… 不借助钟表，猜测时间，并在一天结束时检查准确度。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "1db8b467-f243-5b21-9648-6d0cccfe46c5",
+      "text": "致… 用脚在地上打出一个节拍，持续两分钟。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "85772935-21d6-50c5-b2d3-777d5dbff4ac",
+      "text": "致… 找到一个阴影，站在其中，直到你感觉温度变化。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "5c31518e-f966-5dd0-a98b-4a4335918e16",
+      "text": "致… 在心中重复一个词，直到它听起来陌生。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "58b8e641-cdc0-5e44-b6f6-95ed55951d60",
+      "text": "致… 用不同的方式摆放你的餐具，与平时形成镜像。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "ec9a21d0-8837-5726-9e86-ec02a68ec74a",
+      "text": "致… 记录你一天中眨眼的次数，在黄昏时报告给自己。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "99dd4f90-ff09-5683-be2c-3f7b8d347430",
+      "text": "致… 闭上一只眼睛看熟悉的环境，持续十分钟。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "9fadac76-f099-5828-9112-671f7ac77921",
+      "text": "致… 在脑海中将一首快歌放慢一倍演奏。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "aa71489b-355a-5180-bf2b-49b10cf2109b",
+      "text": "致… 找到一个空洞的声音（如敲击空容器），并记住它的音高。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "75e8fe27-11eb-5527-b431-74fbdc76d832",
+      "text": "致… 用一笔画出一个封闭图形，不抬起工具。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "af0a1f1a-5bc9-5b14-8dd9-b3e574d3537e",
+      "text": "致… 在对话中只说真话，但不说出全部真话。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "b7e5c535-6826-5a49-ab68-e972bf1ab87b",
+      "text": "致… 在一天开始时选择一个数字，并在每次注意到它时改变你的路径。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "d3d4c6f9-d7ff-5b70-8087-23e7380f02ad",
+      "text": "致… 用缓慢的动作完成一个日常任务（如倒水），用时至少一分钟。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "be876710-85a7-55a9-992b-a866fd356509",
+      "text": "致… 在心中将一段记忆重写为你希望的版本。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "c9ea9918-947d-53c9-81ad-9ef905952ab0",
+      "text": "致… 找到一个平衡点（如在指尖平衡一支笔），并保持它直到失败。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "9b32f393-4a43-57aa-96a8-a91ed5fcab6c",
+      "text": "致… 对你今天使用的最后一个工具（如笔、键盘）说“谢谢”。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "da848f6f-f858-56d2-8276-5f86939cdf2b",
+      "text": "致… 在黑暗中辨认三个物体，仅凭触觉。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "9dff1154-c46b-561e-a522-110e749bce9b",
+      "text": "致… 用你从未用过的调味料组合调味一餐。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "ecc8f7d7-244d-58e6-8f60-fb90518d904a",
+      "text": "致… 在心里给今天定一个无声的主题（如“红色”或“圆形”），并注意所有相关事物。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "ef14ed0a-df8b-5563-8910-d1e486ba7130",
+      "text": "致… 在一天结束时，写下你今天说的最后一个字。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "568820dd-833f-50cd-9a8b-4ba65fab2274",
+      "text": "致… 找到一面古老的镜子（至少三十年历史）。在午夜时分，用镜子反射月光，将光斑投射在你卧室的西墙上。大声朗读你所能回忆起的第一首童谣，同时用另一只手在墙上画出光斑移动的反轨迹。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "3ce5bb77-7e8e-54df-9753-0c86292d85c4",
+      "text": "致… 用订书机将你的左袖口与右袖口钉在一起，维持这种状态完成今日的第一餐。",
+      "apply_target": true,
+      "alert": false
+    },
+    {
+      "id": "76e186b6-0b39-5b8a-bcbf-a45ccd365c4e",
+      "text": "齿轮在血肉中咬合，都市的意志不容违逆。",
+      "title": "【 警告：异想体侵蚀 】",
+      "color": "#FF0000",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "20166380-fe36-537e-b0ba-9910545c11ca",
+      "text": "不要表现出你记住了这个旋律。",
+      "title": "【 观测日志：静默异常 】",
+      "color": "#7B0000",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "e523215f-4cdf-56e7-8f8b-e5422050af9a",
+      "text": "都是你的错,以实玛丽!!",
+      "title": "【 侦测到强烈愿望 】",
+      "color": "#FFFFFF",
+      "audio": "Ahab",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "63f78e8d-60e9-5ec9-a2dd-cccad5ffd77f",
+      "text": "罗盘依然在旋转，指向那个名字。",
+      "title": "【 观测日志：以实玛利 】",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "6430a1a8-6f19-5af2-bbef-af1576046a6b",
+      "text": "哪怕是这种东西，也比漫无目的的航行要好吗？",
+      "title": "【 观测日志：以实玛利 】",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "fc6ccf08-c419-5632-9717-cc8767283e57",
+      "text": "那个混蛋……肯定还活着。",
+      "title": "【 观测日志：以实玛利 】",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "45cc04f2-8b11-59d6-b9b2-4cda56101432",
+      "text": "至...代行者:你的名字将会是里恩",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "5aba03eb-fca7-55a6-8cd8-9987154e0313",
+      "text": "至...里恩：每周三，去第七街区的旧书店,买下她拿起又放下的那本书。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "c1e593c8-1257-537e-b60b-aecfc50225d4",
+      "text": "至...里恩：和她攀谈,回答她的问题。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "c3a1ef5a-7422-538b-a552-e11986fde235",
+      "text": "至...里恩：每周日，与她共进晚餐,送她回家。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "406700c5-a542-5f54-91ee-dfb28e75d4d3",
+      "text": "至...里恩：向她求婚",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "d86bbc3b-6b37-5bd9-bd6f-a2b19b76431d",
+      "text": "至...里恩：成为她的丈夫,组建家庭",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "ddd2f39e-6ade-58a2-ab30-a1779e9e733b",
+      "text": "至...里恩：每周买一束花,记住她喜欢的颜色。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "cb10c393-765f-5e26-97f6-0b14fab546e3",
+      "text": "至...里恩：只要看着,什么都不要做。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "608ed6f6-a4db-5ef2-84e2-e7679b37668b",
+      "text": "至...里恩：给孩子起名为良秀。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "e0f73389-45d1-54b9-bb8c-1022e87e2e62",
+      "text": "浮士德知晓一切。",
+      "title": "【 观测日志：浮士德 】",
+      "color": "#FFC3CE",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "fc1b1c89-5b11-5631-9e0e-fd709ea4cd9c",
+      "text": "这条指令的逻辑，在浮士德的计算之中。",
+      "title": "【 观测日志：浮士德 】",
+      "color": "#FFC3CE",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "09651cfe-87c7-56f7-99ac-7bc0150906bd",
+      "text": "梅菲斯托费勒斯的引擎需要更多的傲慢。",
+      "title": "【 观测日志：浮士德 】",
+      "color": "#FFC3CE",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "49836bb9-d27f-59ae-8cec-e9ea39cc3796",
+      "text": "纺织机已经回应了你的想法。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "99a9392b-7e04-5a8b-a8c1-3303214efd24",
+      "text": "你正在寻找的答案，已经被写进下一条指令。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "2870b382-4f74-56e3-b443-38b593a082ee",
+      "text": "不要急着解释它。先让沉默完成编织。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "4cbcfd71-3225-5851-b1f7-e0451924c9ea",
+      "text": "第三个念头不是答案，是诱饵。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "326b6e94-7c1e-5aee-a642-9cf9a7490b3c",
+      "text": "你已经知道要做什么，只是不想承认代价。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "45cc573b-eb9c-56b6-af2a-ac6478a03ab2",
+      "text": "等到下一次噪声变得有规律。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "f7912579-4bfe-5f92-bb1f-68f059bc1d6c",
+      "text": "这不是拒绝，是都市要求你换一种问法。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "d9d6aa3b-d934-5f75-90c2-46000fb82eef",
+      "text": "如果答案太清楚，它很可能已经被篡改。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "f9a6ac22-8e83-52c1-bc14-94d3487e7149",
+      "text": "把手从门上移开，门才会开始选择你。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "0eee2147-a86e-5984-a48c-24395c282578",
+      "text": "线已经收紧。现在不要回头。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "4d742b29-7f7a-5ca9-a050-a52ea79e885e",
+      "text": "你问的是结果，纺织机回答的是原因。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "ec5374da-e295-5316-96d1-24ff961b7837",
+      "text": "别相信最先抵达的解释。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "989bead9-2ec2-5792-9fa1-af833cabd2a7",
+      "text": "吃面。不要问为什么。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "10da226b-d3cc-5754-93e0-6fbf74aca741",
+      "text": "今天适合吃热的东西。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "3838b774-cc7e-5872-af7f-f76565ff8c9e",
+      "text": "米饭，配一点咸的。你的系统需要稳定。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "b09c5ee7-f42f-5fec-b2cf-3cf669e04e56",
+      "text": "吃饺子。封口的东西比较安全。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "c64db427-3974-5938-bb2b-bb9a56659e04",
+      "text": "炸物可以，但别把它当作答案。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "dfdf13f0-c62d-5a4c-a3e7-89fdc3ffa811",
+      "text": "喝汤。今天不适合干硬的决定。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "9ff80480-fc6b-5448-836b-9851d51204a0",
+      "text": "吃你最先想到的那个。纺织机已经记录了。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "5fe884eb-8f5c-542c-b812-29353195e584",
+      "text": "不要空腹执行指令。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "6d591449-5f38-597f-a8c8-4ddfa2354aec",
+      "text": "吃辣的，但只到你还能保持理智为止。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "01606466-54a4-5e96-8429-4cad3cf761e0",
+      "text": "甜的。今天需要一点不合逻辑的安慰。",
+      "apply_target": false,
+      "alert": false
+    }
+  ],
+  "ordinary": [
+    "646a65ff-8ac1-55d5-be69-952c2ca90316",
+    "abca26b8-d7d1-577d-b0f1-20e2e6e4681e",
+    "dcdb11a8-abd4-546e-b9a9-d69465a07385",
+    "5a0e4a52-4a89-58bc-a22a-7a6b75752810",
+    "f511cf59-5c92-5914-919c-5fd14c4e7a85",
+    "796e9676-984a-5507-9fd5-42ad00b2bdd6",
+    "25ce4aa9-78a7-52cf-b876-215e9cac85d0",
+    "1647ea11-d1f8-5032-a2d5-741d03d21464",
+    "1db596d7-924a-502b-9f4c-c799ac13d09e",
+    "03380326-100d-52d9-a227-ed44025ce3cf",
+    "029ef446-2c60-574d-b3d4-3d0932a758e5",
+    "0ae097a9-0c41-5c85-89c7-eb3fd8e33afc",
+    "723c0c6f-668c-5a9c-82cd-107e5d8541da",
+    "332c71cd-5f4d-5420-a13c-7972c5dac2af",
+    "25937a79-20fb-59d1-90a8-5987a57a4224",
+    "a58bc640-7224-53ce-b260-021c94a17b71",
+    "a8d9554b-1d31-55e7-845d-a29220b51302",
+    "4f060f2b-2be6-5302-97be-dd2b97c9caf0",
+    "99d87b52-8cfb-5ddd-bbbb-eb046e8b4802",
+    "515e4236-7233-5c6e-b504-0759d5a383d7",
+    "e964ad1a-d3cb-5e93-adb2-960d88fa4b97",
+    "cbbdfa9c-6f6c-5f95-9033-3d76e4c53005",
+    "a2655903-736b-54bc-abd8-7292d8fd49b2",
+    "4107fbfd-ff1e-5daa-958a-750d10ad911f",
+    "9e3282da-cf42-5a52-ba82-99ca1d1ff518",
+    "0c107bb4-deef-56e8-a62f-8e9e0f09e13b",
+    "caeff5ee-6048-5346-9c33-340530123603",
+    "3507e1b2-c0c9-59c2-b696-fde25979d0de",
+    "c5529b99-e5c5-5c57-bf60-67f4fc2532d1",
+    "4f6c9bee-11e5-578f-9812-c6e012e0333f",
+    "4908fd30-ec0d-5702-80a0-bfaf953dd3ca",
+    "38dcd488-d5f8-5d65-9b86-91ee7392e5b0",
+    "4eea3c00-c1f1-560a-b2f6-4233d244937b",
+    "ddd32ae8-c4b4-57fa-95dd-246994f81d17",
+    "1a51375e-3570-58e1-94a5-d7be8a11228a",
+    "8db3469b-dc63-53c1-881a-de3dc9378cb9",
+    "6e36a5eb-acc1-521a-a2ac-82d595f3bde2",
+    "8ac05a46-e86c-5f98-ae83-b3b162c27f03",
+    "f49b3b7a-d56a-51c5-bcda-3959779964e6",
+    "2c8052b5-44cb-52d4-bf69-d9a8fed067db",
+    "f57f2fc6-88d4-5dac-8808-d6ed57e98f7f",
+    "ad6c9d1d-6a47-57e3-bb23-c7a799cbd299",
+    "470122c4-fb03-5555-820d-f39fb4c36949",
+    "d63f35a9-612c-576f-bf73-d35ad1a31d58",
+    "3b363949-4e6d-59ca-b754-cf94e6114300",
+    "c74cce08-e966-50b6-966d-248847ec5ff9",
+    "f4a0babd-6956-52de-9692-f8912ca3ad83",
+    "8f0fb8cf-d207-5e7d-830b-7ea77f2dc583",
+    "cb8d6268-b7e7-5742-8f01-4683bee6fd93",
+    "4ace2a85-db84-5398-ac64-202f84d659b1",
+    "5cc7c8c3-d842-541a-8a23-b932bbbb8899",
+    "83485f03-d7fb-5bf4-9ce3-f732b38fd80e",
+    "a2f33ab7-d6b2-5566-b920-4d0a4cbde7ae",
+    "c33b2814-2e86-56b2-bfe3-9688be6f7900",
+    "14fc9b14-3814-5880-9a90-364f77f59723",
+    "d8a98eee-0567-5210-b8cf-069b2e73ceef",
+    "ff9679ea-ea45-5add-a23b-81379c0b7727",
+    "b32712b0-73dc-539e-954d-c3f24f9fbc40",
+    "97f9431d-df9b-5166-bca0-49c29e4c0635",
+    "42e91c8d-00ea-5fee-8d42-479f4ce00379",
+    "af412457-52ff-5ac6-8c8b-a4e44e0ca8c0",
+    "d3ef5ebb-062a-55bd-9e48-9d979354dbb9",
+    "64f6c677-5dc9-5338-9ac2-e8ba403c2c30",
+    "d09cb011-a818-51d8-9b89-cb63dcaab103",
+    "f5761339-12c2-5047-93ce-ec88d7106af1",
+    "6ec297e2-7882-5247-9286-2fe88fac0b42",
+    "15ce1926-24f8-5b38-91ba-5bea8b0535ce",
+    "1db8b467-f243-5b21-9648-6d0cccfe46c5",
+    "85772935-21d6-50c5-b2d3-777d5dbff4ac",
+    "5c31518e-f966-5dd0-a98b-4a4335918e16",
+    "58b8e641-cdc0-5e44-b6f6-95ed55951d60",
+    "ec9a21d0-8837-5726-9e86-ec02a68ec74a",
+    "99dd4f90-ff09-5683-be2c-3f7b8d347430",
+    "9fadac76-f099-5828-9112-671f7ac77921",
+    "aa71489b-355a-5180-bf2b-49b10cf2109b",
+    "75e8fe27-11eb-5527-b431-74fbdc76d832",
+    "af0a1f1a-5bc9-5b14-8dd9-b3e574d3537e",
+    "b7e5c535-6826-5a49-ab68-e972bf1ab87b",
+    "d3d4c6f9-d7ff-5b70-8087-23e7380f02ad",
+    "be876710-85a7-55a9-992b-a866fd356509",
+    "c9ea9918-947d-53c9-81ad-9ef905952ab0",
+    "9b32f393-4a43-57aa-96a8-a91ed5fcab6c",
+    "da848f6f-f858-56d2-8276-5f86939cdf2b",
+    "9dff1154-c46b-561e-a522-110e749bce9b",
+    "ecc8f7d7-244d-58e6-8f60-fb90518d904a",
+    "ef14ed0a-df8b-5563-8910-d1e486ba7130",
+    "568820dd-833f-50cd-9a8b-4ba65fab2274",
+    "3ce5bb77-7e8e-54df-9753-0c86292d85c4"
+  ],
+  "references": {
+    "special": [
+      "76e186b6-0b39-5b8a-bcbf-a45ccd365c4e",
+      "20166380-fe36-537e-b0ba-9910545c11ca",
+      "e523215f-4cdf-56e7-8f8b-e5422050af9a",
+      "63f78e8d-60e9-5ec9-a2dd-cccad5ffd77f",
+      "6430a1a8-6f19-5af2-bbef-af1576046a6b",
+      "fc6ccf08-c419-5632-9717-cc8767283e57",
+      "45cc04f2-8b11-59d6-b9b2-4cda56101432",
+      "5aba03eb-fca7-55a6-8cd8-9987154e0313",
+      "c1e593c8-1257-537e-b60b-aecfc50225d4",
+      "c3a1ef5a-7422-538b-a552-e11986fde235",
+      "406700c5-a542-5f54-91ee-dfb28e75d4d3",
+      "d86bbc3b-6b37-5bd9-bd6f-a2b19b76431d",
+      "ddd2f39e-6ade-58a2-ab30-a1779e9e733b",
+      "cb10c393-765f-5e26-97f6-0b14fab546e3",
+      "608ed6f6-a4db-5ef2-84e2-e7679b37668b",
+      "e0f73389-45d1-54b9-bb8c-1022e87e2e62",
+      "fc1b1c89-5b11-5631-9e0e-fd709ea4cd9c",
+      "09651cfe-87c7-56f7-99ac-7bc0150906bd"
+    ],
+    "oracle": [
+      "49836bb9-d27f-59ae-8cec-e9ea39cc3796",
+      "99a9392b-7e04-5a8b-a8c1-3303214efd24",
+      "2870b382-4f74-56e3-b443-38b593a082ee",
+      "4cbcfd71-3225-5851-b1f7-e0451924c9ea",
+      "326b6e94-7c1e-5aee-a642-9cf9a7490b3c",
+      "45cc573b-eb9c-56b6-af2a-ac6478a03ab2",
+      "f7912579-4bfe-5f92-bb1f-68f059bc1d6c",
+      "d9d6aa3b-d934-5f75-90c2-46000fb82eef",
+      "f9a6ac22-8e83-52c1-bc14-94d3487e7149",
+      "0eee2147-a86e-5984-a48c-24395c282578",
+      "4d742b29-7f7a-5ca9-a050-a52ea79e885e",
+      "ec5374da-e295-5316-96d1-24ff961b7837",
+      "989bead9-2ec2-5792-9fa1-af833cabd2a7",
+      "10da226b-d3cc-5754-93e0-6fbf74aca741",
+      "3838b774-cc7e-5872-af7f-f76565ff8c9e",
+      "b09c5ee7-f42f-5fec-b2cf-3cf669e04e56",
+      "c64db427-3974-5938-bb2b-bb9a56659e04",
+      "dfdf13f0-c62d-5a4c-a3e7-89fdc3ffa811",
+      "9ff80480-fc6b-5448-836b-9851d51204a0",
+      "5fe884eb-8f5c-542c-b812-29353195e584",
+      "6d591449-5f38-597f-a8c8-4ddfa2354aec",
+      "01606466-54a4-5e96-8429-4cad3cf761e0"
+    ]
+  }
+}

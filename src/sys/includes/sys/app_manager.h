@@ -1,4 +1,4 @@
-﻿/*
+/*
 【模块职责】系统页面调度接口。对外提供 AppId 导航、后台 App 注册、语言状态、空闲计时和当前 App 查询；主循环中的硬件事件分发由 app_manager.cpp 实现。
 【阅读提示】本文件注释按“对外接口说明在 .h、内部实现步骤在 .cpp”的原则补充；注释描述当前代码实际行为，不把未实现功能写成已实现。
 */
@@ -76,14 +76,8 @@ public:
 
 extern AppManager appManager;
 
-// 【接口说明】拉起随机推送弹窗；keep_stack 为 true 时保留当前页面返回关系。
-void PushNotify_Trigger_Random(bool keep_stack = false);
-/** 主循环展示自定义指令；text/title 立即复制，空 title 恢复默认标题，font_color 同时用于弹窗和解码。 */
-void PushNotify_Trigger_Custom(
-    const char *custom_text,
-    bool keep_stack = false,
-    uint16_t font_color = 0x07FF,
-    const char *title = nullptr);
+/** 统一展示已由内容库接管的完整快照；只在主循环调用，keep_stack保留原导航语义。 */
+void PushNotify_Trigger_Prepared(bool keep_stack);
 /** 主循环只读查询番茄应用；返回是否正在计时，两个可空输出分别为休息阶段、向上取整的剩余秒数。 */
 bool Pomodoro_GetHudStatus(bool *rest, int *remaining_seconds);
 

@@ -9,6 +9,8 @@
 #include "sys/sys_prescript_target.h"
 #include "hal/hal.h"
 #include "ui/ui_prescript_decoder.h"
+#include "ui/ui_frame.h"
+#include "lang/ui_strings.h"
 
 /*
 【模块职责】指令应用状态机。
@@ -57,7 +59,8 @@ private:
         S_WAIT_RELEASE,
         S_CHAOS,
         S_DECODE,
-        S_DONE
+        S_DONE,
+        S_ERROR
     };
 
     State m_state = S_WAIT_RELEASE;
@@ -96,29 +99,16 @@ private:
      * 根据特殊指令绑定播放收尾音效，同时触发解码成功震动。
      * 这里仍保留业务层判断：UI 层只画动画，不知道 heads/tails/Ahab 这些业务含义。
      */
-    void playFinishFeedback(const DrawResult &res)
+    void playFinishFeedback(const PrescriptContent &res)
     {
         stopOwnedAudio(15);
 
-        String bind = res.audio_bind;
-        if (bind == "none")
-        {
-            // 静默指令：只停止 procedure，不播放结尾音效。
-            return;
-        }
-
+        if (res.flags & PRESCRIPT_SILENT) return;
         AudioPlayOptions options;
-        options.bus = bind == "Ahab" ? AudioBus::Voice : AudioBus::Effect;
-
-        // heads/tails/Ahab 是 JSON 稳定 binding；真实路径只存在于 SysRes 的资源表中。
-        bool has_specific_binding = bind == "heads" || bind == "tails" || bind == "Ahab";
-        if (has_specific_binding)
-            m_audio_handle = sysAudio.play(bind.c_str(), options);
-        else
-            m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
-
-        // 指定资源缺失时仍回退到通用收尾音；通用资源也缺失才使用程序提示音。
-        if (m_audio_handle == AUDIO_HANDLE_INVALID && has_specific_binding)
+        options.bus = res.audio == AudioAssetId::Ahab ? AudioBus::Voice : AudioBus::Effect;
+        const AudioAssetId audio = res.audio == AudioAssetId::Invalid ? AudioAssetId::Final : res.audio;
+        m_audio_handle = sysAudio.play(audio, options);
+        if (m_audio_handle == AUDIO_HANDLE_INVALID && audio != AudioAssetId::Final)
             m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
 
         if (m_audio_handle != AUDIO_HANDLE_INVALID)
@@ -137,11 +127,11 @@ private:
      */
     void executeDecodeSequence()
     {
-        DrawResult res = sysSpecials.getResult();
+        const auto &res = SysPrescriptCatalog::Presented();
         SystemLang_t lang = appManager.getLanguage();
         // 特殊指令是特异点/人物链条自己的文本，不属于“致...”本地使用者投递。
         // 因此只有普通指令和 TXT/闹钟/日程等自定义指令会套用本地使用者 ID。
-        String displayText = res.is_special ? res.text : SysPrescriptTarget_Apply(res.text);
+        String displayText = (res.flags & PRESCRIPT_APPLY_TARGET) ? SysPrescriptTarget_Apply(res.text.c_str()) : String(res.text.c_str());
 
         UIPrescript::PrepareLayoutFromRule(displayText.c_str(), lang, res.color, m_layout);
         m_scroll_offset = 0;
@@ -180,10 +170,18 @@ public:
         {
             if (!HAL_Is_Key_Pressed())
             {
-                sysSpecials.rollRandom();
+                if (!sysSpecials.rollRandom()) {
+                    // 保存失败不能每帧反复抽取/写Flash，也不能展示上一条旧结果。
+                    m_state = S_ERROR;
+                    const auto lang = appManager.getLanguage();
+                    HAL_Sprite_Clear();
+                    UIFrame::DrawDialog(UIStrings::PrescriptUnavailable(lang), UIStrings::PrescriptRetryLater(lang),
+                                        UIStrings::ClickBackHint(lang), TFT_RED);
+                    HAL_Screen_Update(); return;
+                }
 
                 // 特殊指令先走 PushNotify 弹窗，再由弹窗确认进入本页解码。
-                if (sysSpecials.getResult().is_special)
+                if ((SysPrescriptCatalog::Presented().flags & PRESCRIPT_ALERT))
                 {
                     Prescript_Prepare_PreRolled();
                     appManager.replace(AppId::PushNotify);
@@ -196,7 +194,7 @@ public:
         else if (m_state == S_CHAOS)
         {
             uint32_t now = millis();
-            DrawResult res = sysSpecials.getResult();
+            const auto &res = SysPrescriptCatalog::Presented();
 
             if (now - m_last_chaos_frame_ms >= ANIM_CHAOS_DELAY_MS)
             {
@@ -253,6 +251,7 @@ public:
 
     void onKeyShort() override
     {
+        if (m_state == S_ERROR) { appManager.popApp(); return; }
         if (m_state == S_CHAOS)
         {
             SYS_SOUND_NAV();
@@ -276,7 +275,7 @@ public:
 
     void onKeyLong() override
     {
-        if (m_state == S_DONE || m_state == S_CHAOS)
+        if (m_state == S_DONE || m_state == S_CHAOS || m_state == S_ERROR)
             appManager.popApp();
     }
 
