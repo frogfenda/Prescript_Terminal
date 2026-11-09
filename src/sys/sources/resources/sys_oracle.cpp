@@ -1,7 +1,7 @@
 /*
-【模块职责】加载纺织机引用规则，按分类相对权重抽取；不复制长期正文，不改特殊链条进度。
+【模块职责】独立拥有纺织机库正文、分类与权重，通过本库内容UUID抽取；不改特殊链条进度。
 【状态所有权】每个语言/分类保存上次内容UUID，运行期间避免连续重复，重启后重新开始。
-【资源约束】只接受带版本的引用JSON；旧格式或无效引用保留现场并使用内置提示，FAT未挂载时不访问。
+【资源约束】内容与规则同文件提交；只兼容上一版UUID引用库迁移，损坏数据保留并使用内置提示。
 */
 #include "sys/resources/sys_oracle.h"
 #include "sys/sys_psram_json.h"
@@ -10,27 +10,26 @@
 SysOracle sysOracle;
 namespace {
 struct Entry { PrescriptId content; SysPsramString type; uint32_t weight=1; };
-struct Rules { SysPsramVector<Entry> entries; uint32_t revision=0; };
+struct Rules { PrescriptLibrary library; SysPsramVector<Entry> entries; };
 struct Last { SysPsramString type; PrescriptId content; };
 Rules s_rules;
 SysPsramVector<Last> s_last[2];
 bool s_loaded=false;
 bool s_valid=false;
-void Unique(SysPsramVector<PrescriptId> &ids,const PrescriptId &id) {
-    if (std::find(ids.begin(),ids.end(),id)==ids.end()) ids.push_back(id);
-}
-SysPsramVector<PrescriptId> References(const Rules &rules) {
-    SysPsramVector<PrescriptId> ids;
-    for (const auto &e : rules.entries) Unique(ids,e.content);
-    return ids;
+bool UpgradeLegacy(JsonDocument &doc, SystemLang_t lang) {
+    if (!doc["schema_version"].is<unsigned>() || doc["schema_version"].as<unsigned>() != 1 ||
+        !doc["revision"].is<uint32_t>() || strcmp(doc["lang"] | "", TerminalLang::Code(lang)) ||
+        !doc["entries"].is<JsonArray>()) return false;
+    JsonDocument references(SysPsramJsonAllocator::Instance()); JsonArray ids = references.to<JsonArray>();
+    for (JsonObjectConst entry : doc["entries"].as<JsonArrayConst>()) ids.add(entry["content_id"]);
+    return !references.overflowed() && SysPrescript::MigrateLibrary(lang, "oracle", ids, doc);
 }
 bool Parse(const JsonDocument &doc,SystemLang_t lang,Rules &out) {
-    if ((!doc["schema_version"].is<unsigned>() || doc["schema_version"].as<unsigned>()!=1) || !doc["revision"].is<uint32_t>() ||
-        strcmp(doc["lang"]|"",TerminalLang::Code(lang)) || !doc["entries"].is<JsonArrayConst>()) return false;
-    Rules next; next.revision=doc["revision"];
+    if (!doc["entries"].is<JsonArrayConst>()) return false;
+    Rules next; if (!SysPrescript::DecodeLibrary(doc,lang,"oracle",next.library)) return false;
     for (JsonObjectConst o : doc["entries"].as<JsonArrayConst>()) {
         Entry e;
-        if (!e.content.parse(o["content_id"]|"") || !SysPrescriptCatalog::Find(lang,e.content) ||
+        if (!e.content.parse(o["content_id"]|"") || !SysPrescript::Find(next.library,e.content) ||
             !o["type"].is<const char *>() || !e.type.assign(o["type"].as<const char *>()) || e.type.isEmpty() ||
             !o["weight"].is<uint32_t>() || !o["weight"].as<uint32_t>() || o["weight"].as<uint32_t>()>INT32_MAX) return false;
         e.weight=o["weight"]; uint64_t sum=e.weight;
@@ -72,7 +71,7 @@ bool Fallback(SystemLang_t lang,const char *type,OracleAnswer &out) {
     PrescriptId first, second; first.parse(pair[0]); second.parse(pair[1]);
     const unsigned index = last == first ? 1 : last == second ? 0 : random(2);
     PrescriptContent content;
-    if (!SysPrescriptCatalog::Custom(lang,messages[index],0x07FF,nullptr,content)) return false;
+    if (!SysPrescript::Prepare(messages[index],lang,content).ok()) return false;
     content.id = index ? second : first;
     content.flags&=~PRESCRIPT_APPLY_TARGET; last=content.id;
     out.content=std::move(content); return true;
@@ -81,26 +80,20 @@ bool Fallback(SystemLang_t lang,const char *type,OracleAnswer &out) {
 void SysOracle::begin(SystemLang_t lang) {
     loaded_lang_=lang; s_loaded=true; s_valid=false; s_rules=Rules{};
     JsonDocument doc(SysPsramJsonAllocator::Instance()); Rules next;
-    if (!HAL::FatStorage::IsMountedForEsp() || !SysPrescriptCatalog::Ready(lang) ||
-        !SysPrescriptCatalog::ReadJson(HAL::FatStorage::FileSystem(),TerminalLang::OraclePath(lang),doc) ||
-        !Parse(doc,lang,next) || !SysPrescriptCatalog::SetReferences(lang,"oracle",References(next))) {
-        SysPrescriptCatalog::BlockDeletion(lang);
-        Serial.println("[纺织机] 引用规则不可用，保留原文件，使用内置提示。"); return;
+    if (!HAL::FatStorage::IsMountedForEsp() ||
+        !SysPrescript::ReadJson(HAL::FatStorage::FileSystem(),TerminalLang::OraclePath(lang),doc)) {
+        Serial.println("[纺织机] 指令库不可用，保留原文件，使用内置提示。"); return;
+    }
+    const bool migrate = doc["schema_version"].is<unsigned>() && doc["schema_version"].as<unsigned>() == 1;
+    if ((migrate && !UpgradeLegacy(doc,lang)) || !Parse(doc,lang,next) ||
+        (migrate && !SysPrescript::WriteJson(HAL::FatStorage::FileSystem(),TerminalLang::OraclePath(lang),doc))) {
+        Serial.println("[纺织机] 内容、规则或迁移保存失败，保留原数据，使用内置提示。"); return;
     }
     s_rules=std::move(next); s_valid=true;
 }
 bool SysOracle::ensureLoaded(SystemLang_t lang) {
     if (!s_loaded || loaded_lang_!=lang) begin(lang);
-    return s_valid;
-}
-bool SysOracle::references(SystemLang_t lang, SysPsramVector<PrescriptId> &out) {
-    JsonDocument doc(SysPsramJsonAllocator::Instance()); Rules rules;
-    if (!HAL::FatStorage::IsMountedForEsp() || !SysPrescriptCatalog::ReadJson(HAL::FatStorage::FileSystem(),TerminalLang::OraclePath(lang),doc) ||
-        !Parse(doc,lang,rules)) return false;
-    out = References(rules);
-    if (s_valid && sysOracle.loaded_lang_ == lang)
-        for (const auto &id : References(s_rules)) Unique(out,id);
-    return true;
+    return s_valid && HAL::FatStorage::IsMountedForEsp();
 }
 bool SysOracle::drawByType(const char *type,SystemLang_t lang,OracleAnswer &out) {
     if (!type || !*type) return false;
@@ -116,21 +109,19 @@ bool SysOracle::drawByType(const char *type,SystemLang_t lang,OracleAnswer &out)
         if (e.type!=type || (!repeat && e.content==last)) continue;
         acc+=e.weight;
         if (roll<acc) {
-            const auto *content=SysPrescriptCatalog::Find(lang,e.content);
-            if (!content || !SysPrescriptCatalog::Snapshot(*content,lang,out.content)) return false;
+            const auto *content=SysPrescript::Find(s_rules.library,e.content);
+            if (!content || !SysPrescript::Prepare(*content,lang,out.content).ok()) return false;
             last=e.content; return true;
         }
     }
     return false;
 }
-SysOpResult SysOracle::replaceRules(const JsonDocument &doc,uint32_t expected) {
+SysOpResult SysOracle::replaceLibrary(const JsonDocument &doc,uint32_t expected) {
     if (!s_valid || !HAL::FatStorage::IsMountedForEsp()) return SysOpResult::Error("STORAGE_UNAVAILABLE");
-    if (expected!=s_rules.revision || expected==UINT32_MAX || doc["revision"].as<uint32_t>()!=expected+1) return SysOpResult::Error("REVISION_CONFLICT");
-    Rules next; if (!Parse(doc,loaded_lang_,next)) return SysOpResult::Error("INVALID_RULES");
-    auto refs=References(s_rules); for (const auto &id : References(next)) Unique(refs,id);
-    if (!SysPrescriptCatalog::SetReferences(loaded_lang_,"oracle",refs) ||
-        !SysPrescriptCatalog::WriteJson(HAL::FatStorage::FileSystem(),TerminalLang::OraclePath(loaded_lang_),doc)) return SysOpResult::Error("SAVE_FAILED");
+    if (expected!=s_rules.library.revision || expected==UINT32_MAX || doc["revision"].as<uint32_t>()!=expected+1) return SysOpResult::Error("REVISION_CONFLICT");
+    Rules next; if (!Parse(doc,loaded_lang_,next)) return SysOpResult::Error("INVALID_LIBRARY");
+    if (next.library.id != s_rules.library.id) return SysOpResult::Error("LIBRARY_CONFLICT");
+    if (!SysPrescript::WriteJson(HAL::FatStorage::FileSystem(),TerminalLang::OraclePath(loaded_lang_),doc)) return SysOpResult::Error("SAVE_FAILED");
     s_rules=std::move(next);
-    SysPrescriptCatalog::SetReferences(loaded_lang_,"oracle",References(s_rules));
     return SysOpResult::Ok("UPDATED");
 }

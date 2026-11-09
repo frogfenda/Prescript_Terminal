@@ -1,7 +1,92 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "library_id": "1ab1815a-fb37-406d-805b-3d4f039c9ad9",
+  "kind": "special",
   "revision": 1,
   "lang": "EN",
+  "contents": [
+    {
+      "id": "1be56b2b-2e9c-5d9b-af86-5d1fdb8d3885",
+      "text": "Gears grind in flesh. The City's will is absolute.",
+      "title": "[ WARNING: ABNORMALITY ]",
+      "color": "#FF0000",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "a916eee9-ea31-5fc5-bcd2-c6eb2725aace",
+      "text": "Do not show that you remember this melody.",
+      "title": "[ LOG: SILENT ANOMALY ]",
+      "color": "#7B0000",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "4a2c8b4a-f344-51a0-830d-7f964720f70f",
+      "text": "It's all your fault Ishmael!!",
+      "title": "【 STRONG WISH DETECTED 】",
+      "color": "#FFFFFF",
+      "audio": "Ahab",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "3d1a6144-1037-5f2f-b5c3-57019faf56e2",
+      "text": "The compass is still spinning, pointing towards that name.",
+      "title": "[ LOG: ISHMAEL ]",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "059808b6-5861-5063-a6ef-a56333aa61a7",
+      "text": "Is even this better than sailing without direction?",
+      "title": "[ LOG: ISHMAEL ]",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "785ae640-1fee-52a9-9c7b-a4544cba78b2",
+      "text": "I'm sick of blind obedience, but... I can't stop yet.",
+      "title": "[ LOG: ISHMAEL ]",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "d233e5b9-c6d5-5f02-a726-0e0ac0c633d0",
+      "text": "Faust knows all.",
+      "title": "[ LOG: FAUST ]",
+      "color": "#FF7D21",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "841e3427-ab7d-5faa-8839-fc86d1b065e0",
+      "text": "The logic of this prescript falls within Faust's calculations.",
+      "title": "[ LOG: FAUST ]",
+      "color": "#FF7D21",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "d3f4863c-7ab8-500e-9865-db2735ee0ea7",
+      "text": "Mephistopheles' engine requires more pride.",
+      "title": "[ LOG: FAUST ]",
+      "color": "#FF7D21",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    }
+  ],
   "pure_specials": [
     {
       "id": "970b4809-3c17-54c5-bad9-2da68b4e0a6a",

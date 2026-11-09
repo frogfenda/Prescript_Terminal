@@ -670,13 +670,10 @@ void SysMailbox_Update()
     StoredMailboxMessage message = {};
     if (!FindNextInstant(message))
         return;
-    if (SysReminder_Submit(
-            SysReminderKind::Custom,
-            message.content,
-            false,
-            message.font_color,
-            message.sequence,
-            static_cast<SysMailboxKind>(message.mailbox)))
+    PrescriptContentView content(message.content); content.color=message.font_color;
+    DeliveryOptions options; options.mailbox_sequence=message.sequence;
+    options.mailbox=static_cast<SysMailboxKind>(message.mailbox);
+    if (SysReminder_Submit(PrescriptRequest::Direct(content),options).ok())
     {
         s_queuedSequence = message.sequence;
         s_queuedMailbox = static_cast<SysMailboxKind>(message.mailbox);
@@ -733,13 +730,10 @@ bool SysMailbox_ProcessDueScheduled(time_t now)
     StoredMailboxMessage message = {};
     if (!FindNextDueScheduled(now, message))
         return false;
-    if (!SysReminder_Submit(
-            SysReminderKind::Custom,
-            message.content,
-            false,
-            message.font_color,
-            message.sequence,
-            static_cast<SysMailboxKind>(message.mailbox)))
+    PrescriptContentView content(message.content); content.color=message.font_color;
+    DeliveryOptions options; options.mailbox_sequence=message.sequence;
+    options.mailbox=static_cast<SysMailboxKind>(message.mailbox);
+    if (!SysReminder_Submit(PrescriptRequest::Direct(content),options).ok())
         return false;
     s_queuedSequence = message.sequence;
     s_queuedMailbox = static_cast<SysMailboxKind>(message.mailbox);

@@ -213,9 +213,9 @@ namespace
 
             // 日程按产品规则明确打断当前页面；继续由 is_expired 事实去重。
             // 数组下标会在清理/排序时移动，不能把下标拼成跨帧事件 ID，否则同刻日程可能被误合并。
-            bool queued = SysReminder_SubmitClock(SysClockReminderSource::Schedule,0,
-                SysReminderPresentation::Interrupt,
-                item.prescript.length()==0 ? SysReminderKind::Random : SysReminderKind::Custom,item.prescript.c_str());
+            DeliveryOptions options; options.source=SysClockReminderSource::Schedule;
+            const auto request=item.prescript.isEmpty() ? PrescriptRequest::Random() : PrescriptRequest::Direct(item.prescript.c_str());
+            bool queued=SysReminder_Submit(request,options).ok();
             if (!queued)
                 continue;
 
@@ -241,8 +241,8 @@ namespace
                     alarm.min != snapshot.local.tm_min)
                     continue;
 
-                if (SysReminder_SubmitClock(SysClockReminderSource::Alarm,(uint64_t)current_minute,
-                        SysReminderPresentation::Interrupt,SysReminderKind::Custom,alarm.prescript.c_str()))
+                DeliveryOptions options; options.source=SysClockReminderSource::Alarm; options.event_id=(uint64_t)current_minute;
+                if (SysReminder_Submit(PrescriptRequest::Direct(alarm.prescript.c_str()),options).ok())
                 {
                     s_last_alarm_triggered_minute = current_minute;
                     s_rebuild_requested = true;

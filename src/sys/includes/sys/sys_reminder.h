@@ -1,54 +1,62 @@
 /*
-【模块职责】统一提醒调度接口。
-
-闹钟、日程等业务在到期时提交提醒；本服务只负责缓存同时到期的提醒，
-并在主循环中逐条复用 PushNotify 展示。休眠截止时间由 SysSleepScheduler 独立管理。
+【模块职责】统一指令接收和提醒队列；公共格式负责内容准备，各独立库负责抽取/进度。
+【线程约束】仅Arduino主循环调用。请求借用的文字在Submit返回前有效即可；队列只保存拥有文字的快照。
+休眠截止时间和计时业务事实继续由原模块管理，不进入本服务。
 */
 #pragma once
-
 #include <Arduino.h>
 #include "sys/sys_mailbox.h"
-#include "sys/sys_command_result.h"
+#include "sys/resources/sys_prescript.h"
 
-/** 提醒内容类型；Custom 使用 text，Random 忽略 text，在提交时抽取并缓存完整快照。 */
-enum class SysReminderKind : uint8_t
+/** 内容来源是选择方式；属性始终使用同一个内容模型。特殊ID接受UUID或现有别名。 */
+enum class SysPrescriptSource : uint8_t { Content, Random, Special };
+struct PrescriptRequest
 {
-    Custom,
-    Random,
+    SysPrescriptSource source = SysPrescriptSource::Content;
+    PrescriptContentView content;
+    const char *special_id = nullptr;
+
+    static PrescriptRequest Direct(const PrescriptContentView &content) {
+        PrescriptRequest request; request.content = content; return request;
+    }
+    static PrescriptRequest Random() {
+        PrescriptRequest request; request.source = SysPrescriptSource::Random; return request;
+    }
+    static PrescriptRequest Special(const char *id) {
+        PrescriptRequest request; request.source = SysPrescriptSource::Special; request.special_id = id; return request;
+    }
 };
 
-/** 页面中断是明确的业务策略；ReturnToPrevious 在接收提醒后返回原页面，Interrupt 清空原导航栈。 */
+/** CurrentPage只发布快照，不导航；仅供手动抽取页保留按键松开/乱码/特殊警报流程。 */
+enum class SysReminderDelivery : uint8_t { Queue, Immediate, CurrentPage };
+/** 页面返回策略与投递时机独立；排队也可以选择中断原页面。 */
 enum class SysReminderPresentation : uint8_t { Interrupt, ReturnToPrevious };
 enum class SysClockReminderSource : uint8_t { None, Countdown, Pomodoro, Alarm, Schedule };
 /**
- * 时钟业务提交入口。event_id 非零时对排队中的同来源同事件去重，队列满返回 false 供服务重试。
- * 主循环调用，文本复制；展示仍复用原队列/PushNotify，不能从页面销毁回调直接触发导航。
+ * 只描述本次投递，不写入内容JSON。source/event_id非零组合对排队提醒去重。
+ * mailbox_sequence非零时，弹窗取得内容后确认邮件；CurrentPage不接受邮箱/计时元数据。
  */
-bool SysReminder_SubmitClock(SysClockReminderSource source,uint64_t event_id,
-    SysReminderPresentation presentation,SysReminderKind kind,const char *text=nullptr);
-/** 显式取消/替换会话时移除该来源尚未展示的提示；不撤销已展示内容，不影响邮箱或其它来源。 */
-void SysReminder_CancelClock(SysClockReminderSource source);
+struct DeliveryOptions
+{
+    SysReminderDelivery delivery = SysReminderDelivery::Queue;
+    SysReminderPresentation presentation = SysReminderPresentation::Interrupt;
+    SysClockReminderSource source = SysClockReminderSource::None;
+    uint64_t event_id = 0;
+    uint64_t mailbox_sequence = 0;
+    SysMailboxKind mailbox = SysMailboxKind::Private;
+};
 
 /**
- * 提交一条待展示提醒。
- * 调用者必须位于主循环；服务在入队时复制全部内容属性，不保留调用方指针；排队后库编辑/切换语言不影响快照。
- * 队列满时返回 false，并保留已经排队的较早提醒。
- * mailbox_sequence 非零时，mailbox 与 sequence 一起标识待删除邮件；普通本地提醒保持默认值。
- * title 仅用于 Custom，立即复制；空值沿用当前语言默认标题。颜色同时作用于弹窗和后续解码。
+ * 唯一提交入口：先检查选项/去重/容量，再准备快照，最后持久化链条进度并无分配交接。
+ * 直接内容只复制不入库；随机/特殊由规则模块选择。失败不覆盖展示、不推进、不确认邮件。
+ * 返回QUEUED/PRESENTED/PREPARED，特殊立即触发沿用TRIGGERED或NOT_FOUND警告；
+ * 错误保留QUEUE_FULL、OUT_OF_MEMORY、SAVE_FAILED以及公共属性/投递选项校验结果。
  */
-bool SysReminder_Submit(
-    SysReminderKind kind,
-    const char *text = nullptr,
-    bool keep_stack = false,
-    uint16_t font_color = 0x07FF,
-    uint64_t mailbox_sequence = 0,
-    SysMailboxKind mailbox = SysMailboxKind::Private,
-    const char *title = nullptr);
-
-/** 与兼容bool入口相同，另保留QUEUE_FULL/OUT_OF_MEMORY/SAVE_FAILED，供命令准确返回失败原因。 */
-SysOpResult SysReminder_SubmitResult(SysReminderKind kind, const char *text = nullptr,
-    bool keep_stack = false, uint16_t font_color = 0x07FF, uint64_t mailbox_sequence = 0,
-    SysMailboxKind mailbox = SysMailboxKind::Private, const char *title = nullptr);
-
-/** 主循环消费提醒队列；PushNotify/Prescript 正在展示时会等待，不覆盖当前提醒。 */
+SysOpResult SysReminder_Submit(const PrescriptRequest &request, const DeliveryOptions &options = {});
+/** 显式取消计时会话时移除同来源尚未展示的提示；不撤销展示，不影响邮箱和其它来源。 */
+void SysReminder_CancelClock(SysClockReminderSource source);
+/** 主循环串行展示；PushNotify/Prescript忙时等待，队列中的全部内容属性已经冻结。 */
 void SysReminder_Update();
+
+/** 当前已交付的完整快照；由提醒出口拥有，库编辑/语言重载不会修改它。 */
+const PrescriptContent &SysReminder_Presented();

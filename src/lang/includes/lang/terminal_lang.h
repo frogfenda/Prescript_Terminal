@@ -79,6 +79,12 @@ namespace TerminalLang
         return !LOCKED || DEFAULT_LANG == lang;
     }
 
+    /** 普通指令自包含库位于FAT；PrescriptPath仍专指旧LittleFS文本导入源。 */
+    inline const char *OrdinaryLibraryPath(SystemLang_t lang)
+    {
+        return lang == LANG_ZH ? "/Resources/prescript/common/text/zh/prescripts.json" : "/Resources/prescript/common/text/en/prescripts.json";
+    }
+
     inline const char *PrescriptPath(SystemLang_t lang)
     {
         return lang == LANG_ZH ? "/zh/prescripts_zh.txt" : "/en/prescripts_en.txt";

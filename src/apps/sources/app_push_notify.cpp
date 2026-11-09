@@ -61,20 +61,6 @@ void PushNotify_Trigger_Prepared(bool keep_stack)
     }
 }
 
-/** 保留SPC.FIRE立即打断与从第一步重启的旧行为；失败时不覆盖当前展示或消费进度。 */
-static SysOpResult PushNotify_FireSpecial(const String &raw_id)
-{
-    String id = raw_id; id.trim();
-    if (id.isEmpty()) return SysOpResult::Error("EMPTY_ID");
-    const bool known = sysSpecials.hasID(id);
-    PrescriptContent snapshot; PrescriptSelection selection;
-    if (!sysSpecials.selectForced(id, snapshot, selection) || !sysSpecials.commit(selection))
-        return SysOpResult::Error("SAVE_FAILED");
-    SysPrescriptCatalog::Present(std::move(snapshot));
-    PushNotify_Trigger_Prepared(false);
-    return known ? SysOpResult::Ok("TRIGGERED", id) : SysOpResult::Warn("NOT_FOUND", id);
-}
-
 class AppPushNotify : public AppBase
 {
 private:
@@ -103,7 +89,7 @@ private:
     {
         HAL_Sprite_Clear();
 
-        const auto &res = SysPrescriptCatalog::Presented();
+        const auto &res = SysReminder_Presented();
         uint16_t color = show_text ? res.color : TFT_DARKGREY;
         drawAlarmFrame(color);
 
@@ -191,6 +177,8 @@ AppPushNotify instancePushNotify;
 AppBase *appPushNotify = &instancePushNotify;
 
 // ===== 【蓝牙命令区】PUSH 推送 / SPC 特殊指令 =====
+// TODO(推送协议统一)：TEXT/SHOW/NOW/FIRE目前仅作旧协议转接；后续统一外部命令，
+// 同步迁移手机/Web/NFC、ACK及同步协议后再删除旧别名。跟踪：docs/refactors/prescript-catalog.md。
 // SPC 组需要调用本页面的触发函数，因此和 PUSH 组一起放在推送应用里；特殊指令数据仍由 sysSpecials 管理。
 
 static const SysCmdArgSpec kPushTextArgs[] = {
@@ -200,7 +188,8 @@ static const SysCmdArgSpec kPushTextArgs[] = {
 // PUSH.TEXT：把一条自定义指令送入提醒队列，按顺序弹出。
 static void Cmd_PushText(SysCmdCtx &ctx, const SysCmdArgs &args)
 {
-    ctx.ack(SysReminder_SubmitResult(SysReminderKind::Custom, args.str(0), true));
+    DeliveryOptions options; options.presentation=SysReminderPresentation::ReturnToPrevious;
+    ctx.ack(SysReminder_Submit(PrescriptRequest::Direct(args.str(0)),options));
 }
 
 // PUSH.SHOW：固定三个字段；标题、颜色允许留空，正文为 Rest，原有 PUSH.TEXT 的正文语义保持不变。
@@ -225,14 +214,18 @@ static void Cmd_PushShow(SysCmdCtx &ctx, const SysCmdArgs &args)
             ctx.error("ARG_FORMAT", "title");
             return;
         }
-    ctx.ack(SysReminder_SubmitResult(SysReminderKind::Custom, args.str(2), true, color, 0,
-                                   SysMailboxKind::Private, args.str(0)));
+    PrescriptContentView content(args.str(2)); content.color=color;
+    // 旧SHOW的空标题仍代表默认标题；内部视图则允许用非空指针明确提供空标题。
+    content.title=args.len(0) ? args.str(0) : nullptr;
+    DeliveryOptions options; options.presentation=SysReminderPresentation::ReturnToPrevious;
+    ctx.ack(SysReminder_Submit(PrescriptRequest::Direct(content),options));
 }
 
-// PUSH.NOW：立即推送一条随机指令。
+// PUSH.NOW：保留旧命令名，实际按现有行为将随机指令排队。
 static void Cmd_PushNow(SysCmdCtx &ctx, const SysCmdArgs &)
 {
-    ctx.ack(SysReminder_SubmitResult(SysReminderKind::Random, nullptr, true));
+    DeliveryOptions options; options.presentation=SysReminderPresentation::ReturnToPrevious;
+    ctx.ack(SysReminder_Submit(PrescriptRequest::Random(),options));
 }
 
 static const SysCmdSpec kPushCmds[] = {
@@ -250,7 +243,8 @@ static const SysCmdArgSpec kSpcIdArgs[] = {
 // SPC.FIRE：强制触发指定特殊指令。
 static void Cmd_SpcFire(SysCmdCtx &ctx, const SysCmdArgs &args)
 {
-    ctx.ack(PushNotify_FireSpecial(args.string(0)));
+    DeliveryOptions options; options.delivery=SysReminderDelivery::Immediate;
+    ctx.ack(SysReminder_Submit(PrescriptRequest::Special(args.str(0)),options));
 }
 
 // SPC.TEXT：查询指定特殊指令当前的正文 → DAT {"id","text"}。

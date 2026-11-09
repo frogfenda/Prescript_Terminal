@@ -13,9 +13,10 @@
 - 当前版本按 HAL_Get_Screen_Width/Height 和当前字体行高计算可见行数、正文宽度和滚动条；
 - 删除交互改为“短按进入确认 → 短按继续删除 → 长按取消删除”，与用户当前交互约定一致。
 */
+#include "sys/resources/sys_ordinary_prescripts.h"
 #include "sys/app_base.h"
 #include "sys/app_manager.h"
-#include "sys/resources/sys_prescript_catalog.h"
+#include "sys/resources/sys_prescript.h"
 #include "sys/sys_config.h"
 #include "sys/sys_command_result.h"
 #include "sys/sys_command_registry.h"
@@ -31,7 +32,7 @@ static void Prescript_RegisterCommands();
 static SysOpResult DBArchive_AddText(SystemLang_t lang, const String &text)
 {
     String normalized = text; normalized.replace('\n', ' '); normalized.trim();
-    auto result = SysPrescriptCatalog::AddOrdinary(lang, normalized);
+    auto result = SysOrdinaryPrescripts::Add(lang, normalized);
     if (result.ok()) SysCommand_NotifyChanged("PRE");
     return result;
 }
@@ -39,10 +40,10 @@ static SysOpResult DBArchive_DeleteText(SystemLang_t lang, const String &text)
 {
     String normalized = text; normalized.replace('\n', ' '); normalized.trim();
     if (normalized.isEmpty()) return SysOpResult::Error("EMPTY_TEXT");
-    for (size_t i = 0; i < SysPrescriptCatalog::OrdinaryCount(lang); ++i) {
-        const auto *item = SysPrescriptCatalog::OrdinaryAt(lang, i);
+    for (size_t i = 0; i < SysOrdinaryPrescripts::Count(lang); ++i) {
+        const auto *item = SysOrdinaryPrescripts::At(lang, i);
         if (item && item->text == normalized) {
-            auto result = SysPrescriptCatalog::Delete(lang, item->id);
+            auto result = SysOrdinaryPrescripts::Delete(lang, item->id);
             if (result.ok()) SysCommand_NotifyChanged("PRE");
             return result;
         }
@@ -53,8 +54,8 @@ static SysOpResult DBArchive_DeleteText(SystemLang_t lang, const String &text)
 class AppPrescriptList : public AppBase
 {
 private:
-    size_t count() const { return SysPrescriptCatalog::OrdinaryCount(appManager.getLanguage()); }
-    const PrescriptContent *current() const { return SysPrescriptCatalog::OrdinaryAt(appManager.getLanguage(), current_idx); }
+    size_t count() const { return SysOrdinaryPrescripts::Count(appManager.getLanguage()); }
+    const PrescriptContent *current() const { return SysOrdinaryPrescripts::At(appManager.getLanguage(), current_idx); }
 
     int current_idx = 0;
     int m_scroll_offset = 0;
@@ -309,7 +310,7 @@ private:
         SYS_SOUND_GLITCH();
         delay(220);
 
-        const auto result = SysPrescriptCatalog::Delete(appManager.getLanguage(), m_delete_id);
+        const auto result = SysOrdinaryPrescripts::Delete(appManager.getLanguage(), m_delete_id);
         if (result.ok()) SysCommand_NotifyChanged("PRE");
         else Serial.printf("[指令档案] 删除未提交：%s。\n", result.code);
         m_delete_failed = !result.ok();
@@ -461,7 +462,7 @@ static void Cmd_PreDel(SysCmdCtx &ctx, const SysCmdArgs &args)
 // PRE.LIST：当前界面语言指令库的第 index 条 → {"t"}。
 static bool Stream_PreList(uint16_t index, JsonDocument &out)
 {
-    const auto *item = SysPrescriptCatalog::OrdinaryAt(appManager.getLanguage(), index);
+    const auto *item = SysOrdinaryPrescripts::At(appManager.getLanguage(), index);
     if (!item) return false;
     out["t"] = item->text.c_str();
     return true;

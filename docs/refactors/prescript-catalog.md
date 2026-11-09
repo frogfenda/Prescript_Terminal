@@ -1,90 +1,99 @@
-# 指令内容库基础重构（2026-11-06）
+# 指令格式与独立指令库（2026-11-09）
 
-本次落地独立内容、稳定身份、引用规则、模块状态和展示快照。外部 API 的整体重新设计、手机/Web 编辑器、云端同步/冲突合并不在本次范围。
+已完成统一内容格式、UUID、统一内部提交，以及普通/特殊/纺织机三类库的独立存储。三类库共享格式与机械读写工具，不共享正文池，也没有总索引文件。外部协议整体重设、手机/Web编辑器、云同步与冲突合并仍待后续。
 
-## 文件与所有权
+## 后续待办：统一外部推送协议（明确保留，尚未完成）
 
-| 文件 | 文件系统 | 负责内容 |
+- [ ] 设计统一外部推送命令，表达直接内容/随机/特殊来源及投递选项，开放公共属性的完整传递。
+- [ ] 迁移当前 `PUSH.TEXT`、`PUSH.SHOW`、`PUSH.NOW`、`SPC.FIRE`。四者现在只是转接到统一内部提交，外部接口尚未统一。
+- [ ] 同步迁移独立手机App、WebBLE、NFC、ACK、命令版本声明和协议文档，再决定何时移除旧命令和特殊别名。
+- [ ] 区分内容UUID与触发器/链条UUID，明确强制触发从第一步开始的语义，避免把内容推送当作进度重置。
+
+源码保留 `app_push_notify.cpp` 中的 `TODO(推送协议统一)`。特殊/纺织机参数编辑页面、显式状态重置/开关编辑、远端UUID增删改查和文件导出协议后续实现；本次只建立本地整库编辑与独立文件基础。
+
+## 文件布局与所有权
+
+FAT位于外挂NAND，由 `HAL::FatStorage` 管理；设备路径不带VFS挂载前缀 `/fat`。仓库 `fat_data/` 对应FAT根目录，`data/` 对应内部Flash的LittleFS默认镜像。
+
+| 设备路径 | 文件系统 | 所有者与内容 |
 | --- | --- | --- |
-| `/<zh,en>/prescripts.json` | LittleFS | 该语言全部独立指令、普通候选 ID、外部引用保护、schema/revision |
-| `/Resources/prescript/special/text/<zh,en>/specials.json` | FATFS | 纯特殊触发器、链条公共参数、按顺序排列的步骤引用 |
-| `/Resources/loom/text/<zh,en>/oracle.json` | FATFS | 分类、内容 ID、分类内相对权重 |
-| `/<zh,en>/prescript_state.json` | LittleFS | 链条 ID、下一步骤 ID、完成状态、开关 |
+| `/Resources/prescript/common/text/<zh,en>/prescripts.json` | FAT | `SysOrdinaryPrescripts`：普通指令，所有内容直接参与普通抽取 |
+| `/Resources/prescript/special/text/<zh,en>/specials.json` | FAT | `SysSpecials`：独立内容、纯特殊触发器、链条、步骤与概率 |
+| `/Resources/loom/text/<zh,en>/oracle.json` | FAT | `SysOracle`：独立内容、分类、分类内相对权重 |
+| `/<zh,en>/prescript_state.json` | LittleFS | `SysSpecials`：设备链条进度、完成状态、开关 |
 
-分区表保持不变。全部正文现在集中在 LittleFS 内容库，FATFS 规则不再重复存正文。
-一个内容可以被多个模块/链条引用，没有强制单一 owner。普通候选是显式 ID 集合，未加入普通候选的特殊/纺织机内容不会被普通随机误抽。
+共 **6个随资源提供的库文件＋2个由设备生成的状态文件**。音频路径保持现有目录。`.bak`和临时`.tmp`属于恢复文件，不计入正式8个文件。普通库也依赖FAT可用；FAT不可用时不写库，抽取显示错误/内置提示。LittleFS不再提供默认集中内容库，分区布局无需修改。
 
-## 身份与公共属性
+启动在FAT挂载和语言确定后由 `main.cpp` 加载普通库；`SysRes_Init`/语言切换加载特殊库和纺织机。普通库为既有列表/跨语言命令保留双语池，特殊/纺织机只持有当前语言。库、字符串、JSON树使用PSRAM优先分配；JSON树解析后释放。
 
-运行时 ID 为 16 字节，JSON 为标准 UUID 字符串。仓库默认资源已生成固定 UUIDv5，历史生成命名空间为 `5b9f6689-324d-48e6-9de5-0c242743cda7`；这些身份直接保存在资源中，运行时不再生成 UUIDv5。固件新增内容、旧设备本地 TXT 迁移用硬件随机 UUIDv4；迁移成功后持久化，编辑/重启不再生成。相同正文保留不同 ID；本地 TXT 不按行号跨设备共用身份。
+代码边界：`sys_prescript.{h,cpp}` 只负责公共内容格式、UUID、属性准备、库元数据编解码和可恢复JSON读写，不持有全局正文或展示快照。`sys_ordinary_prescripts.{h,cpp}` 只负责普通库。原集中模块 `sys_prescript_catalog`、全局Find、SetReferences、BlockDeletion和跨模块删除保护已移除。当前展示快照由 `SysReminder` 拥有。
 
-内容格式示例（ID 仅示意）：
+## 文件格式和身份
+
+三个库采用schema 2，同样的公共头部和 `contents` 数组：
 
 ```json
 {
-  "id": "646a65ff-8ac1-55d5-be69-952c2ca90316",
-  "text": "独立指令正文",
-  "title": "可选标题",
-  "color": "#00FFFF",
-  "audio": "default",
-  "apply_target": true,
-  "alert": false
+  "schema_version": 2,
+  "library_id": "d3146d1c-3d40-4ea0-aa52-9729816cb33d",
+  "kind": "special",
+  "revision": 1,
+  "lang": "ZH",
+  "contents": [
+    {
+      "id": "646a65ff-8ac1-55d5-be69-952c2ca90316",
+      "text": "独立指令正文",
+      "title": "可选标题",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": true,
+      "alert": false
+    }
+  ],
+  "pure_specials": [],
+  "character_chains": []
 }
 ```
 
-标题和颜色缺省时在快照中补当前语言默认标题、青色；显式空标题/黑色有效。音频 `default`（或缺省）使用通用收尾音，`none` 只静默收尾；解码过程音保留原行为。现支持稳定绑定 heads/tails/Ahab/procedure/final，未知绑定拒绝新格式。`apply_target` 控制本地收件人替换，`alert` 控制手动抽取先弹警报，两者独立。
+`kind` 为 `ordinary`、`special`、`oracle`。普通库没有规则数组；特殊库另含 `pure_specials` 和 `character_chains`；纺织机另含 `entries`。文件只包含本库内容，规则中的 `content_id` 必须在同文件 `contents` 中。特殊指令每一步仍然引用独立内容，正文不内嵌到步骤中；同库多个步骤可复用同一内容。
 
-内存 ABI 用 ESP32 编译期断言验证：
+库UUID表示整份库身份，内容UUID表示独立指令身份，触发器/链条/步骤也各有独立UUID。库类型与归属只存于库头，不在每条指令增加owner字段。默认六个库各自生成并固定库UUID，全部既有内容、触发器、链条、步骤UUID保持不变；本地新内容/迁移库使用硬件随机UUIDv4并立即持久化。复制到另一个库应生成新内容UUID，不建立跨库引用；本次未新增复制入口。
 
-| 字段 | 字节 |
-| --- | ---: |
-| UUID | 16 |
-| RGB565 | 2 |
-| 音频枚举 | 1 |
-| 标志位 | 1 |
-| 纯属性合计 | **20** |
-| 标题、正文所有权描述符各 8 字节 | 16 |
-| 完整固定结构（不含动态文字） | **36** |
+标题/颜色缺省时由 `SysPrescript::Prepare` 补默认标题和青色，显式空标题、黑色、false有效。`audio` 缺省/default使用通用收尾音，支持heads/tails/Ahab/procedure/final，拒绝未知绑定和已移除的none。`apply_target`控制收件人替换，`alert`控制手动警报，整体声音由系统音量控制。
 
-普通候选每条另存 16 字节 ID；特殊/纺织机引用另计。字符串与容器优先 PSRAM，JSON DOM 解析/写入后释放；容量余量、堆分配元数据和编辑时临时副本不包含在上述 36 字节内。
+ESP32 ABI断言保持：内容UUID16字节＋颜色2＋音频1＋标志1＝**纯属性20字节**；标题/正文描述符各8，完整固定结构36字节，动态文字另计。普通库不再重复保存每条16字节的候选ID数组。库UUID/版本为每库开销，不增加单条内容结构。
 
-## 特殊与纺织机规则
+## 编辑、删除和进度
 
-纯特殊触发器有独立触发器 UUID、内容 ID、`probability_bp`。
-链条有独立链条 UUID、名称、`base_bp`、`increment_bp`、`max_bp`、steps。
-每一步有独立步骤 UUID 和内容 ID；同一内容可以重复出现在不同步骤。基础/递增/上限都以万分位为单位，10000=100%；所有可达最大概率之和不得超过 10000。保留链条优先、纯特殊随后、普通兜底的顺序，不做相对权重归一化。
+普通库按UUID增删改，保存失败回滚；每条内容直接是候选，因此删除就是删除该普通指令，不再区分候选移除/全局内容删除，也不检查其它库的健康状态。
 
-状态按 chain_id + next_step_id 保存，完成状态单列。步骤重排不改变“下一步是谁”，概率增量仍按该步骤在新顺序中的位置计算。删除当前待执行步骤返回 STATE_CONFLICT，不静默重置。规则整体替换支持新增链条、名称/概率参数/步骤/纯特殊触发器修改；先保存新链条状态，再发布规则，失败最多留下未使用状态。已移除链条的状态暂保留，避免误删后丢进度。
+`SysOrdinaryPrescripts::ReplaceLibrary`、`SysSpecials::replaceLibrary` 和 `SysOracle::replaceLibrary` 接受完整文件，校验同库UUID、expected_revision以及文档revision=expected+1；再校验全部正文、本库引用和业务规则。正文和规则一次同文件提交，保存成功后才发布新内存库。不同库UUID返回LIBRARY_CONFLICT；USB手动整文件替换在下次启动/该资源重载时生效，不做自动合并或实时文件监视。
 
-`SysSpecials::replaceRules` / `SysOracle::replaceRules` 是本地主循环的整体编辑基础，需 expected_revision 和文档 revision=expected+1；全部校验后提交，失败不发布半份规则。编辑 UI、状态重置/开关编辑 API、导出协议后续再做。
+特殊触发器保存 `probability_bp`；链条保存 `base_bp`、`increment_bp`、`max_bp` 和按顺序的steps。概率以万分位表示，10000=100%；所有链条可达最大概率与纯特殊概率之和不能超过10000。保持链条优先、纯特殊随后、普通兜底，普通和特殊是抽取流程合作，并非共享存储。
 
-纺织机规则为 entries（content_id/type/weight）。同分类同内容重复引用拒绝，正整数权重按分类相对抽取，总和不超过 INT32_MAX。运行期间按每个语言/分类的上次内容 UUID 避免连续重复，单候选允许重复；这项短期去重状态不写 Flash，重启重新开始。
+链条状态仍按链条UUID＋下一步骤UUID存于原LittleFS路径，schema 1保持不变。重排步骤继续执行原待执行UUID，概率增量按新顺序位置计算；删除待执行步骤返回STATE_CONFLICT，不能静默重置。新链条先保存初始状态再提交库，失败最多留下未使用状态；已移除链条的状态暂保留。更新资源不附带设备进度，分享文件不会分享个人进度。
 
-## 编辑、删除和展示
+纺织机entries保存 `content_id/type/weight`，同分类同内容重复引用拒绝，权重必须为正整数，各分类总和不超过INT32_MAX。每语言/分类的上次UUID只保存在RAM，用于连续去重，单候选允许重复。
 
-- 内容更新按 ID 保存，普通候选与正文在同一 JSON 提交；删除失败回滚内存。
-- `Delete(lang,id)` 永久删除内容前由规则模块校验对应语言的磁盘引用，同时保护当前仍加载的规则。被引用返回 IN_USE；FAT不可用、旧格式规则或版本损坏时返回 REFERENCES_UNAVAILABLE，防止误删。
-- `RemoveOrdinary(lang,id)` 只移出普通候选，不删除内容；永久删除和移除引用是两项操作。
-- 档案页确认删除锁定当时展示的 UUID，远端删除造成下标移动时不会删错另一条。
-- 展示快照拥有完整标题/正文及全部属性。内容库编辑、vector 扩容或语言重载不会改变已排队内容。
-- 随机推送在入队时选内容，容量与文字复制成功后才持久化链条进度，随后无分配移动入队。队列满/复制失败/进度保存失败不消费进度。取消已接受的提醒不会倒退链条；队列仍是 RAM 队列，断电会丢未展示提醒，不提供端到端恰好一次投递。
-- 展示所有者为 SysPrescriptCatalog，不再借用 sysSpecials 的可变全局结果。纺织机仍保留自己的页面流程与快照。
+## 统一内部提交和外部兼容
 
-## 迁移和恢复
+唯一提交入口 `SysReminder_Submit(request, options)` 保持。Direct同步借用完整属性并复制快照，不写库；Random交给特殊抽取流程；Special接受触发器/链条UUID和兼容别名。Queue排队、Immediate立即展示、CurrentPage仅交付当前页面；页面返回策略、计时去重标识、邮件确认标识独立保存。
 
-新内容 JSON 不存在时才导入旧 TXT（旧语言目录优先，/assets 为兜底）。TXT 原件保留。有效的新空候选库是权威数据，不重新导入旧 TXT。仓库 TXT 暂留为旧格式示例/迁移输入；新固件编辑只写 JSON，今后维护默认指令应编辑 JSON。
+当前展示通过 `SysReminder_Presented()` 读取，队列和已展示内容均拥有文字；各库编辑、扩容或语言切换不会替换已有快照。队列满/文字复制失败/状态保存失败不消费链条进度，状态提交后只移动快照。取消已接受提醒不倒退进度；RAM队列断电会丢未展示消息，不提供端到端恰好一次投递。纺织机继续自己的页面与快照，复用公共Prepare，不强制进提醒队列。
 
-旧 specials/oracle JSON 转换和旧配置进度迁移已移除。规则只接受新格式，旧文件保留现场但不会自动导入；部署时应同时提供配套内容与规则。链条缺少 UUID 状态时默认启用、从第一步开始；已有 UUID 状态继续恢复，不再读取或写入旧配置进度/开关。特殊规则保留 `legacy_id` 仅服务于现有 SPC 协议；链条旧下标和纺织机旧 ID 已删除。
+旧协议仍保留：PUSH.TEXT默认属性；SHOW支持旧标题/颜色且空标题表示默认；NOW随机排队；SPC.FIRE立即中断且链条从第一步开始，未知ID返回WARN。PRE.ADD/DEL仍是语言＋正文、删除首条同文，LIST仍为 `{t}`；这些命令已转接普通库。SPC.TEXT预览不推进，legacy_id仅用于旧客户端兼容。未改变手机/Web协议。
 
-每次写入：tmp → 检查写入长度 → 回读解析 → 正式文件轮换 bak → tmp 重命名正式文件。启动优先正式文件，语法解析失败或正式文件不存在时尝试 bak；遗留 tmp 不视为提交成功。正式 JSON 语法有效但 schema/引用/状态不合法时保留现场、停用相应模块，**不自动用旧备份覆盖语义损坏或未知版本**。这不是跨文件事务：内容和引用先保存，规则随后提交，失败可能留下未引用内容/保守的引用保护，但不发布悬空规则。FAT 物理掉电一致性仍需实机验证。
+## 升级、迁移与恢复
 
-升级必须保持内容 JSON 与新引用规则配套。只替换为新规则而没有对应内容，模块会拒绝加载；已有自定义 TXT 的设备应优先让固件迁移旧文件，避免刷默认 LittleFS 覆盖用户数据。
+新版完整库是权威数据，包括空库。普通库目标文件及bak都不存在时，优先从旧LittleFS集中 `/<lang>/prescripts.json` 按ordinary集合提取，保留内容UUID；集中库不存在才导入原语言目录TXT，最后/assets TXT兜底。同文TXT生成不同UUID，成功写FAT后重启沿用。
 
-## 兼容性和验证
+特殊/纺织机原路径仍是上一版schema 1 UUID引用规则时，从旧集中库提取规则实际引用的内容，组合完整schema 2文件；完整校验通过、保存成功才使用新库。只迁移上一版UUID格式，无版本的更早JSON仍拒绝。旧集中JSON/TXT原件不删除，迁移失败保留原规则，可在故障解除后重试；新版schema 2文件不读取旧集中库。
 
-PRE.ADD/DEL 原来的语言+正文和首条同文删除语义保持，LIST 仍返回 `{t}`；UUID 删除入口在固件内容库中，新的远端 UUID 编辑协议尚未添加。SPC 返回旧 legacy_id 兼容客户端，内部使用 UUID，同时支持 36 字符 UUID 查询/强制触发。SPC.TEXT 预览下一步不推进；SPC.FIRE 保留立即打断、链条从第一条重启的旧语义。PUSH.TEXT/SHOW/NOW 的字段形状保持，写入错误准确返回 OUT_OF_MEMORY / SAVE_FAILED / QUEUE_FULL。
+已有设备建议：先备份并保留旧LittleFS集中JSON、旧FAT UUID规则和状态，再更新固件，让首次启动迁移自定义数据。**在迁移之前复制默认普通库到FAT会使其成为权威库，旧自定义普通库不会再自动导入。** 新设备或明确要替换为默认库时，直接复制六份配套资源；导出/替换特殊库无需复制状态文件。不要为了本次拆分重刷默认LittleFS覆盖个人配置/进度。
 
-验证命令：
+写入继续采用tmp→长度检查→回读解析→轮换bak→重命名正式文件。启动只读正式/bak，语法有效但schema、引用、进度不合法时保留现场并停用该库，不以旧备份悄悄回滚语义错误。无效特殊/纺织机不会阻止普通库编辑。FAT物理掉电一致性和USB实际文件操作仍需真机验证，宿主故障注入不替代硬件测试。
+
+## 验证
 
 ```powershell
 python tools/prescript/validate_catalog.py
@@ -92,6 +101,7 @@ python tests/prescript/run_catalog.py
 python tests/protocol/run_protocol.py
 python tests/clocks/run_clock_services.py
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e esp32-s3
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e esp32-s3 -t buildfs
 ```
 
-新增宿主测试编译真实模块，覆盖 UUIDv4 生成/UUID 解析、重复正文精确删除、RGB565全部65536颜色往返、引用保护、快照内存失败、旧TXT导入、旧规则JSON拒绝且原件不变、新链条初始状态、重排后按ID恢复、版本冲突、短写/重命名失败/备份恢复、队列满及保存失败不推进。真机显示/存储掉电/休眠恢复未替代为宿主验证。
+资源校验覆盖六份库元数据、UUID、公共属性、本库引用、概率和权重。宿主联测覆盖集中库/TXT迁移、原UUID/进度延续、迁移保存失败重试、旧源保留、新版权威、普通/特殊/纺织机故障隔离、跨库引用拒绝、整库保存失败不发布、库身份/版本冲突、待执行步骤删除冲突，以及统一推送的属性、队列、邮箱确认、旧命令兼容。未自动烧录。

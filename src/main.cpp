@@ -10,6 +10,7 @@
 #include "sys/sys_auto_push.h"
 #include "sys/sys_ble.h"
 #include "sys/storage/sys_fs.h"
+#include "sys/resources/sys_ordinary_prescripts.h"
 #include "sys/sys_boot_test.h"
 #include "hal/hal.h"
 #include "sys/app_manager.h"
@@ -66,10 +67,10 @@ void setup()
 
     /*
      * 先把配置中的语言写入 AppManager。
-     * 这样LittleFS普通指令和后续SysRes_Init都能按正确语言加载资源。
+     * 这样FAT普通指令和后续SysRes_Init都能按正确语言加载资源。
      */
     appManager.loadLanguageFromConfig();
-    SysFS_Load_Prescripts();
+    SysOrdinaryPrescripts::Load();
 
     /*
      * SysTime_Init 设置时区并从板载 RTC 恢复时间；RTC 不可信时等待网络或手动校时。

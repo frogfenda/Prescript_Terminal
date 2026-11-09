@@ -1,13 +1,15 @@
 /*
-【模块职责】只保存特殊触发和链条引用，各步骤都是可独立编辑的内容。
+【模块职责】独立拥有特殊库的内容、触发器和链条；步骤通过本库内容UUID引用，不依赖普通库。
 【状态所有权】进度单独按链条UUID/下一步骤UUID持久化；缺失状态的链条默认启用并从第一步开始。
 【线程约束】启动或主循环串行调用，预览不推进；状态保存失败则拒绝本次接收。
 */
+#include "sys/resources/sys_ordinary_prescripts.h"
 #include "sys/resources/sys_specials.h"
 #include "sys/sys_constants.h"
 #include "sys/sys_psram_json.h"
 #include "hal/hal_fat_storage.h"
 #include <algorithm>
+#include <LittleFS.h>
 SysSpecials sysSpecials;
 namespace {
 struct Pure { PrescriptId id, content; SysPsramString alias; uint16_t probability = 0; };
@@ -18,7 +20,7 @@ struct Chain {
     SysPsramVector<Step> steps;
     uint16_t base = 0, increment = 0, cap = 0;
 };
-struct Rules { SysPsramVector<Pure> pure; SysPsramVector<Chain> chains; uint32_t revision = 0; };
+struct Rules { PrescriptLibrary library; SysPsramVector<Pure> pure; SysPsramVector<Chain> chains; };
 struct State { PrescriptId chain, next; bool enabled = true, completed = false; };
 Rules s_rules;
 SysPsramVector<State> s_states;
@@ -29,20 +31,22 @@ bool Matches(const PrescriptId &id, const SysPsramString &alias, const String &q
     PrescriptId parsed;
     return (!alias.isEmpty() && alias == query) || (parsed.parse(query.c_str()) && parsed == id);
 }
-void Unique(SysPsramVector<PrescriptId> &ids, const PrescriptId &id) {
-    if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
-}
-SysPsramVector<PrescriptId> References(const Rules &rules) {
-    SysPsramVector<PrescriptId> ids;
-    for (const auto &p : rules.pure) Unique(ids,p.content);
-    for (const auto &c : rules.chains) for (const auto &s : c.steps) Unique(ids,s.content);
-    return ids;
+// 只兼容上一版集中正文＋UUID规则，已废弃的无版本JSON不再恢复。
+// 完整内容/规则校验成功前只构造内存文档，不写FAT、不修改原集中库。
+bool UpgradeLegacy(JsonDocument &doc, SystemLang_t lang) {
+    if (!doc["schema_version"].is<unsigned>() || doc["schema_version"].as<unsigned>() != 1 ||
+        !doc["revision"].is<uint32_t>() || strcmp(doc["lang"] | "", TerminalLang::Code(lang)) ||
+        !doc["pure_specials"].is<JsonArray>() || !doc["character_chains"].is<JsonArray>()) return false;
+    JsonDocument references(SysPsramJsonAllocator::Instance()); JsonArray ids = references.to<JsonArray>();
+    for (JsonObjectConst pure : doc["pure_specials"].as<JsonArrayConst>()) ids.add(pure["content_id"]);
+    for (JsonObjectConst chain : doc["character_chains"].as<JsonArrayConst>())
+        for (JsonObjectConst step : chain["steps"].as<JsonArrayConst>()) ids.add(step["content_id"]);
+    return !references.overflowed() && SysPrescript::MigrateLibrary(lang, "special", ids, doc);
 }
 bool Parse(const JsonDocument &doc, SystemLang_t lang, Rules &out) {
-    if (doc["schema_version"] != 1 || !doc["revision"].is<uint32_t>() ||
-        strcmp(doc["lang"] | "",TerminalLang::Code(lang)) ||
-        !doc["pure_specials"].is<JsonArrayConst>() || !doc["character_chains"].is<JsonArrayConst>()) return false;
-    Rules rules; rules.revision = doc["revision"];
+    if (!doc["pure_specials"].is<JsonArrayConst>() || !doc["character_chains"].is<JsonArrayConst>()) return false;
+    Rules rules;
+    if (!SysPrescript::DecodeLibrary(doc, lang, "special", rules.library)) return false;
     SysPsramVector<PrescriptId> identities; SysPsramTextList aliases;
     auto identity = [&](JsonVariantConst value, PrescriptId &id) {
         if (!id.parse(value.as<const char *>()) || std::find(identities.begin(),identities.end(),id) != identities.end()) return false;
@@ -56,7 +60,7 @@ bool Parse(const JsonDocument &doc, SystemLang_t lang, Rules &out) {
         aliases.push_back(text); return true;
     };
     auto content = [&](JsonVariantConst value, PrescriptId &id) {
-        return id.parse(value.as<const char *>()) && SysPrescriptCatalog::Find(lang,id);
+        return id.parse(value.as<const char *>()) && SysPrescript::Find(rules.library,id);
     };
     uint32_t maximum = 0;
     for (JsonObjectConst obj : doc["pure_specials"].as<JsonArrayConst>()) {
@@ -106,7 +110,7 @@ bool SaveState(SystemLang_t lang) {
         if (!s.completed) o["next_step_id"]=s.next.string();
         o["completed"]=s.completed; o["enabled"]=s.enabled;
     }
-    if (!SysPrescriptCatalog::WriteJson(LittleFS,StatePath(lang),doc)) return false;
+    if (!SysPrescript::WriteJson(LittleFS,StatePath(lang),doc)) return false;
     ++s_revision; return true;
 }
 bool LoadState(SystemLang_t lang) {
@@ -114,7 +118,7 @@ bool LoadState(SystemLang_t lang) {
     const bool exists=LittleFS.exists(StatePath(lang)) || LittleFS.exists(String(StatePath(lang))+".bak");
     if (exists) {
         JsonDocument doc(SysPsramJsonAllocator::Instance());
-        if (!SysPrescriptCatalog::ReadJson(LittleFS,StatePath(lang),doc) || (!doc["schema_version"].is<unsigned>() || doc["schema_version"].as<unsigned>()!=1) ||
+        if (!SysPrescript::ReadJson(LittleFS,StatePath(lang),doc) || (!doc["schema_version"].is<unsigned>() || doc["schema_version"].as<unsigned>()!=1) ||
             !doc["revision"].is<uint32_t>() || strcmp(doc["lang"]|"",TerminalLang::Code(lang)) || !doc["chains"].is<JsonArray>()) return false;
         s_revision=doc["revision"];
         for (JsonObjectConst obj : doc["chains"].as<JsonArrayConst>()) {
@@ -140,27 +144,30 @@ bool LoadState(SystemLang_t lang) {
     return (!added && exists) || SaveState(lang);
 }
 bool Snapshot(SystemLang_t lang,const PrescriptId &id,PrescriptContent &out) {
-    const auto *content=SysPrescriptCatalog::Find(lang,id);
-    return content && SysPrescriptCatalog::Snapshot(*content,lang,out);
+    const auto *content=SysPrescript::Find(s_rules.library,id);
+    return content && SysPrescript::Prepare(*content,lang,out).ok();
 }
 }
 void SysSpecials::begin(SystemLang_t lang) {
     current_lang_=lang; s_ready=false; s_rules=Rules{}; s_states.clear();
     JsonDocument doc(SysPsramJsonAllocator::Instance()); Rules parsed;
-    if (!HAL::FatStorage::IsMountedForEsp() || !SysPrescriptCatalog::Ready(lang) ||
-        !SysPrescriptCatalog::ReadJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(lang),doc) ||
-        !Parse(doc,lang,parsed) || !SysPrescriptCatalog::SetReferences(lang,"special",References(parsed))) {
-        SysPrescriptCatalog::BlockDeletion(lang);
-        Serial.println("[特殊指令] 规则不可用，保留原文件；本次仅允许抽取普通指令。"); return;
+    if (!HAL::FatStorage::IsMountedForEsp() ||
+        !SysPrescript::ReadJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(lang),doc)) {
+        Serial.println("[特殊指令] 指令库不可用，保留原文件；本次仅允许抽取普通指令。"); return;
+    }
+    const bool migrate = doc["schema_version"].is<unsigned>() && doc["schema_version"].as<unsigned>() == 1;
+    if ((migrate && !UpgradeLegacy(doc,lang)) || !Parse(doc,lang,parsed) ||
+        (migrate && !SysPrescript::WriteJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(lang),doc))) {
+        Serial.println("[特殊指令] 内容、规则或迁移保存失败，已停用特殊抽取并保留原数据。"); return;
     }
     s_rules=std::move(parsed);
     if (!LoadState(lang)) { Serial.println("[特殊指令] 进度文件不可用，已停用特殊抽取，未重置旧进度。"); return; }
     s_ready=true;
 }
 bool SysSpecials::selectRandom(PrescriptContent &out,PrescriptSelection &selection) const {
-    PrescriptSelection selected; selected.lang=current_lang_; selected.revision=s_revision; selected.rules_revision=s_rules.revision;
+    PrescriptSelection selected; selected.lang=current_lang_; selected.revision=s_revision; selected.rules_revision=s_rules.library.revision;
     uint32_t cumulative=0; const unsigned roll=random(10000);
-    if (s_ready) {
+    if (s_ready && HAL::FatStorage::IsMountedForEsp()) {
         for (const auto &chain : s_rules.chains) {
             const State *state=GetState(chain.id);
             if (!state || !state->enabled || state->completed) continue;
@@ -177,12 +184,12 @@ bool SysSpecials::selectRandom(PrescriptContent &out,PrescriptSelection &selecti
             if (roll<cumulative) { if (!Snapshot(current_lang_,pure.content,out)) return false; selection=selected; return true; }
         }
     }
-    if (!SysPrescriptCatalog::DrawOrdinary(current_lang_,out)) return false;
+    if (!SysOrdinaryPrescripts::Draw(current_lang_,out)) return false;
     selection=selected; return true;
 }
 bool SysSpecials::selectForced(const String &id,PrescriptContent &out,PrescriptSelection &selection) const {
-    PrescriptSelection selected; selected.lang=current_lang_; selected.revision=s_revision; selected.rules_revision=s_rules.revision;
-    if (s_ready) {
+    PrescriptSelection selected; selected.lang=current_lang_; selected.revision=s_revision; selected.rules_revision=s_rules.library.revision;
+    if (s_ready && HAL::FatStorage::IsMountedForEsp()) {
         for (const auto &pure : s_rules.pure) if (Matches(pure.id,pure.alias,id)) {
             if (!Snapshot(current_lang_,pure.content,out)) return false;
             selection=selected; return true;
@@ -194,14 +201,15 @@ bool SysSpecials::selectForced(const String &id,PrescriptContent &out,PrescriptS
         }
     }
     const String message=current_lang_==LANG_ZH ? String("未找到对应条目：ID [")+id+"]" : String("No matching entry: ID [")+id+"]";
-    if (!SysPrescriptCatalog::Custom(current_lang_,message.c_str(),0xF800,
-        current_lang_==LANG_ZH ? "【 指令检索失败 】" : "[ PRESCRIPT NOT FOUND ]",out)) return false;
-    out.flags=(out.flags|PRESCRIPT_ALERT)&~PRESCRIPT_APPLY_TARGET;
+    PrescriptContentView content(message.c_str()); content.color=0xF800;
+    content.title=current_lang_==LANG_ZH ? "【 指令检索失败 】" : "[ PRESCRIPT NOT FOUND ]";
+    content.flags=PRESCRIPT_ALERT;
+    if (!SysPrescript::Prepare(content,current_lang_,out).ok()) return false;
     selection=selected; return true;
 }
 bool SysSpecials::commit(const PrescriptSelection &selection) {
     if (selection.chain.empty()) return true;
-    if (!s_ready || selection.lang!=current_lang_ || selection.revision!=s_revision || selection.rules_revision!=s_rules.revision) return false;
+    if (!s_ready || selection.lang!=current_lang_ || selection.revision!=s_revision || selection.rules_revision!=s_rules.library.revision) return false;
     for (const auto &chain : s_rules.chains) if (chain.id==selection.chain) {
         for (auto &state : s_states) if (state.chain==chain.id) {
             if (state.next!=selection.expected) return false;
@@ -215,44 +223,29 @@ bool SysSpecials::commit(const PrescriptSelection &selection) {
     }
     return false;
 }
-bool SysSpecials::rollRandom() {
-    PrescriptContent content; PrescriptSelection selection;
-    if (!selectRandom(content,selection) || !commit(selection)) return false;
-    SysPrescriptCatalog::Present(std::move(content)); return true;
-}
 bool SysSpecials::hasID(const String &id) const {
-    if (!s_ready) return false;
+    if (!s_ready || !HAL::FatStorage::IsMountedForEsp()) return false;
     for (const auto &p : s_rules.pure) if (Matches(p.id,p.alias,id)) return true;
     for (const auto &c : s_rules.chains) if (Matches(c.id,c.alias,id)) return true;
     return false;
 }
-bool SysSpecials::references(SystemLang_t lang, SysPsramVector<PrescriptId> &out) {
-    JsonDocument doc(SysPsramJsonAllocator::Instance()); Rules rules;
-    if (!HAL::FatStorage::IsMountedForEsp() || !SysPrescriptCatalog::ReadJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(lang),doc) ||
-        !Parse(doc,lang,rules)) return false;
-    out = References(rules);
-    // USB移除了磁盘引用但当前语言还没重载时，旧抽取规则仍在使用，保护两者并集。
-    if (s_ready && sysSpecials.current_lang_ == lang)
-        for (const auto &id : References(s_rules)) Unique(out,id);
-    return true;
-}
 bool SysSpecials::textByID(const String &id,String &out) const {
-    if (!s_ready) return false;
+    if (!s_ready || !HAL::FatStorage::IsMountedForEsp()) return false;
     for (const auto &p : s_rules.pure) if (Matches(p.id,p.alias,id)) {
-        const auto *item=SysPrescriptCatalog::Find(current_lang_,p.content); if (!item) return false;
+        const auto *item=SysPrescript::Find(s_rules.library,p.content); if (!item) return false;
         out=item->text.c_str(); return true;
     }
     for (const auto &c : s_rules.chains) if (Matches(c.id,c.alias,id)) {
         const State *state=GetState(c.id); if (!state) return false;
         const size_t pos=Position(c,*state);
         if (pos==c.steps.size()) { out=current_lang_==LANG_ZH ? "[ 观测日志已完结，目标数据归档完毕 ]" : "[ OBSERVATION LOG COMPLETE. TARGET DATA ARCHIVED. ]"; return true; }
-        const auto *item=SysPrescriptCatalog::Find(current_lang_,c.steps[pos].content); if (!item) return false;
+        const auto *item=SysPrescript::Find(s_rules.library,c.steps[pos].content); if (!item) return false;
         out=item->text.c_str(); return true;
     }
     return false;
 }
 bool SysSpecials::metaAt(uint16_t index,JsonDocument &out) const {
-    if (!s_ready) return false;
+    if (!s_ready || !HAL::FatStorage::IsMountedForEsp()) return false;
     PrescriptId content;
     if (index<s_rules.pure.size()) {
         const auto &p=s_rules.pure[index]; content=p.content;
@@ -269,10 +262,11 @@ bool SysSpecials::metaAt(uint16_t index,JsonDocument &out) const {
     char color[8]; snprintf(color,sizeof(color),"0x%04X",snapshot.color);
     out["color"]=color; out["title"]=snapshot.title.c_str(); return true;
 }
-SysOpResult SysSpecials::replaceRules(const JsonDocument &doc,uint32_t expected) {
+SysOpResult SysSpecials::replaceLibrary(const JsonDocument &doc,uint32_t expected) {
     if (!s_ready || !HAL::FatStorage::IsMountedForEsp()) return SysOpResult::Error("STORAGE_UNAVAILABLE");
-    if (expected!=s_rules.revision || expected==UINT32_MAX || doc["revision"].as<uint32_t>()!=expected+1) return SysOpResult::Error("REVISION_CONFLICT");
-    Rules next; if (!Parse(doc,current_lang_,next)) return SysOpResult::Error("INVALID_RULES");
+    if (expected!=s_rules.library.revision || expected==UINT32_MAX || doc["revision"].as<uint32_t>()!=expected+1) return SysOpResult::Error("REVISION_CONFLICT");
+    Rules next; if (!Parse(doc,current_lang_,next)) return SysOpResult::Error("INVALID_LIBRARY");
+    if (next.library.id != s_rules.library.id) return SysOpResult::Error("LIBRARY_CONFLICT");
     // 正在等待的步骤不能被隐式删除/重置；编辑器须先显式处理进度。
     for (const auto &c : next.chains) {
         const State *state=GetState(c.id);
@@ -288,11 +282,8 @@ SysOpResult SysSpecials::replaceRules(const JsonDocument &doc,uint32_t expected)
     if (added && !SaveState(current_lang_)) {
         s_states.resize(previous_states); return SysOpResult::Error("SAVE_FAILED");
     }
-    auto refs=References(s_rules); for (const auto &id : References(next)) Unique(refs,id);
-    if (!SysPrescriptCatalog::SetReferences(current_lang_,"special",refs) ||
-        !SysPrescriptCatalog::WriteJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(current_lang_),doc)) return SysOpResult::Error("SAVE_FAILED");
+    // 内容和规则是同一文件提交；保存失败不发布新内存库，已创建状态最多成为未使用记录。
+    if (!SysPrescript::WriteJson(HAL::FatStorage::FileSystem(),TerminalLang::SpecialsPath(current_lang_),doc)) return SysOpResult::Error("SAVE_FAILED");
     s_rules=std::move(next);
-    // 收紧保护失败仍保留旧/新引用并集，最多暂时拒删，不会误删使用中的正文。
-    SysPrescriptCatalog::SetReferences(current_lang_,"special",References(s_rules));
     return SysOpResult::Ok("UPDATED");
 }

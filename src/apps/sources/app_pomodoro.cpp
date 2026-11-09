@@ -52,12 +52,12 @@ void FlushNotices()
     const auto lang=TerminalLang::Normalize(sysConfig.language);
     const uint64_t key=(uint64_t)session<<8;
     // 自然专注完成保留当前页面返回关系，休息结束则按整轮完成明确中断；手动提前结束由确认页说明。
-    if (work_notice && SysReminder_SubmitClock(SysClockReminderSource::Pomodoro,key|1,
-            SysReminderPresentation::ReturnToPrevious,SysReminderKind::Custom,
-            UIStrings::PomodoroWorkDonePrescript(lang)))
+    DeliveryOptions options; options.source=SysClockReminderSource::Pomodoro; options.event_id=key|1;
+    options.presentation=SysReminderPresentation::ReturnToPrevious;
+    if (work_notice && SysReminder_Submit(PrescriptRequest::Direct(UIStrings::PomodoroWorkDonePrescript(lang)),options).ok())
         { work_notice=false; ++revision; }
-    if (!work_notice && rest_notice && SysReminder_SubmitClock(SysClockReminderSource::Pomodoro,key|2,
-            SysReminderPresentation::Interrupt,SysReminderKind::Custom,UIStrings::PomodoroRestDonePrescript(lang)))
+    options.event_id=key|2; options.presentation=SysReminderPresentation::Interrupt;
+    if (!work_notice && rest_notice && SysReminder_Submit(PrescriptRequest::Direct(UIStrings::PomodoroRestDonePrescript(lang)),options).ok())
         { rest_notice=false; ++revision; }
 }
 void RecordFocusCompletion()

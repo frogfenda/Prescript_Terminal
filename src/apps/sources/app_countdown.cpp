@@ -48,8 +48,8 @@ void Countdown_Update(uint32_t now)
         }
     }
     if (!timer.snapshot(now).completion_pending) return;
-    if (SysReminder_SubmitClock(SysClockReminderSource::Countdown,session,SysReminderPresentation::Interrupt,
-                                SysReminderKind::Custom,completion_text.c_str())) {
+    DeliveryOptions options; options.source=SysClockReminderSource::Countdown; options.event_id=session;
+    if (SysReminder_Submit(PrescriptRequest::Direct(completion_text.c_str()),options).ok()) {
         timer.acknowledge(); Feedback_PlayTimerDone();
     }
 }

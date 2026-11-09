@@ -1,7 +1,83 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "library_id": "781f6459-1150-4307-a42b-1f0f6d528d04",
+  "kind": "oracle",
   "revision": 1,
   "lang": "EN",
+  "contents": [
+    {
+      "id": "fdceb26d-0d7a-5c9b-8aa3-b7d1c5edb9ca",
+      "text": "The loom has answered your thought.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "1e1e79e0-db43-5b75-94d9-79843fcd1199",
+      "text": "The answer you seek has been written into the next prescript.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "1991a36f-942c-5a73-83ca-9c992303b8c9",
+      "text": "Do not explain it yet. Let the silence finish weaving.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "7ae2c9c3-3f80-54b1-8086-f51722c90316",
+      "text": "The third thought is not the answer. It is bait.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "d9277dd8-2984-538a-b879-8bc25bc14e7f",
+      "text": "You already know what to do. You only deny the cost.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "bfcc27de-6eb4-5c3f-87f3-ea4bd8043391",
+      "text": "Wait until the noise becomes regular.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "99e6b32a-ab49-558b-b44d-1cc666dacd8c",
+      "text": "Eat noodles. Do not ask why.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "95193889-4a92-5d13-bd42-246eadd8f4f5",
+      "text": "Eat something warm today.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "372760cd-963c-5314-81c1-65365fe7ee2b",
+      "text": "Rice, with something salty. Your system needs stability.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "374df61b-1451-5eb3-b450-4bfa441a619f",
+      "text": "Dumplings. Sealed things are safer.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "c7b1e087-869a-515e-95bc-8a4c75167a06",
+      "text": "Fried food is allowed. Do not mistake it for an answer.",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "9dd68f42-d327-52e7-b7ee-c55a24726147",
+      "text": "Soup. This is not a day for dry decisions.",
+      "apply_target": false,
+      "alert": false
+    }
+  ],
   "entries": [
     {
       "content_id": "fdceb26d-0d7a-5c9b-8aa3-b7d1c5edb9ca",

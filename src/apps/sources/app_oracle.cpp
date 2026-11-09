@@ -192,13 +192,11 @@ private:
         stopOwnedAudio(15);
         AudioPlayOptions options;
         options.bus = content.audio == AudioAssetId::Ahab ? AudioBus::Voice : AudioBus::Effect;
-        if (!(content.flags & PRESCRIPT_SILENT)) {
-            const AudioAssetId audio = content.audio == AudioAssetId::Invalid ? AudioAssetId::Final : content.audio;
-            m_audio_handle = sysAudio.play(audio, options);
-            if (m_audio_handle == AUDIO_HANDLE_INVALID && audio != AudioAssetId::Final)
-                m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
-            if (m_audio_handle == AUDIO_HANDLE_INVALID) Feedback_PlayDecodeComplete();
-        }
+        const AudioAssetId audio = content.audio == AudioAssetId::Invalid ? AudioAssetId::Final : content.audio;
+        m_audio_handle = sysAudio.play(audio, options);
+        if (m_audio_handle == AUDIO_HANDLE_INVALID && audio != AudioAssetId::Final)
+            m_audio_handle = sysAudio.play(AudioAssetId::Final, options);
+        if (m_audio_handle == AUDIO_HANDLE_INVALID) Feedback_PlayDecodeComplete();
 
         m_state = S_RESULT;
     }

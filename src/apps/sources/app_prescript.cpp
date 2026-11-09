@@ -5,7 +5,8 @@
 #include "sys/sys_config.h"
 #include "sys/sys_audio.h"
 #include "sys/sys_haptic.h"
-#include "sys/resources/sys_specials.h"
+#include "sys/resources/sys_prescript.h"
+#include "sys/sys_reminder.h"
 #include "sys/sys_prescript_target.h"
 #include "hal/hal.h"
 #include "ui/ui_prescript_decoder.h"
@@ -103,7 +104,6 @@ private:
     {
         stopOwnedAudio(15);
 
-        if (res.flags & PRESCRIPT_SILENT) return;
         AudioPlayOptions options;
         options.bus = res.audio == AudioAssetId::Ahab ? AudioBus::Voice : AudioBus::Effect;
         const AudioAssetId audio = res.audio == AudioAssetId::Invalid ? AudioAssetId::Final : res.audio;
@@ -127,7 +127,7 @@ private:
      */
     void executeDecodeSequence()
     {
-        const auto &res = SysPrescriptCatalog::Presented();
+        const auto &res = SysReminder_Presented();
         SystemLang_t lang = appManager.getLanguage();
         // 特殊指令是特异点/人物链条自己的文本，不属于“致...”本地使用者投递。
         // 因此只有普通指令和 TXT/闹钟/日程等自定义指令会套用本地使用者 ID。
@@ -170,7 +170,9 @@ public:
         {
             if (!HAL_Is_Key_Pressed())
             {
-                if (!sysSpecials.rollRandom()) {
+                // 同一提交入口接管选择、快照和进度；页面继续负责手动抽取的乱码/警报状态机。
+                DeliveryOptions options; options.delivery=SysReminderDelivery::CurrentPage;
+                if (!SysReminder_Submit(PrescriptRequest::Random(),options).ok()) {
                     // 保存失败不能每帧反复抽取/写Flash，也不能展示上一条旧结果。
                     m_state = S_ERROR;
                     const auto lang = appManager.getLanguage();
@@ -181,7 +183,7 @@ public:
                 }
 
                 // 特殊指令先走 PushNotify 弹窗，再由弹窗确认进入本页解码。
-                if ((SysPrescriptCatalog::Presented().flags & PRESCRIPT_ALERT))
+                if ((SysReminder_Presented().flags & PRESCRIPT_ALERT))
                 {
                     Prescript_Prepare_PreRolled();
                     appManager.replace(AppId::PushNotify);
@@ -194,7 +196,7 @@ public:
         else if (m_state == S_CHAOS)
         {
             uint32_t now = millis();
-            const auto &res = SysPrescriptCatalog::Presented();
+            const auto &res = SysReminder_Presented();
 
             if (now - m_last_chaos_frame_ms >= ANIM_CHAOS_DELAY_MS)
             {

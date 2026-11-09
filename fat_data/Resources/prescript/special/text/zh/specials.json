@@ -1,7 +1,173 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "library_id": "c785698c-d91f-44d9-9e14-8a901f6edfbb",
+  "kind": "special",
   "revision": 1,
   "lang": "ZH",
+  "contents": [
+    {
+      "id": "76e186b6-0b39-5b8a-bcbf-a45ccd365c4e",
+      "text": "齿轮在血肉中咬合，都市的意志不容违逆。",
+      "title": "【 警告：异想体侵蚀 】",
+      "color": "#FF0000",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "20166380-fe36-537e-b0ba-9910545c11ca",
+      "text": "不要表现出你记住了这个旋律。",
+      "title": "【 观测日志：静默异常 】",
+      "color": "#7B0000",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "e523215f-4cdf-56e7-8f8b-e5422050af9a",
+      "text": "都是你的错,以实玛丽!!",
+      "title": "【 侦测到强烈愿望 】",
+      "color": "#FFFFFF",
+      "audio": "Ahab",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "63f78e8d-60e9-5ec9-a2dd-cccad5ffd77f",
+      "text": "罗盘依然在旋转，指向那个名字。",
+      "title": "【 观测日志：以实玛利 】",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "6430a1a8-6f19-5af2-bbef-af1576046a6b",
+      "text": "哪怕是这种东西，也比漫无目的的航行要好吗？",
+      "title": "【 观测日志：以实玛利 】",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "fc6ccf08-c419-5632-9717-cc8767283e57",
+      "text": "那个混蛋……肯定还活着。",
+      "title": "【 观测日志：以实玛利 】",
+      "color": "#FF8200",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "45cc04f2-8b11-59d6-b9b2-4cda56101432",
+      "text": "至...代行者:你的名字将会是里恩",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "5aba03eb-fca7-55a6-8cd8-9987154e0313",
+      "text": "至...里恩：每周三，去第七街区的旧书店,买下她拿起又放下的那本书。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "c1e593c8-1257-537e-b60b-aecfc50225d4",
+      "text": "至...里恩：和她攀谈,回答她的问题。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "c3a1ef5a-7422-538b-a552-e11986fde235",
+      "text": "至...里恩：每周日，与她共进晚餐,送她回家。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "406700c5-a542-5f54-91ee-dfb28e75d4d3",
+      "text": "至...里恩：向她求婚",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "d86bbc3b-6b37-5bd9-bd6f-a2b19b76431d",
+      "text": "至...里恩：成为她的丈夫,组建家庭",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "ddd2f39e-6ade-58a2-ab30-a1779e9e733b",
+      "text": "至...里恩：每周买一束花,记住她喜欢的颜色。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "cb10c393-765f-5e26-97f6-0b14fab546e3",
+      "text": "至...里恩：只要看着,什么都不要做。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "608ed6f6-a4db-5ef2-84e2-e7679b37668b",
+      "text": "至...里恩：给孩子起名为良秀。",
+      "title": "赫尔墨斯",
+      "color": "#00FFFF",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "e0f73389-45d1-54b9-bb8c-1022e87e2e62",
+      "text": "浮士德知晓一切。",
+      "title": "【 观测日志：浮士德 】",
+      "color": "#FFC3CE",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "fc1b1c89-5b11-5631-9e0e-fd709ea4cd9c",
+      "text": "这条指令的逻辑，在浮士德的计算之中。",
+      "title": "【 观测日志：浮士德 】",
+      "color": "#FFC3CE",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    },
+    {
+      "id": "09651cfe-87c7-56f7-99ac-7bc0150906bd",
+      "text": "梅菲斯托费勒斯的引擎需要更多的傲慢。",
+      "title": "【 观测日志：浮士德 】",
+      "color": "#FFC3CE",
+      "audio": "default",
+      "apply_target": false,
+      "alert": true
+    }
+  ],
   "pure_specials": [
     {
       "id": "bd87896b-6dbb-5ea1-86ee-3a8056f5e8d5",

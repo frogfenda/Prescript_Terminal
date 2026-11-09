@@ -1,7 +1,143 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "library_id": "7bafc17e-7234-45fe-a03b-a460eed8c140",
+  "kind": "oracle",
   "revision": 1,
   "lang": "ZH",
+  "contents": [
+    {
+      "id": "49836bb9-d27f-59ae-8cec-e9ea39cc3796",
+      "text": "纺织机已经回应了你的想法。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "99a9392b-7e04-5a8b-a8c1-3303214efd24",
+      "text": "你正在寻找的答案，已经被写进下一条指令。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "2870b382-4f74-56e3-b443-38b593a082ee",
+      "text": "不要急着解释它。先让沉默完成编织。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "4cbcfd71-3225-5851-b1f7-e0451924c9ea",
+      "text": "第三个念头不是答案，是诱饵。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "326b6e94-7c1e-5aee-a642-9cf9a7490b3c",
+      "text": "你已经知道要做什么，只是不想承认代价。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "45cc573b-eb9c-56b6-af2a-ac6478a03ab2",
+      "text": "等到下一次噪声变得有规律。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "f7912579-4bfe-5f92-bb1f-68f059bc1d6c",
+      "text": "这不是拒绝，是都市要求你换一种问法。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "d9d6aa3b-d934-5f75-90c2-46000fb82eef",
+      "text": "如果答案太清楚，它很可能已经被篡改。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "f9a6ac22-8e83-52c1-bc14-94d3487e7149",
+      "text": "把手从门上移开，门才会开始选择你。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "0eee2147-a86e-5984-a48c-24395c282578",
+      "text": "线已经收紧。现在不要回头。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "4d742b29-7f7a-5ca9-a050-a52ea79e885e",
+      "text": "你问的是结果，纺织机回答的是原因。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "ec5374da-e295-5316-96d1-24ff961b7837",
+      "text": "别相信最先抵达的解释。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "989bead9-2ec2-5792-9fa1-af833cabd2a7",
+      "text": "吃面。不要问为什么。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "10da226b-d3cc-5754-93e0-6fbf74aca741",
+      "text": "今天适合吃热的东西。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "3838b774-cc7e-5872-af7f-f76565ff8c9e",
+      "text": "米饭，配一点咸的。你的系统需要稳定。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "b09c5ee7-f42f-5fec-b2cf-3cf669e04e56",
+      "text": "吃饺子。封口的东西比较安全。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "c64db427-3974-5938-bb2b-bb9a56659e04",
+      "text": "炸物可以，但别把它当作答案。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "dfdf13f0-c62d-5a4c-a3e7-89fdc3ffa811",
+      "text": "喝汤。今天不适合干硬的决定。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "9ff80480-fc6b-5448-836b-9851d51204a0",
+      "text": "吃你最先想到的那个。纺织机已经记录了。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "5fe884eb-8f5c-542c-b812-29353195e584",
+      "text": "不要空腹执行指令。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "6d591449-5f38-597f-a8c8-4ddfa2354aec",
+      "text": "吃辣的，但只到你还能保持理智为止。",
+      "apply_target": false,
+      "alert": false
+    },
+    {
+      "id": "01606466-54a4-5e96-8429-4cad3cf761e0",
+      "text": "甜的。今天需要一点不合逻辑的安慰。",
+      "apply_target": false,
+      "alert": false
+    }
+  ],
   "entries": [
     {
       "content_id": "49836bb9-d27f-59ae-8cec-e9ea39cc3796",

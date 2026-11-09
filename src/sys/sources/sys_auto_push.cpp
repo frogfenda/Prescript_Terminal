@@ -53,7 +53,8 @@ void SysAutoPush_Update() {
     // 倒计时结束，强行拉起警报！
     if (millis() - timer_start >= current_interval_ms) {
         /* 队列满时保留到期状态继续重试；成功入队后才重新抽取下一次间隔。 */
-        if (!SysReminder_Submit(SysReminderKind::Random, nullptr, true))
+        DeliveryOptions options; options.presentation=SysReminderPresentation::ReturnToPrevious;
+        if (!SysReminder_Submit(PrescriptRequest::Random(),options).ok())
             return;
         SysAutoPush_ResetTimer();
     }
